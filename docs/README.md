@@ -3,8 +3,8 @@ layout: home
 permalink: index.html
 
 # Please update this with your repository name and project title
-repository-name: eYY-3yp-project-template
-title: Project Template
+repository-name: e21-3yp-Drivora
+title: Drivora
 ---
 
 [comment]: # "This is the standard layout for the project, but you can clean this and use your own template"
@@ -14,9 +14,10 @@ title: Project Template
 ---
 
 ## Team
--  eNumber, Name, [email](mailto:name@email.com)
--  eNumber, Name, [email](mailto:name@email.com)
--  eNumber, Name, [email](mailto:name@email.com)
+-  E/21/050, Bandara H.B.C.T., [email](mailto:e21050@eng.pdn.ac.lk)
+-  E/21/052, Bandara H.M.P.D., [email](mailto:e21052@eng.pdn.ac.lk)
+-  E/21/077, Darshana K.M.S., [email](mailto:e21077@eng.pdn.ac.lk)
+-  E/21/269, Nirmal A.P.S., [email](mailto:e21269@eng.pdn.ac.lk)
 
 <!-- Image (photo/drawing of the final hardware) should be here -->
 
