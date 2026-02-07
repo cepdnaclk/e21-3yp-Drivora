@@ -14,10 +14,10 @@ title: Drivora
 ---
 
 ## Team
--  E/21/050, Bandara H.B.C.T., [email](mailto:e21050@eng.pdn.ac.lk)
--  E/21/052, Bandara H.M.P.D., [email](mailto:e21052@eng.pdn.ac.lk)
--  E/21/077, Darshana K.M.S., [email](mailto:e21077@eng.pdn.ac.lk)
--  E/21/269, Nirmal A.P.S., [email](mailto:e21269@eng.pdn.ac.lk)
+-  E/21/050, Bandara H.B.C.T., [e21050@eng.pdn.ac.lk](mailto:e21050@eng.pdn.ac.lk)
+-  E/21/052, Bandara H.M.P.D., [e21052@eng.pdn.ac.lk](mailto:e21052@eng.pdn.ac.lk)
+-  E/21/077, Darshana K.M.S., [e21077@eng.pdn.ac.lk](mailto:e21077@eng.pdn.ac.lk)
+-  E/21/269, Nirmal A.P.S., [e21269@eng.pdn.ac.lk](mailto:e21269@eng.pdn.ac.lk)
 
 <!-- Image (photo/drawing of the final hardware) should be here -->
 
