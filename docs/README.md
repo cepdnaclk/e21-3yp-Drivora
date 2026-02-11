@@ -97,7 +97,7 @@ Drivora provides a comprehensive and affordable safety modernization path for le
 - [Project Repository](https://github.com/cepdnaclk/e21-3yp-Drivora){:target="_blank"}
 - [Project Page](https://cepdnaclk.github.io/e21-3yp-Drivora/){:target="_blank"}
 - [Department of Computer Engineering](http://www.ce.pdn.ac.lk/)
-- [University of Peradeniya](https://eng.pdn.ac.lk/)
+- [Faculty of Engineering, University of Peradeniya](https://eng.pdn.ac.lk/)
 
 [//]: # (Please refer this to learn more about Markdown syntax)
 [//]: # (https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet)
