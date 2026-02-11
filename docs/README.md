@@ -56,7 +56,6 @@ Drivora integrates high-performance microcontrollers and specialized sensors to 
 * **Distributed Controllers:** ESP32-C3 SuperMini modules acting as localized controllers for edge units.
 * **Sensing Suite:** Dual 24GHz CDM324 Doppler radars for front detection and waterproof JSN-SR04T ultrasonic sensors for rear/side coverage.
 * **Stability Tracking:** A high-precision BNO055 9-axis IMU with internal fusion for real-time Center of Gravity (COG) and tilt monitoring.
-* **Power Management:** An XL4015 5A buck converter to stabilize vehicle current, drawing power from a fused cigarette lighter adapter.
 
 ### Software Features
 * **Collision Detection:** Algorithms calculate Time-to-Collision (TTC) using Doppler shift data from the front radar array.
