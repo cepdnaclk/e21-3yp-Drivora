@@ -29,15 +29,15 @@ float criticalRollDeg=30;
 float criticalPitchDeg=20;
 float vehicleFactor=1.0;
 
-// ================= TUNING =================
-const float alphaStill = 0.93f;
-const float alphaMotion = 0.998f;
+// ================= TUNING (UPDATED) =================
+const float alphaStill = 0.90f;
+const float alphaMotion = 0.9995f;
 
-const float accelWarn = 0.04f;
-const float accelHigh = 0.16f;
+const float accelWarn = 0.02f;
+const float accelHigh = 0.08f;
 
-const float displayAlpha = 0.35f;
-const float deadband = 0.12f;
+const float displayAlpha = 0.82f;
+const float deadband = 0.06f;
 
 const unsigned long riskHoldMs = 250;
 
@@ -165,17 +165,26 @@ void loop(){
   float pitchAcc = atan2(ax,sqrt(ay*ay+az*az))*180/PI - pitchZero;
   float rollAcc  = -atan2(ay,sqrt(ax*ax+az*az))*180/PI - rollZero;
 
-  // gyro
+  // gyro integrate
   float pitchGyro = pitchAngle + gy*dt;
   float rollGyro  = rollAngle  + gx*dt;
 
-  // fusion
-  float alpha = mapAlpha(accErr);
+  // ================= KEY FIX: HIGH-DYNAMICS OVERRIDE =================
+  float angRate = max(fabs(gx), fabs(gy));
 
+  float alpha;
+
+  if(angRate > 8.0f && accErr > 0.02f){
+    alpha = 0.9997f;
+  } else {
+    alpha = mapAlpha(accErr);
+  }
+
+  // fusion
   pitchAngle = alpha*pitchGyro + (1-alpha)*pitchAcc;
   rollAngle  = alpha*rollGyro  + (1-alpha)*rollAcc;
 
-  // display smoothing
+  // display smoothing (faster now)
   pitchDisplay = displayAlpha*pitchAngle + (1-displayAlpha)*pitchDisplay;
   rollDisplay  = displayAlpha*rollAngle  + (1-displayAlpha)*rollDisplay;
 
