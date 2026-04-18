@@ -25,12 +25,18 @@ MPU6050 mpu;
 bool autoMode = false;
 bool calibrated = false;
 
+// Frame mode:
+// false = normal raw frame
+// true  = upside-frame emulation (the mode that behaved best for you)
+bool useUpsideFrame = true;
+
 // ================= VEHICLE MODEL =================
-const int VEHICLE_TYPE = 3;
-float trackWidth_m = 1.90f;
-float vehicleHeight_m = 3.20f;
-int loadCondition = 2;
-int suspensionType = 0;
+// These are now fully controllable from the UI
+int vehicleType = 3;          // 1 / 2 / 3
+float trackWidth_m = 1.90f;   // meters
+float vehicleHeight_m = 3.20f;// meters
+int loadCondition = 2;        // 0 light, 1 normal, 2 heavy
+int suspensionType = 0;       // 0 normal, 1 stiff
 
 float criticalRollDeg = 30.0f;
 float criticalPitchDeg = 20.0f;
@@ -98,7 +104,7 @@ int riskLevel(float s) {
 
 void computeVehicle() {
   float base;
-  switch (VEHICLE_TYPE) {
+  switch (vehicleType) {
     case 1: base = 0.32f; vehicleFactor = 0.90f; break;
     case 2: base = 0.42f; vehicleFactor = 1.10f; break;
     case 3: base = 0.40f; vehicleFactor = 1.15f; break;
@@ -137,9 +143,11 @@ void autoTune(float accErr, float angRate) {
   deadband     = clampf(baseDeadband + 0.08f * (1.0f - stability), 0.0f, 0.30f);
 }
 
-// Fixed internal transform that matches the useful upside-down frame
-// (equivalent to a 180° rotation around Y: X and Z are inverted)
+// Emulate the useful upside-down frame in software.
+// Applied before bias subtraction and calibration.
 void applyMountTransform(float &ax, float &ay, float &az, float &gx, float &gy, float &gz) {
+  if (!useUpsideFrame) return;
+
   ax = -ax;
   az = -az;
   gx = -gx;
@@ -241,24 +249,78 @@ void handleCommand(const String& msg) {
     calibrate();
     return;
   }
+
   if (msg == "AUTO_ON") {
     autoMode = true;
     return;
   }
+
   if (msg == "AUTO_OFF") {
     autoMode = false;
+    return;
+  }
+
+  if (msg == "FRAME_UP") {
+    useUpsideFrame = true;
+    calibrate();
+    return;
+  }
+
+  if (msg == "FRAME_NORMAL") {
+    useUpsideFrame = false;
+    calibrate();
     return;
   }
 
   JsonDocument doc;
   if (deserializeJson(doc, msg)) return;
 
+  bool vehicleChanged = false;
+
+  if (doc["vehicleType"].is<int>()) {
+    int v = doc["vehicleType"].as<int>();
+    if (v >= 1 && v <= 3) {
+      vehicleType = v;
+      vehicleChanged = true;
+    }
+  }
+
+  if (doc["trackWidth_m"].is<float>()) {
+    trackWidth_m = clampf(doc["trackWidth_m"].as<float>(), 0.80f, 4.00f);
+    vehicleChanged = true;
+  }
+
+  if (doc["vehicleHeight_m"].is<float>()) {
+    vehicleHeight_m = clampf(doc["vehicleHeight_m"].as<float>(), 0.50f, 6.00f);
+    vehicleChanged = true;
+  }
+
+  if (doc["loadCondition"].is<int>()) {
+    int v = doc["loadCondition"].as<int>();
+    if (v >= 0 && v <= 2) {
+      loadCondition = v;
+      vehicleChanged = true;
+    }
+  }
+
+  if (doc["suspensionType"].is<int>()) {
+    int v = doc["suspensionType"].as<int>();
+    if (v >= 0 && v <= 1) {
+      suspensionType = v;
+      vehicleChanged = true;
+    }
+  }
+
   if (doc["alphaStill"].is<float>())   baseAlphaStill = clampf(doc["alphaStill"].as<float>(), 0.80f, 0.99f);
   if (doc["alphaMotion"].is<float>())  baseAlphaMotion = clampf(doc["alphaMotion"].as<float>(), 0.990f, 0.9999f);
   if (doc["accelWarn"].is<float>())    baseAccelWarn = clampf(doc["accelWarn"].as<float>(), 0.0f, 0.25f);
   if (doc["accelHigh"].is<float>())    baseAccelHigh = clampf(doc["accelHigh"].as<float>(), baseAccelWarn + 0.01f, 0.40f);
-  if (doc["displayAlpha"].is<float>()) baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
-  if (doc["deadband"].is<float>())     baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
+  if (doc["displayAlpha"].is<float>())  baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
+  if (doc["deadband"].is<float>())      baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
+
+  if (vehicleChanged) {
+    computeVehicle();
+  }
 
   if (!autoMode) {
     applyManualTuning();
@@ -351,7 +413,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     margin-bottom: 10px;
   }
 
-  button {
+  button, select {
     padding: 10px 12px;
     margin-right: 6px;
     margin-bottom: 8px;
@@ -378,7 +440,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     margin: 8px 0 3px 0;
   }
 
-  input[type="range"] {
+  input[type="range"], input[type="number"] {
     width: 100%;
   }
 
@@ -421,6 +483,7 @@ const char webpage[] PROGMEM = R"rawliteral(
 <div id="statusBar">
   <div>
     <span id="modeBadge" class="badge">MANUAL</span>
+    <span id="frameBadge" class="badge">FRAME: UPSIDE</span>
     <span id="calBadge" class="badge">NOT CALIBRATED</span>
   </div>
   <div id="statusText">Roll: 0.00° | Pitch: 0.00° | Confidence: 1.00 | Risk: SAFE</div>
@@ -431,7 +494,39 @@ const char webpage[] PROGMEM = R"rawliteral(
     <button onclick="calibrate()">Calibrate</button>
     <button onclick="setAuto(true)">AUTO MODE</button>
     <button onclick="setAuto(false)">MANUAL MODE</button>
+    <button onclick="setFrame(true)">UPSIDE FRAME</button>
+    <button onclick="setFrame(false)">NORMAL FRAME</button>
   </div>
+
+  <div class="groupTitle">Vehicle settings</div>
+
+  <div class="label"><span>Vehicle type</span><span id="vehicleTypeVal">3</span></div>
+  <select id="vehicleType" onchange="sendParam('vehicleType', this.value)">
+    <option value="1">Type 1</option>
+    <option value="2">Type 2</option>
+    <option value="3" selected>Type 3</option>
+  </select>
+
+  <div class="label"><span>Track width (m)</span><span id="trackWidthVal">1.90 m</span></div>
+  <input id="trackWidth_m" type="range" min="0.80" max="4.00" step="0.01" value="1.90"
+         oninput="vehicleNumberChanged('trackWidth_m', this.value, 'trackWidthVal', ' m')">
+
+  <div class="label"><span>Vehicle height (m)</span><span id="vehicleHeightVal">3.20 m</span></div>
+  <input id="vehicleHeight_m" type="range" min="0.50" max="6.00" step="0.01" value="3.20"
+         oninput="vehicleNumberChanged('vehicleHeight_m', this.value, 'vehicleHeightVal', ' m')">
+
+  <div class="label"><span>Load condition</span><span id="loadConditionVal">2</span></div>
+  <select id="loadCondition" onchange="sendParam('loadCondition', this.value)">
+    <option value="0">Light</option>
+    <option value="1">Normal</option>
+    <option value="2" selected>Heavy</option>
+  </select>
+
+  <div class="label"><span>Suspension type</span><span id="suspensionTypeVal">0</span></div>
+  <select id="suspensionType" onchange="sendParam('suspensionType', this.value)">
+    <option value="0" selected>Normal</option>
+    <option value="1">Stiff / sport</option>
+  </select>
 
   <div class="groupTitle">Quick tuning</div>
 
@@ -480,10 +575,19 @@ function setAuto(v) {
   ws.send(v ? "AUTO_ON" : "AUTO_OFF");
 }
 
+function setFrame(v) {
+  ws.send(v ? "FRAME_UP" : "FRAME_NORMAL");
+}
+
 function sendParam(k, v) {
   let obj = {};
-  obj[k] = parseFloat(v);
+  obj[k] = (k === "vehicleType" || k === "loadCondition" || k === "suspensionType") ? parseInt(v) : parseFloat(v);
   ws.send(JSON.stringify(obj));
+}
+
+function vehicleNumberChanged(k, v, labelId, suffix) {
+  document.getElementById(labelId).innerText = parseFloat(v).toFixed(2) + suffix;
+  sendParam(k, v);
 }
 
 function quickBalanceChanged(v) {
@@ -523,7 +627,7 @@ ws.onmessage = (msg) => {
   let d = JSON.parse(msg.data);
 
   let x = 50 + d.roll * 1.6;
-  let y = 50 - d.pitch * 1.6;
+  let y = 50 + d.pitch * 1.6;
 
   if (x < 0) x = 0;
   if (x > 100) x = 100;
@@ -534,6 +638,7 @@ ws.onmessage = (msg) => {
   dot.style.top = y + "%";
 
   document.getElementById("modeBadge").innerText = d.autoMode ? "AUTO" : "MANUAL";
+  document.getElementById("frameBadge").innerText = d.useUpsideFrame ? "FRAME: UPSIDE" : "FRAME: NORMAL";
   document.getElementById("calBadge").innerText = d.calibrated ? "CALIBRATED" : "NOT CALIBRATED";
 
   let riskText = ["SAFE", "CAUTION", "HIGH", "CRITICAL"][d.level] || "SAFE";
@@ -543,6 +648,19 @@ ws.onmessage = (msg) => {
     "Pitch: " + d.pitch.toFixed(2) + "° | " +
     "Confidence: " + d.confidence.toFixed(2) + " | " +
     "Risk: " + riskText;
+
+  document.getElementById("vehicleType").value = d.vehicleType;
+  document.getElementById("loadCondition").value = d.loadCondition;
+  document.getElementById("suspensionType").value = d.suspensionType;
+
+  document.getElementById("trackWidth_m").value = d.trackWidth_m.toFixed(2);
+  document.getElementById("vehicleHeight_m").value = d.vehicleHeight_m.toFixed(2);
+  document.getElementById("trackWidthVal").innerText = d.trackWidth_m.toFixed(2) + " m";
+  document.getElementById("vehicleHeightVal").innerText = d.vehicleHeight_m.toFixed(2) + " m";
+
+  document.getElementById("vehicleTypeVal").innerText = d.vehicleType;
+  document.getElementById("loadConditionVal").innerText = d.loadCondition;
+  document.getElementById("suspensionTypeVal").innerText = d.suspensionType;
 
   document.getElementById("alphaStill").value = d.baseAlphaStill.toFixed(3);
   document.getElementById("alphaMotion").value = d.baseAlphaMotion.toFixed(4);
@@ -559,6 +677,16 @@ ws.onmessage = (msg) => {
   document.getElementById("deadbandVal").innerText = d.deadband.toFixed(3);
 
   document.getElementById("paramBox").innerHTML =
+    "<b>Vehicle</b><br>" +
+    "vehicleType: " + d.vehicleType + "<br>" +
+    "trackWidth: " + d.trackWidth_m.toFixed(2) + " m<br>" +
+    "vehicleHeight: " + d.vehicleHeight_m.toFixed(2) + " m<br>" +
+    "loadCondition: " + d.loadCondition + "<br>" +
+    "suspensionType: " + d.suspensionType + "<br>" +
+    "criticalRollDeg: " + d.criticalRollDeg.toFixed(2) + "°<br>" +
+    "criticalPitchDeg: " + d.criticalPitchDeg.toFixed(2) + "°<br>" +
+    "vehicleFactor: " + d.vehicleFactor.toFixed(3) + "<br><br>" +
+
     "<b>Base values</b><br>" +
     "alphaStill: " + d.baseAlphaStill.toFixed(3) + "<br>" +
     "alphaMotion: " + d.baseAlphaMotion.toFixed(4) + "<br>" +
@@ -566,6 +694,7 @@ ws.onmessage = (msg) => {
     "accelHigh: " + d.baseAccelHigh.toFixed(3) + "<br>" +
     "displayAlpha: " + d.baseDisplayAlpha.toFixed(3) + "<br>" +
     "deadband: " + d.baseDeadband.toFixed(3) + "<br><br>" +
+
     "<b>Live values</b><br>" +
     "alphaStill: " + d.alphaStill.toFixed(3) + "<br>" +
     "alphaMotion: " + d.alphaMotion.toFixed(4) + "<br>" +
@@ -573,6 +702,7 @@ ws.onmessage = (msg) => {
     "accelHigh: " + d.accelHigh.toFixed(3) + "<br>" +
     "displayAlpha: " + d.displayAlpha.toFixed(3) + "<br>" +
     "deadband: " + d.deadband.toFixed(3) + "<br><br>" +
+
     "<b>Calibration reference</b><br>" +
     "calibRollRef: " + d.calibRollRef.toFixed(3) + "<br>" +
     "calibPitchRef: " + d.calibPitchRef.toFixed(3);
@@ -640,7 +770,6 @@ void loop() {
   float rawGy = (float)gyR;
   float rawGz = (float)gzR;
 
-  // fixed internal frame transform
   applyMountTransform(rawAx, rawAy, rawAz, rawGx, rawGy, rawGz);
 
   float dt = (micros() - lastMicros) / 1000000.0f;
@@ -717,10 +846,10 @@ void loop() {
 
   // Only flip pitch for the visualizer
   float visualRoll = rollDisplay;
-  float visualPitch = -pitchDisplay;
+  float visualPitch = useUpsideFrame ? pitchDisplay : -pitchDisplay;
 
   String data;
-  data.reserve(450);
+  data.reserve(520);
   data += "{";
   data += "\"roll\":" + String(visualRoll, 3) + ",";
   data += "\"pitch\":" + String(visualPitch, 3) + ",";
@@ -728,7 +857,16 @@ void loop() {
   data += "\"risk\":" + String(effectiveRisk, 3) + ",";
   data += "\"level\":" + String(stableRisk) + ",";
   data += "\"autoMode\":" + String(autoMode ? 1 : 0) + ",";
+  data += "\"useUpsideFrame\":" + String(useUpsideFrame ? 1 : 0) + ",";
   data += "\"calibrated\":" + String(calibrated ? 1 : 0) + ",";
+  data += "\"vehicleType\":" + String(vehicleType) + ",";
+  data += "\"trackWidth_m\":" + String(trackWidth_m, 2) + ",";
+  data += "\"vehicleHeight_m\":" + String(vehicleHeight_m, 2) + ",";
+  data += "\"loadCondition\":" + String(loadCondition) + ",";
+  data += "\"suspensionType\":" + String(suspensionType) + ",";
+  data += "\"criticalRollDeg\":" + String(criticalRollDeg, 2) + ",";
+  data += "\"criticalPitchDeg\":" + String(criticalPitchDeg, 2) + ",";
+  data += "\"vehicleFactor\":" + String(vehicleFactor, 3) + ",";
   data += "\"baseAlphaStill\":" + String(baseAlphaStill, 3) + ",";
   data += "\"baseAlphaMotion\":" + String(baseAlphaMotion, 4) + ",";
   data += "\"baseAccelWarn\":" + String(baseAccelWarn, 3) + ",";
