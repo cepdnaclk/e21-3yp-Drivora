@@ -48,6 +48,11 @@ float gxBias = 0, gyBias = 0, gzBias = 0;
 float calibPitchRef = 0.0f;
 float calibRollRef  = 0.0f;
 
+// Upright reference gravity vector after calibration
+float refGravX = 0.0f;
+float refGravY = 0.0f;
+float refGravZ = 1.0f;
+
 unsigned long calibrationHoldUntil = 0;
 
 // ================= FILTER STATE =================
@@ -198,6 +203,9 @@ void calibrate() {
 
   double pitchSum = 0.0;
   double rollSum  = 0.0;
+  double gravXSum = 0.0;
+  double gravYSum = 0.0;
+  double gravZSum = 0.0;
 
   // Reference angle averaging after bias correction, then apply mount transform
   for (int i = 0; i < 800; i++) {
@@ -214,6 +222,17 @@ void calibrate() {
 
     applyMountTransform(axn, ayn, azn, gxTmp, gyTmp, gzTmp);
 
+    float gmag = sqrt(axn * axn + ayn * ayn + azn * azn);
+    if (gmag > 0.0001f) {
+      float ngx = axn / gmag;
+      float ngy = ayn / gmag;
+      float ngz = azn / gmag;
+
+      gravXSum += ngx;
+      gravYSum += ngy;
+      gravZSum += ngz;
+    }
+
     float p = atan2(axn, sqrt(ayn * ayn + azn * azn)) * 180.0f / PI;
     float r = -atan2(ayn, sqrt(axn * axn + azn * azn)) * 180.0f / PI;
 
@@ -225,6 +244,21 @@ void calibrate() {
 
   calibPitchRef = pitchSum / 800.0;
   calibRollRef  = rollSum / 800.0;
+
+  refGravX = gravXSum / 800.0;
+  refGravY = gravYSum / 800.0;
+  refGravZ = gravZSum / 800.0;
+
+  float refMag = sqrt(refGravX * refGravX + refGravY * refGravY + refGravZ * refGravZ);
+  if (refMag > 0.0001f) {
+    refGravX /= refMag;
+    refGravY /= refMag;
+    refGravZ /= refMag;
+  } else {
+    refGravX = 0.0f;
+    refGravY = 0.0f;
+    refGravZ = 1.0f;
+  }
 
   pitchAngle = 0.0f;
   rollAngle = 0.0f;
@@ -865,8 +899,24 @@ void loop() {
   float nRoll  = fabs(rollDisplay) / criticalRollDeg;
   float nPitch = fabs(pitchDisplay) / criticalPitchDeg;
 
-  // Use the axis that is closer to its own critical limit
-  float severity = max(nRoll, nPitch);
+  // Total 3D tilt from calibrated upright gravity vector
+  float severityTilt = 0.0f;
+  float gmag = sqrt(ax * ax + ay * ay + az * az);
+  if (gmag > 0.0001f) {
+    float curGx = ax / gmag;
+    float curGy = ay / gmag;
+    float curGz = az / gmag;
+
+    float dot = curGx * refGravX + curGy * refGravY + curGz * refGravZ;
+    dot = clampf(dot, -1.0f, 1.0f);
+
+    float totalTiltDeg = acos(dot) * 180.0f / PI;
+    float criticalTiltDeg = min(criticalRollDeg, criticalPitchDeg);
+    severityTilt = totalTiltDeg / criticalTiltDeg;
+  }
+
+  // Use the worst case among roll, pitch, and total 3D tilt
+  float severity = max(max(nRoll, nPitch), severityTilt);
 
   // Optional small confidence influence only for display value, not for state
   float effectiveRisk = clampf(severity * (0.7f + 0.3f * confidence), 0.0f, 1.0f);
