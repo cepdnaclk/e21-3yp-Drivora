@@ -31,16 +31,15 @@ bool calibrated = false;
 bool useUpsideFrame = true;
 
 // ================= VEHICLE MODEL =================
-// These are now fully controllable from the UI
-int vehicleType = 3;          // 1 / 2 / 3
-float trackWidth_m = 1.90f;   // meters
-float vehicleHeight_m = 3.20f;// meters
-int loadCondition = 2;        // 0 light, 1 normal, 2 heavy
-int suspensionType = 0;       // 0 normal, 1 stiff
+// Controllable from the UI
+int vehicleType = 3;           // 1 = Compact / low profile, 2 = Passenger vehicle, 3 = Tall vehicle / SUV
+float trackWidth_m = 1.56f;    // meters
+float wheelBase_m = 2.67f;     // meters
+float vehicleHeight_m = 1.57f; // meters
+int loadCondition = 1;         // 0 = Light, 1 = Normal, 2 = Heavy
 
 float criticalRollDeg = 30.0f;
 float criticalPitchDeg = 20.0f;
-float vehicleFactor = 1.15f;
 
 // ================= CALIBRATION / REFERENCE =================
 float axBias = 0, ayBias = 0, azBias = 0;
@@ -83,6 +82,15 @@ static inline float clampf(float x, float lo, float hi) {
   return x;
 }
 
+const char* vehicleTypeName(int v) {
+  switch (v) {
+    case 1: return "Compact / low profile";
+    case 2: return "Passenger vehicle";
+    case 3: return "Tall vehicle / SUV";
+    default: return "Passenger vehicle";
+  }
+}
+
 float mapAlpha(float err) {
   if (accelHigh <= accelWarn + 0.0001f) {
     accelHigh = accelWarn + 0.0001f;
@@ -96,30 +104,36 @@ float mapAlpha(float err) {
 }
 
 int riskLevel(float s) {
-  if (s < 0.35f) return 0;
-  if (s < 0.60f) return 1;
-  if (s < 0.80f) return 2;
-  return 3;
+  if (s < 0.35f) return 0;     // SAFE
+  if (s < 0.70f) return 1;     // CAUTION
+  return 2;                    // HIGH
+}
+
+const char* riskName(int level) {
+  switch (level) {
+    case 0: return "SAFE";
+    case 1: return "CAUTION";
+    case 2: return "HIGH";
+    default: return "SAFE";
+  }
 }
 
 void computeVehicle() {
   float base;
   switch (vehicleType) {
-    case 1: base = 0.32f; vehicleFactor = 0.90f; break;
-    case 2: base = 0.42f; vehicleFactor = 1.10f; break;
-    case 3: base = 0.40f; vehicleFactor = 1.15f; break;
-    default: base = 0.40f; vehicleFactor = 1.00f; break;
+    case 1: base = 0.32f; break;
+    case 2: base = 0.42f; break;
+    case 3: base = 0.40f; break;
+    default: base = 0.40f; break;
   }
 
   float loadF = (loadCondition == 2) ? 1.12f : (loadCondition == 1) ? 1.00f : 0.92f;
-  float suspF = (suspensionType == 0) ? 1.05f : 1.00f;
 
   float cogH = vehicleHeight_m * base * loadF;
   if (cogH < 0.001f) cogH = 0.001f;
 
-  criticalRollDeg = atan(trackWidth_m / (2.0f * cogH)) * 180.0f / PI;
-  criticalPitchDeg = 20.0f;
-  vehicleFactor *= suspF;
+  criticalRollDeg  = atan(trackWidth_m / (2.0f * cogH)) * 180.0f / PI;
+  criticalPitchDeg = atan(wheelBase_m  / (2.0f * cogH)) * 180.0f / PI;
 }
 
 void applyManualTuning() {
@@ -144,7 +158,7 @@ void autoTune(float accErr, float angRate) {
 }
 
 // Emulate the useful upside-down frame in software.
-// Applied before bias subtraction and calibration.
+// Applied after bias correction.
 void applyMountTransform(float &ax, float &ay, float &az, float &gx, float &gy, float &gz) {
   if (!useUpsideFrame) return;
 
@@ -159,25 +173,17 @@ void calibrate() {
 
   long ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
 
+  // Raw bias averaging without mount transform
   for (int i = 0; i < 1200; i++) {
     int16_t a, b, c, d, e, f;
     mpu.getMotion6(&a, &b, &c, &d, &e, &f);
 
-    float fax = (float)a;
-    float fay = (float)b;
-    float faz = (float)c;
-    float fgx = (float)d;
-    float fgy = (float)e;
-    float fgz = (float)f;
-
-    applyMountTransform(fax, fay, faz, fgx, fgy, fgz);
-
-    ax += (long)fax;
-    ay += (long)fay;
-    az += (long)faz;
-    gx += (long)fgx;
-    gy += (long)fgy;
-    gz += (long)fgz;
+    ax += a;
+    ay += b;
+    az += c;
+    gx += d;
+    gy += e;
+    gz += f;
 
     delay(2);
   }
@@ -193,22 +199,20 @@ void calibrate() {
   double pitchSum = 0.0;
   double rollSum  = 0.0;
 
+  // Reference angle averaging after bias correction, then apply mount transform
   for (int i = 0; i < 800; i++) {
     int16_t a, b, c, d, e, f;
     mpu.getMotion6(&a, &b, &c, &d, &e, &f);
 
-    float fax = (float)a;
-    float fay = (float)b;
-    float faz = (float)c;
-    float fgx = (float)d;
-    float fgy = (float)e;
-    float fgz = (float)f;
+    float axn = (a - axBias) / 16384.0f;
+    float ayn = (b - ayBias) / 16384.0f;
+    float azn = (c - azBias) / 16384.0f;
 
-    applyMountTransform(fax, fay, faz, fgx, fgy, fgz);
+    float gxTmp = (d - gxBias) / 131.0f;
+    float gyTmp = (e - gyBias) / 131.0f;
+    float gzTmp = (f - gzBias) / 131.0f;
 
-    float axn = (fax - axBias) / 16384.0f;
-    float ayn = (fay - ayBias) / 16384.0f;
-    float azn = (faz - azBias) / 16384.0f;
+    applyMountTransform(axn, ayn, azn, gxTmp, gyTmp, gzTmp);
 
     float p = atan2(axn, sqrt(ayn * ayn + azn * azn)) * 180.0f / PI;
     float r = -atan2(ayn, sqrt(axn * axn + azn * azn)) * 180.0f / PI;
@@ -290,6 +294,11 @@ void handleCommand(const String& msg) {
     vehicleChanged = true;
   }
 
+  if (doc["wheelBase_m"].is<float>()) {
+    wheelBase_m = clampf(doc["wheelBase_m"].as<float>(), 1.50f, 6.00f);
+    vehicleChanged = true;
+  }
+
   if (doc["vehicleHeight_m"].is<float>()) {
     vehicleHeight_m = clampf(doc["vehicleHeight_m"].as<float>(), 0.50f, 6.00f);
     vehicleChanged = true;
@@ -303,20 +312,12 @@ void handleCommand(const String& msg) {
     }
   }
 
-  if (doc["suspensionType"].is<int>()) {
-    int v = doc["suspensionType"].as<int>();
-    if (v >= 0 && v <= 1) {
-      suspensionType = v;
-      vehicleChanged = true;
-    }
-  }
-
   if (doc["alphaStill"].is<float>())   baseAlphaStill = clampf(doc["alphaStill"].as<float>(), 0.80f, 0.99f);
   if (doc["alphaMotion"].is<float>())  baseAlphaMotion = clampf(doc["alphaMotion"].as<float>(), 0.990f, 0.9999f);
   if (doc["accelWarn"].is<float>())    baseAccelWarn = clampf(doc["accelWarn"].as<float>(), 0.0f, 0.25f);
   if (doc["accelHigh"].is<float>())    baseAccelHigh = clampf(doc["accelHigh"].as<float>(), baseAccelWarn + 0.01f, 0.40f);
   if (doc["displayAlpha"].is<float>())  baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
-  if (doc["deadband"].is<float>())      baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
+  if (doc["deadband"].is<float>())     baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
 
   if (vehicleChanged) {
     computeVehicle();
@@ -354,6 +355,12 @@ const char webpage[] PROGMEM = R"rawliteral(
     background: #000;
     overflow: hidden;
     border-bottom: 1px solid #222;
+  }
+  #field {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
   }
   .circle {
     position: absolute;
@@ -440,7 +447,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     margin: 8px 0 3px 0;
   }
 
-  input[type="range"], input[type="number"] {
+  input[type="range"] {
     width: 100%;
   }
 
@@ -469,21 +476,24 @@ const char webpage[] PROGMEM = R"rawliteral(
 <body>
 
 <div id="visual">
-  <div id="c1" class="circle"></div>
-  <div id="c2" class="circle"></div>
-  <div id="c3" class="circle"></div>
-  <div id="c4" class="circle"></div>
-  <div id="c5" class="circle"></div>
+  <div id="field">
+    <div id="c1" class="circle"></div>
+    <div id="c2" class="circle"></div>
+    <div id="c3" class="circle"></div>
+    <div id="c4" class="circle"></div>
+    <div id="c5" class="circle"></div>
 
-  <div id="lineV" class="line"></div>
-  <div id="lineH" class="line"></div>
-  <div id="dot"></div>
+    <div id="lineV" class="line"></div>
+    <div id="lineH" class="line"></div>
+    <div id="dot"></div>
+  </div>
 </div>
 
 <div id="statusBar">
   <div>
     <span id="modeBadge" class="badge">MANUAL</span>
     <span id="frameBadge" class="badge">FRAME: UPSIDE</span>
+    <span id="vehBadge" class="badge">Tall vehicle / SUV</span>
     <span id="calBadge" class="badge">NOT CALIBRATED</span>
   </div>
   <div id="statusText">Roll: 0.00° | Pitch: 0.00° | Confidence: 1.00 | Risk: SAFE</div>
@@ -500,32 +510,30 @@ const char webpage[] PROGMEM = R"rawliteral(
 
   <div class="groupTitle">Vehicle settings</div>
 
-  <div class="label"><span>Vehicle type</span><span id="vehicleTypeVal">3</span></div>
+  <div class="label"><span>Vehicle type</span></div>
   <select id="vehicleType" onchange="sendParam('vehicleType', this.value)">
-    <option value="1">Type 1</option>
-    <option value="2">Type 2</option>
-    <option value="3" selected>Type 3</option>
+    <option value="1">Compact / low profile</option>
+    <option value="2">Passenger vehicle</option>
+    <option value="3" selected>Tall vehicle / SUV</option>
   </select>
 
   <div class="label"><span>Track width (m)</span><span id="trackWidthVal">1.90 m</span></div>
   <input id="trackWidth_m" type="range" min="0.80" max="4.00" step="0.01" value="1.90"
          oninput="vehicleNumberChanged('trackWidth_m', this.value, 'trackWidthVal', ' m')">
 
+  <div class="label"><span>Wheelbase (m)</span><span id="wheelBaseVal">2.65 m</span></div>
+  <input id="wheelBase_m" type="range" min="1.50" max="6.00" step="0.01" value="2.65"
+         oninput="vehicleNumberChanged('wheelBase_m', this.value, 'wheelBaseVal', ' m')">
+
   <div class="label"><span>Vehicle height (m)</span><span id="vehicleHeightVal">3.20 m</span></div>
   <input id="vehicleHeight_m" type="range" min="0.50" max="6.00" step="0.01" value="3.20"
          oninput="vehicleNumberChanged('vehicleHeight_m', this.value, 'vehicleHeightVal', ' m')">
 
-  <div class="label"><span>Load condition</span><span id="loadConditionVal">2</span></div>
+  <div class="label"><span>Load condition</span></div>
   <select id="loadCondition" onchange="sendParam('loadCondition', this.value)">
     <option value="0">Light</option>
     <option value="1">Normal</option>
     <option value="2" selected>Heavy</option>
-  </select>
-
-  <div class="label"><span>Suspension type</span><span id="suspensionTypeVal">0</span></div>
-  <select id="suspensionType" onchange="sendParam('suspensionType', this.value)">
-    <option value="0" selected>Normal</option>
-    <option value="1">Stiff / sport</option>
   </select>
 
   <div class="groupTitle">Quick tuning</div>
@@ -566,6 +574,18 @@ const char webpage[] PROGMEM = R"rawliteral(
 <script>
 let ws = new WebSocket("ws://" + location.hostname + ":81");
 let dot = document.getElementById("dot");
+let field = document.getElementById("field");
+
+function resizeField() {
+  const visual = document.getElementById("visual");
+  const rect = visual.getBoundingClientRect();
+  const side = Math.min(rect.width, rect.height) * 0.92;
+  field.style.width = side + "px";
+  field.style.height = side + "px";
+}
+
+window.addEventListener("resize", resizeField);
+window.addEventListener("load", resizeField);
 
 function calibrate() {
   ws.send("CAL");
@@ -581,7 +601,7 @@ function setFrame(v) {
 
 function sendParam(k, v) {
   let obj = {};
-  obj[k] = (k === "vehicleType" || k === "loadCondition" || k === "suspensionType") ? parseInt(v) : parseFloat(v);
+  obj[k] = (k === "vehicleType" || k === "loadCondition") ? parseInt(v) : parseFloat(v);
   ws.send(JSON.stringify(obj));
 }
 
@@ -623,25 +643,52 @@ function quickDeadChanged(v) {
   ws.send(JSON.stringify({ deadband: deadband }));
 }
 
+function softAxisPosition(valueDeg, criticalDeg, radiusPx, upsideFrame) {
+  const INNER_RATIO = 0.78;
+  const OUTER_RATIO = upsideFrame ? 0.90 : 0.95;
+  const HEADROOM = upsideFrame ? 2.85 : 1.25;
+
+  const absV = Math.abs(valueDeg);
+  const sign = valueDeg >= 0 ? 1 : -1;
+
+  const innerSpan = Math.max(criticalDeg, 0.01);
+  const outerSpan = Math.max(criticalDeg * HEADROOM, innerSpan + 0.01);
+
+  let magRatio;
+  if (absV <= innerSpan) {
+    magRatio = (absV / innerSpan) * INNER_RATIO;
+  } else {
+    const t = Math.min((absV - innerSpan) / (outerSpan - innerSpan), 1.0);
+    const eased = 1.0 - Math.exp(-3.2 * t);
+    const easedNorm = eased / (1.0 - Math.exp(-3.2));
+    magRatio = INNER_RATIO + (OUTER_RATIO - INNER_RATIO) * easedNorm;
+  }
+
+  return sign * magRatio * radiusPx;
+}
+
 ws.onmessage = (msg) => {
   let d = JSON.parse(msg.data);
 
-  let x = 50 + d.roll * 1.6;
-  let y = 50 + d.pitch * 1.6;
+  const rect = field.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const radius = Math.min(rect.width, rect.height) / 2 - 12;
 
-  if (x < 0) x = 0;
-  if (x > 100) x = 100;
-  if (y < 0) y = 0;
-  if (y > 100) y = 100;
+  const upside = d.useUpsideFrame === 1 || d.useUpsideFrame === true;
 
-  dot.style.left = x + "%";
-  dot.style.top = y + "%";
+  const px = centerX + softAxisPosition(d.roll, d.criticalRollDeg, radius, upside);
+  const py = centerY + softAxisPosition(d.pitch, d.criticalPitchDeg, radius, upside);
+
+  dot.style.left = px + "px";
+  dot.style.top = py + "px";
 
   document.getElementById("modeBadge").innerText = d.autoMode ? "AUTO" : "MANUAL";
   document.getElementById("frameBadge").innerText = d.useUpsideFrame ? "FRAME: UPSIDE" : "FRAME: NORMAL";
+  document.getElementById("vehBadge").innerText = d.vehicleTypeName;
   document.getElementById("calBadge").innerText = d.calibrated ? "CALIBRATED" : "NOT CALIBRATED";
 
-  let riskText = ["SAFE", "CAUTION", "HIGH", "CRITICAL"][d.level] || "SAFE";
+  let riskText = ["SAFE", "CAUTION", "HIGH"][d.level] || "SAFE";
 
   document.getElementById("statusText").innerText =
     "Roll: " + d.roll.toFixed(2) + "° | " +
@@ -651,16 +698,14 @@ ws.onmessage = (msg) => {
 
   document.getElementById("vehicleType").value = d.vehicleType;
   document.getElementById("loadCondition").value = d.loadCondition;
-  document.getElementById("suspensionType").value = d.suspensionType;
 
   document.getElementById("trackWidth_m").value = d.trackWidth_m.toFixed(2);
+  document.getElementById("wheelBase_m").value = d.wheelBase_m.toFixed(2);
   document.getElementById("vehicleHeight_m").value = d.vehicleHeight_m.toFixed(2);
-  document.getElementById("trackWidthVal").innerText = d.trackWidth_m.toFixed(2) + " m";
-  document.getElementById("vehicleHeightVal").innerText = d.vehicleHeight_m.toFixed(2) + " m";
 
-  document.getElementById("vehicleTypeVal").innerText = d.vehicleType;
-  document.getElementById("loadConditionVal").innerText = d.loadCondition;
-  document.getElementById("suspensionTypeVal").innerText = d.suspensionType;
+  document.getElementById("trackWidthVal").innerText = d.trackWidth_m.toFixed(2) + " m";
+  document.getElementById("wheelBaseVal").innerText = d.wheelBase_m.toFixed(2) + " m";
+  document.getElementById("vehicleHeightVal").innerText = d.vehicleHeight_m.toFixed(2) + " m";
 
   document.getElementById("alphaStill").value = d.baseAlphaStill.toFixed(3);
   document.getElementById("alphaMotion").value = d.baseAlphaMotion.toFixed(4);
@@ -678,14 +723,13 @@ ws.onmessage = (msg) => {
 
   document.getElementById("paramBox").innerHTML =
     "<b>Vehicle</b><br>" +
-    "vehicleType: " + d.vehicleType + "<br>" +
+    "vehicleType: " + d.vehicleTypeName + "<br>" +
     "trackWidth: " + d.trackWidth_m.toFixed(2) + " m<br>" +
+    "wheelBase: " + d.wheelBase_m.toFixed(2) + " m<br>" +
     "vehicleHeight: " + d.vehicleHeight_m.toFixed(2) + " m<br>" +
     "loadCondition: " + d.loadCondition + "<br>" +
-    "suspensionType: " + d.suspensionType + "<br>" +
     "criticalRollDeg: " + d.criticalRollDeg.toFixed(2) + "°<br>" +
-    "criticalPitchDeg: " + d.criticalPitchDeg.toFixed(2) + "°<br>" +
-    "vehicleFactor: " + d.vehicleFactor.toFixed(3) + "<br><br>" +
+    "criticalPitchDeg: " + d.criticalPitchDeg.toFixed(2) + "°<br><br>" +
 
     "<b>Base values</b><br>" +
     "alphaStill: " + d.baseAlphaStill.toFixed(3) + "<br>" +
@@ -702,7 +746,6 @@ ws.onmessage = (msg) => {
     "accelHigh: " + d.accelHigh.toFixed(3) + "<br>" +
     "displayAlpha: " + d.displayAlpha.toFixed(3) + "<br>" +
     "deadband: " + d.deadband.toFixed(3) + "<br><br>" +
-
     "<b>Calibration reference</b><br>" +
     "calibRollRef: " + d.calibRollRef.toFixed(3) + "<br>" +
     "calibPitchRef: " + d.calibPitchRef.toFixed(3);
@@ -763,25 +806,21 @@ void loop() {
   int16_t axR, ayR, azR, gxR, gyR, gzR;
   mpu.getMotion6(&axR, &ayR, &azR, &gxR, &gyR, &gzR);
 
-  float rawAx = (float)axR;
-  float rawAy = (float)ayR;
-  float rawAz = (float)azR;
-  float rawGx = (float)gxR;
-  float rawGy = (float)gyR;
-  float rawGz = (float)gzR;
-
-  applyMountTransform(rawAx, rawAy, rawAz, rawGx, rawGy, rawGz);
-
   float dt = (micros() - lastMicros) / 1000000.0f;
   lastMicros = micros();
   if (dt <= 0.0f || dt > 0.1f) dt = 0.01f;
 
-  float ax = (rawAx - axBias) / 16384.0f;
-  float ay = (rawAy - ayBias) / 16384.0f;
-  float az = (rawAz - azBias) / 16384.0f;
+  // Bias correction first
+  float ax = (axR - axBias) / 16384.0f;
+  float ay = (ayR - ayBias) / 16384.0f;
+  float az = (azR - azBias) / 16384.0f;
 
-  float gx = (rawGx - gxBias) / 131.0f;
-  float gy = (rawGy - gyBias) / 131.0f;
+  float gx = (gxR - gxBias) / 131.0f;
+  float gy = (gyR - gyBias) / 131.0f;
+  float gz = (gzR - gzBias) / 131.0f;
+
+  // Then mount transform
+  applyMountTransform(ax, ay, az, gx, gy, gz);
 
   float accMag = sqrt(ax * ax + ay * ay + az * az);
   float accErr = fabs(accMag - 1.0f);
@@ -826,12 +865,22 @@ void loop() {
   float nRoll  = fabs(rollDisplay) / criticalRollDeg;
   float nPitch = fabs(pitchDisplay) / criticalPitchDeg;
 
-  float baseRisk = vehicleFactor * (0.6f * nRoll + 0.4f * nPitch);
-  baseRisk = clampf(baseRisk, 0.0f, 1.0f);
+  // Use the axis that is closer to its own critical limit
+  float severity = max(nRoll, nPitch);
 
-  float effectiveRisk = baseRisk * (0.7f + 0.3f * confidence);
+  // Optional small confidence influence only for display value, not for state
+  float effectiveRisk = clampf(severity * (0.7f + 0.3f * confidence), 0.0f, 1.0f);
 
-  int desired = riskLevel(effectiveRisk);
+  // State is based on the real threshold only
+  int desired;
+  if (severity >= 1.0f) {
+    desired = 2;   // HIGH
+  } else if (severity >= 0.70f) {
+    desired = 1;   // CAUTION
+  } else {
+    desired = 0;   // SAFE
+  }
+
   unsigned long now = millis();
   const unsigned long riskHoldMs = 250;
 
@@ -860,13 +909,15 @@ void loop() {
   data += "\"useUpsideFrame\":" + String(useUpsideFrame ? 1 : 0) + ",";
   data += "\"calibrated\":" + String(calibrated ? 1 : 0) + ",";
   data += "\"vehicleType\":" + String(vehicleType) + ",";
+  data += "\"vehicleTypeName\":\"";
+  data += vehicleTypeName(vehicleType);
+  data += "\",";
   data += "\"trackWidth_m\":" + String(trackWidth_m, 2) + ",";
+  data += "\"wheelBase_m\":" + String(wheelBase_m, 2) + ",";
   data += "\"vehicleHeight_m\":" + String(vehicleHeight_m, 2) + ",";
   data += "\"loadCondition\":" + String(loadCondition) + ",";
-  data += "\"suspensionType\":" + String(suspensionType) + ",";
   data += "\"criticalRollDeg\":" + String(criticalRollDeg, 2) + ",";
   data += "\"criticalPitchDeg\":" + String(criticalPitchDeg, 2) + ",";
-  data += "\"vehicleFactor\":" + String(vehicleFactor, 3) + ",";
   data += "\"baseAlphaStill\":" + String(baseAlphaStill, 3) + ",";
   data += "\"baseAlphaMotion\":" + String(baseAlphaMotion, 4) + ",";
   data += "\"baseAccelWarn\":" + String(baseAccelWarn, 3) + ",";
