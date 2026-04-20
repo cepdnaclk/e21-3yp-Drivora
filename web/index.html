@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base href="$FLUTTER_BASE_HREF">
+    <meta charset="UTF-8">
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+    <meta name="description" content="Drivora - Advanced Flutter Driver Assistant">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Drivora">
+    <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="favicon.png">
+
+    <!-- iOS launch screen icons -->
+    <link rel="apple-touch-startup-image" href="icons/Icon-512.png">
+
+    <title>Drivora - Driver Assistant</title>
+    <link rel="manifest" href="manifest.json">
+
+    <script>
+        // The value of window.FLUTTER_ENV is injected by flutter serve, build, etc.
+        const serviceWorkerVersion = null;
+    </script>
+    <!-- This script adds the flutter initialization JS code -->
+    <script src="flutter.js" defer></script>
+
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #050A10;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #050A10 0%, #080E18 100%);
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 245, 212, 0.1);
+            border-top: 4px solid #00F5D4;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: #00F5D4;
+            font-size: 18px;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div>
+            <div class="spinner"></div>
+            <div class="loading-text">Loading Drivora...</div>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener('flutter-first-frame', function() {
+            document.querySelector('#loading').style.display = 'none';
+        });
+        _flutter.loader.loadEntrypoint({
+            serviceWorkerVersion: serviceWorkerVersion,
+        }).then(function(engineInitializer) {
+            return engineInitializer.initializeEngine();
+        }).then(function(appRunner) {
+            return appRunner.runApp();
+        });
+    </script>
+</body>
+</html>
