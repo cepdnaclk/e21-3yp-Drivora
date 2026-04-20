@@ -25,11 +25,6 @@ MPU6050 mpu;
 bool autoMode = false;
 bool calibrated = false;
 
-// Frame mode:
-// false = normal raw frame
-// true  = upside-frame emulation (the mode that behaved best for you)
-bool useUpsideFrame = true;
-
 // ================= VEHICLE MODEL =================
 // Controllable from the UI
 int vehicleType = 3;           // 1 = Compact / low profile, 2 = Passenger vehicle, 3 = Tall vehicle / SUV
@@ -162,11 +157,9 @@ void autoTune(float accErr, float angRate) {
   deadband     = clampf(baseDeadband + 0.08f * (1.0f - stability), 0.0f, 0.30f);
 }
 
-// Emulate the useful upside-down frame in software.
+// UPSIDE frame behavior, always active.
 // Applied after bias correction.
 void applyMountTransform(float &ax, float &ay, float &az, float &gx, float &gy, float &gz) {
-  if (!useUpsideFrame) return;
-
   ax = -ax;
   az = -az;
   gx = -gx;
@@ -298,18 +291,6 @@ void handleCommand(const String& msg) {
     return;
   }
 
-  if (msg == "FRAME_UP") {
-    useUpsideFrame = true;
-    calibrate();
-    return;
-  }
-
-  if (msg == "FRAME_NORMAL") {
-    useUpsideFrame = false;
-    calibrate();
-    return;
-  }
-
   JsonDocument doc;
   if (deserializeJson(doc, msg)) return;
 
@@ -350,7 +331,7 @@ void handleCommand(const String& msg) {
   if (doc["alphaMotion"].is<float>())  baseAlphaMotion = clampf(doc["alphaMotion"].as<float>(), 0.990f, 0.9999f);
   if (doc["accelWarn"].is<float>())    baseAccelWarn = clampf(doc["accelWarn"].as<float>(), 0.0f, 0.25f);
   if (doc["accelHigh"].is<float>())    baseAccelHigh = clampf(doc["accelHigh"].as<float>(), baseAccelWarn + 0.01f, 0.40f);
-  if (doc["displayAlpha"].is<float>())  baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
+  if (doc["displayAlpha"].is<float>()) baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
   if (doc["deadband"].is<float>())     baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
 
   if (vehicleChanged) {
@@ -538,8 +519,6 @@ const char webpage[] PROGMEM = R"rawliteral(
     <button onclick="calibrate()">Calibrate</button>
     <button onclick="setAuto(true)">AUTO MODE</button>
     <button onclick="setAuto(false)">MANUAL MODE</button>
-    <button onclick="setFrame(true)">UPSIDE FRAME</button>
-    <button onclick="setFrame(false)">NORMAL FRAME</button>
   </div>
 
   <div class="groupTitle">Vehicle settings</div>
@@ -629,10 +608,6 @@ function setAuto(v) {
   ws.send(v ? "AUTO_ON" : "AUTO_OFF");
 }
 
-function setFrame(v) {
-  ws.send(v ? "FRAME_UP" : "FRAME_NORMAL");
-}
-
 function sendParam(k, v) {
   let obj = {};
   obj[k] = (k === "vehicleType" || k === "loadCondition") ? parseInt(v) : parseFloat(v);
@@ -677,10 +652,10 @@ function quickDeadChanged(v) {
   ws.send(JSON.stringify({ deadband: deadband }));
 }
 
-function softAxisPosition(valueDeg, criticalDeg, radiusPx, upsideFrame) {
+function softAxisPosition(valueDeg, criticalDeg, radiusPx) {
   const INNER_RATIO = 0.78;
-  const OUTER_RATIO = upsideFrame ? 0.90 : 0.95;
-  const HEADROOM = upsideFrame ? 2.85 : 1.25;
+  const OUTER_RATIO = 0.90;
+  const HEADROOM = 2.85;
 
   const absV = Math.abs(valueDeg);
   const sign = valueDeg >= 0 ? 1 : -1;
@@ -709,16 +684,14 @@ ws.onmessage = (msg) => {
   const centerY = rect.height / 2;
   const radius = Math.min(rect.width, rect.height) / 2 - 12;
 
-  const upside = d.useUpsideFrame === 1 || d.useUpsideFrame === true;
-
-  const px = centerX + softAxisPosition(d.roll, d.criticalRollDeg, radius, upside);
-  const py = centerY + softAxisPosition(d.pitch, d.criticalPitchDeg, radius, upside);
+  const px = centerX + softAxisPosition(d.roll, d.criticalRollDeg, radius);
+  const py = centerY + softAxisPosition(d.pitch, d.criticalPitchDeg, radius);
 
   dot.style.left = px + "px";
   dot.style.top = py + "px";
 
   document.getElementById("modeBadge").innerText = d.autoMode ? "AUTO" : "MANUAL";
-  document.getElementById("frameBadge").innerText = d.useUpsideFrame ? "FRAME: UPSIDE" : "FRAME: NORMAL";
+  document.getElementById("frameBadge").innerText = "FRAME: UPSIDE";
   document.getElementById("vehBadge").innerText = d.vehicleTypeName;
   document.getElementById("calBadge").innerText = d.calibrated ? "CALIBRATED" : "NOT CALIBRATED";
 
@@ -943,9 +916,8 @@ void loop() {
     lastRiskChangeMs = now;
   }
 
-  // Only flip pitch for the visualizer
   float visualRoll = rollDisplay;
-  float visualPitch = useUpsideFrame ? pitchDisplay : -pitchDisplay;
+  float visualPitch = pitchDisplay;
 
   String data;
   data.reserve(520);
@@ -956,7 +928,6 @@ void loop() {
   data += "\"risk\":" + String(effectiveRisk, 3) + ",";
   data += "\"level\":" + String(stableRisk) + ",";
   data += "\"autoMode\":" + String(autoMode ? 1 : 0) + ",";
-  data += "\"useUpsideFrame\":" + String(useUpsideFrame ? 1 : 0) + ",";
   data += "\"calibrated\":" + String(calibrated ? 1 : 0) + ",";
   data += "\"vehicleType\":" + String(vehicleType) + ",";
   data += "\"vehicleTypeName\":\"";
