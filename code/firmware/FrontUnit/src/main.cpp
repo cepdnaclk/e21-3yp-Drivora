@@ -3,9 +3,53 @@
 #define TRIGPIN 3
 #define ECHOPIN 4
 
-const int sampleSize = 3;
+// ================= DISTANCE SETTINGS =================
+const float MIN_VALID_CM = 25.0f;
+const float MAX_VALID_CM = 250.0f;
+
+const float OBJECT_ZONE_CM   = 180.0f;
+const float WARNING_ZONE_CM  = 80.0f;
+
+// ================= SAMPLING =================
+const int sampleSize = 2;
 float readings[sampleSize];
 
+// ================= FILTERING =================
+float filteredDistance = -1.0f;
+float prevFilteredDistance = -1.0f;
+
+// Faster response than before
+const float distanceFilterAlpha = 0.55f;
+
+// ================= APPROACH DETECTION =================
+const float APPROACH_DELTA_CM = 2.0f;
+
+int approachCounter = 0;
+int warningCounter = 0;
+const int APPROACH_CONFIRM_COUNT = 1;
+const int WARNING_CONFIRM_COUNT  = 1;
+
+// ================= OUTPUT STATE =================
+enum FCWState {
+  CLEAR = 0,
+  OBJECT_AHEAD = 1,
+  APPROACHING = 2,
+  WARNING = 3
+};
+
+FCWState currentState = CLEAR;
+
+const char* stateName(FCWState s) {
+  switch (s) {
+    case CLEAR: return "CLEAR";
+    case OBJECT_AHEAD: return "OBJECT_AHEAD";
+    case APPROACHING: return "APPROACHING";
+    case WARNING: return "WARNING";
+    default: return "CLEAR";
+  }
+}
+
+// ================= READ DISTANCE =================
 float readQualityDistanceCm() {
   int validCount = 0;
 
@@ -19,11 +63,11 @@ float readQualityDistanceCm() {
     long duration = pulseIn(ECHOPIN, HIGH, 40000);
 
     if (duration > 0) {
-      readings[validCount] = duration / 58.2;
+      readings[validCount] = duration / 58.2f;
       validCount++;
     }
 
-    delay(40);
+    delay(15);
   }
 
   if (validCount == 0) {
@@ -40,36 +84,112 @@ float readQualityDistanceCm() {
     }
   }
 
-  float qualityDistance = readings[validCount / 2];
+  float medianDistance = readings[validCount / 2];
 
-  if (qualityDistance > 500.0f) {
+  if (medianDistance < MIN_VALID_CM || medianDistance > MAX_VALID_CM) {
     return -1.0f;
   }
 
-  return qualityDistance;
+  return medianDistance;
 }
 
+// ================= FILTER =================
+float updateFilteredDistance(float rawDistance) {
+  if (rawDistance < 0) {
+    filteredDistance = -1.0f;
+    return -1.0f;
+  }
+
+  if (filteredDistance < 0) {
+    filteredDistance = rawDistance;
+  } else {
+    filteredDistance =
+      distanceFilterAlpha * rawDistance +
+      (1.0f - distanceFilterAlpha) * filteredDistance;
+  }
+
+  return filteredDistance;
+}
+
+// ================= FCW LOGIC =================
+void updateFCWState(float dist) {
+  if (dist < 0) {
+    currentState = CLEAR;
+    approachCounter = 0;
+    warningCounter = 0;
+    prevFilteredDistance = -1.0f;
+    return;
+  }
+
+  float delta = 0.0f;
+  bool approaching = false;
+
+  if (prevFilteredDistance > 0) {
+    delta = prevFilteredDistance - dist;   // positive means getting closer
+    if (delta > APPROACH_DELTA_CM) {
+      approaching = true;
+    }
+  }
+
+  prevFilteredDistance = dist;
+
+  if (approaching) {
+    if (approachCounter < APPROACH_CONFIRM_COUNT) approachCounter++;
+  } else {
+    if (approachCounter > 0) approachCounter--;
+  }
+
+  bool confirmedApproaching = (approachCounter >= APPROACH_CONFIRM_COUNT);
+
+  if (dist <= WARNING_ZONE_CM && confirmedApproaching) {
+    if (warningCounter < WARNING_CONFIRM_COUNT) warningCounter++;
+  } else {
+    if (warningCounter > 0) warningCounter--;
+  }
+
+  bool confirmedWarning = (warningCounter >= WARNING_CONFIRM_COUNT);
+
+  if (confirmedWarning) {
+    currentState = WARNING;
+  } else if (confirmedApproaching && dist <= OBJECT_ZONE_CM) {
+    currentState = APPROACHING;
+  } else if (dist <= OBJECT_ZONE_CM) {
+    currentState = OBJECT_AHEAD;
+  } else {
+    currentState = CLEAR;
+  }
+}
+
+// ================= SETUP =================
 void setup() {
   Serial.begin(9600);
+
   pinMode(TRIGPIN, OUTPUT);
   pinMode(ECHOPIN, INPUT);
 
   digitalWrite(TRIGPIN, LOW);
   delay(1000);
 
-  Serial.println("JSN-SR04T-V3.3 | Quality Mode Active");
+  Serial.println("JSN-SR04T FCW Prototype Started");
 }
 
+// ================= LOOP =================
 void loop() {
-  float d = readQualityDistanceCm();
+  float rawDistance = readQualityDistanceCm();
+  float smoothedDistance = updateFilteredDistance(rawDistance);
 
-  if (d < 0) {
-    Serial.println("Sensor Timeout: No Echo received.");
-  } else {
-    Serial.print("Distance: ");
-    Serial.print(d);
-    Serial.println(" cm");
-  }
+  updateFCWState(smoothedDistance);
 
-  delay(150);
+  Serial.print("Raw: ");
+  if (rawDistance < 0) Serial.print("Invalid");
+  else Serial.print(rawDistance, 1);
+
+  Serial.print(" cm | Filtered: ");
+  if (smoothedDistance < 0) Serial.print("Invalid");
+  else Serial.print(smoothedDistance, 1);
+
+  Serial.print(" cm | State: ");
+  Serial.println(stateName(currentState));
+
+  delay(40);
 }
