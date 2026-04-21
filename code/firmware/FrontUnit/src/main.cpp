@@ -35,7 +35,7 @@ const int   BLIND_RELEASE_COUNT_REQ = 2;
 const float BLIND_RELEASE_MOVING_AWAY_CM_S = -6.0f;
 const float BLIND_RELEASE_MOVING_AWAY_MIN_CM = 28.0f;
 
-// New: fast blind-entry detection
+// Fast blind-entry detection
 const float FAST_BLIND_ARM_CM   = 45.0f;
 const float FAST_ENTRY_JUMP_CM  = 12.0f;
 
@@ -72,6 +72,12 @@ bool blindZoneLatched = false;
 float blindLatchDistance = -1.0f;
 unsigned long blindLatchSetMs = 0;
 int blindReleaseCounter = 0;
+
+// ================= SENSOR / RECOVERY =================
+int invalidStreak = 0;
+const int INVALID_STREAK_RESET_THRESHOLD = 20;
+unsigned long lastRecoveryMs = 0;
+const unsigned long RECOVERY_COOLDOWN_MS = 1500;
 
 // ================= OUTPUT STATE =================
 enum FCWState {
@@ -120,6 +126,25 @@ float clampf(float x, float lo, float hi) {
   return x;
 }
 
+void resetSensorState() {
+  filteredDistance = -1.0f;
+  prevFilteredDistance = -1.0f;
+  closingSpeedCmS = 0.0f;
+  lastValidDistance = -1.0f;
+  lastValidDistanceMs = millis();
+
+  approachCounter = 0;
+  warningCounter = 0;
+
+  blindZoneLatched = false;
+  blindLatchDistance = -1.0f;
+  blindLatchSetMs = 0;
+  blindReleaseCounter = 0;
+  blindHoldUntilMs = 0;
+
+  digitalWrite(TRIGPIN, LOW);
+}
+
 // ================= READ DISTANCE =================
 float readQualityDistanceCm() {
   int validCount = 0;
@@ -131,7 +156,7 @@ float readQualityDistanceCm() {
     delayMicroseconds(20);
     digitalWrite(TRIGPIN, LOW);
 
-    long duration = pulseIn(ECHOPIN, HIGH, 40000);
+    long duration = pulseIn(ECHOPIN, HIGH, 25000);
 
     if (duration > 0) {
       readings[validCount] = duration / 58.2f;
@@ -139,6 +164,7 @@ float readQualityDistanceCm() {
     }
 
     delay(15);
+    yield();
   }
 
   if (validCount == 0) return -1.0f;
@@ -200,7 +226,7 @@ void updateClosingSpeed(float dist, unsigned long nowMs) {
     return;
   }
 
-  float rawSpeed = (lastValidDistance - dist) / dt; // positive = approaching
+  float rawSpeed = (lastValidDistance - dist) / dt;
   closingSpeedCmS = 0.65f * closingSpeedCmS + 0.35f * rawSpeed;
 
   lastValidDistance = dist;
@@ -231,7 +257,7 @@ void latchBlindZone(unsigned long nowMs, float refDist) {
   blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
 }
 
-// New: fast blind-entry detector for sudden close approach
+// ================= FAST BLIND-ENTRY DETECTOR =================
 bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
   if (blindZoneLatched) return false;
   if (lastValidDistance < 0.0f) return false;
@@ -255,7 +281,6 @@ bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
 
 // ================= SMART FCW LOGIC =================
 void updateFCWState(float rawDist, float dist, unsigned long nowMs) {
-  // Fast blind-entry latch for sudden close approach
   if (shouldFastLatchBlindZone(rawDist, dist)) {
     latchBlindZone(nowMs, lastValidDistance);
     currentState = WARNING;
@@ -433,6 +458,20 @@ const char webpage[] PROGMEM = R"rawliteral(
     font-weight:700;
     margin-bottom:10px;
   }
+  .audioRow{
+    margin-bottom:10px;
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .audioBtn{
+    padding:12px 16px;
+    border:0;
+    border-radius:12px;
+    background:#2b2f38;
+    color:white;
+    font-size:15px;
+  }
   .stateBox{
     width:100%;
     aspect-ratio:1/1;
@@ -508,6 +547,10 @@ const char webpage[] PROGMEM = R"rawliteral(
 <div class="wrap">
   <div class="title">Forward Collision Warning Test</div>
 
+  <div class="audioRow">
+    <button id="audioBtn" class="audioBtn" onclick="enableAudio()">Enable Beep Sound</button>
+  </div>
+
   <div id="stateBox" class="stateBox">
     <div id="stateText" class="stateText">CLEAR</div>
   </div>
@@ -561,6 +604,57 @@ const distanceBar = document.getElementById("distanceBar");
 const distancePercentText = document.getElementById("distancePercentText");
 const diag = document.getElementById("diag");
 
+let audioCtx = null;
+let audioEnabled = false;
+let lastBeepMs = 0;
+
+async function enableAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  try {
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+
+    audioEnabled = true;
+    document.getElementById("audioBtn").innerText = "Beep Sound Enabled";
+    playBeep(1050, 100, 0.10);
+  } catch (e) {
+    document.getElementById("audioBtn").innerText = "Tap Again to Enable Sound";
+  }
+}
+
+function playBeep(freq = 900, durationMs = 80, volume = 0.09) {
+  if (!audioEnabled || !audioCtx) return;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  gain.gain.value = volume;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  const now = audioCtx.currentTime;
+  osc.start(now);
+  osc.stop(now + durationMs / 1000);
+
+  gain.gain.setValueAtTime(volume, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+}
+
+document.addEventListener("touchstart", () => {
+  if (!audioEnabled) enableAudio();
+}, { passive: true, once: false });
+
+document.addEventListener("click", () => {
+  if (!audioEnabled) enableAudio();
+}, { once: false });
+
 function fmtCm(v){
   if (v < 0) return "Invalid";
   return v.toFixed(1) + " cm";
@@ -599,7 +693,23 @@ ws.onmessage = (evt) => {
     " | blindLatched: " + (d.blindZoneLatched ? "YES" : "NO") +
     " | suspicious: " + (d.suspiciousReading ? "YES" : "NO") +
     " | fastBlind: " + (d.fastBlindTriggered ? "YES" : "NO") +
+    " | invalidStreak: " + d.invalidStreak +
     " | loop: " + d.loopMs.toFixed(0) + " ms";
+
+  const now = Date.now();
+  if (audioEnabled) {
+    if (d.state === 2) {
+      if (now - lastBeepMs > 700) {
+        playBeep(850, 70, 0.09);
+        lastBeepMs = now;
+      }
+    } else if (d.state === 3) {
+      if (now - lastBeepMs > 250) {
+        playBeep(1250, 90, 0.11);
+        lastBeepMs = now;
+      }
+    }
+  }
 };
 </script>
 </body>
@@ -629,6 +739,7 @@ void setup() {
   webSocket.onEvent(onWebSocketEvent);
 
   lastLoopMs = millis();
+  lastValidDistanceMs = millis();
 
   Serial.println("JSN-SR04T FCW Prototype Started");
   Serial.print("AP IP: ");
@@ -646,6 +757,19 @@ void loop() {
 
   float rawDistance = readQualityDistanceCm();
   float smoothedDistance = updateFilteredDistance(rawDistance);
+
+  if (rawDistance < 0) {
+    invalidStreak++;
+  } else {
+    invalidStreak = 0;
+  }
+
+  if (invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
+      (nowMs - lastRecoveryMs) > RECOVERY_COOLDOWN_MS) {
+    resetSensorState();
+    lastRecoveryMs = nowMs;
+    invalidStreak = 0;
+  }
 
   updateClosingSpeed(smoothedDistance, nowMs);
   bool suspicious = isSuspiciousReading(smoothedDistance);
@@ -668,11 +792,13 @@ void loop() {
   Serial.print(suspicious ? "YES" : "NO");
   Serial.print(" | FastBlind: ");
   Serial.print(fastBlind ? "YES" : "NO");
+  Serial.print(" | InvalidStreak: ");
+  Serial.print(invalidStreak);
   Serial.print(" | State: ");
   Serial.println(stateName(currentState));
 
   String data;
-  data.reserve(500);
+  data.reserve(540);
   data += "{";
   data += "\"rawDistance\":" + String(rawDistance, 1) + ",";
   data += "\"filteredDistance\":" + String(smoothedDistance, 1) + ",";
@@ -691,10 +817,11 @@ void loop() {
   data += "\"blindZoneLatched\":" + String(blindZoneLatched ? 1 : 0) + ",";
   data += "\"suspiciousReading\":" + String(suspicious ? 1 : 0) + ",";
   data += "\"fastBlindTriggered\":" + String(fastBlind ? 1 : 0) + ",";
+  data += "\"invalidStreak\":" + String(invalidStreak) + ",";
   data += "\"loopMs\":" + String(loopMs, 0);
   data += "}";
 
   webSocket.broadcastTXT(data);
 
-  delay(40);
+  delay(20);
 }
