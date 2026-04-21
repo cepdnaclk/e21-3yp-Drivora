@@ -18,8 +18,13 @@ WebSocketsServer webSocket(81);
 const float MIN_VALID_CM = 25.0f;
 const float MAX_VALID_CM = 250.0f;
 
-const float OBJECT_ZONE_CM  = 180.0f;
-const float WARNING_ZONE_CM = 80.0f;
+const float OBJECT_ZONE_CM   = 180.0f;
+const float WARNING_ZONE_CM  = 80.0f;
+
+// New smarter thresholds
+const float VERY_CLOSE_ZONE_CM      = 35.0f;   // close zone, not always warning
+const float BLIND_ENTRY_TRIGGER_CM  = 30.0f;   // above blind zone, used to infer blind-zone entry
+const float CLEAR_DISTANCE_CM       = 205.0f;  // stronger evidence before returning clear
 
 // ================= SAMPLING =================
 const int sampleSize = 2;
@@ -28,17 +33,26 @@ float readings[sampleSize];
 // ================= FILTERING =================
 float filteredDistance = -1.0f;
 float prevFilteredDistance = -1.0f;
-
-// Faster response than before
 const float distanceFilterAlpha = 0.55f;
 
-// ================= APPROACH DETECTION =================
-const float APPROACH_DELTA_CM = 2.0f;
+// ================= SPEED / TREND =================
+float closingSpeedCmS = 0.0f;    // positive = getting closer
+float lastValidDistance = -1.0f;
+unsigned long lastValidDistanceMs = 0;
 
+const float APPROACH_SPEED_CM_S = 8.0f;
+const float WARNING_SPEED_CM_S  = 20.0f;
+
+// ================= STATE MEMORY =================
 int approachCounter = 0;
 int warningCounter = 0;
 const int APPROACH_CONFIRM_COUNT = 1;
 const int WARNING_CONFIRM_COUNT  = 1;
+
+unsigned long blindHoldUntilMs = 0;
+unsigned long lastValidSeenMs = 0;
+const unsigned long BLIND_HOLD_MS   = 1200;
+const unsigned long INVALID_HOLD_MS = 650;
 
 // ================= OUTPUT STATE =================
 enum FCWState {
@@ -52,9 +66,6 @@ FCWState currentState = CLEAR;
 
 // ================= TIMING / EXTRA TEST DATA =================
 unsigned long lastLoopMs = 0;
-float closingSpeedCmS = 0.0f;       // positive means object is getting closer
-float lastValidDistance = -1.0f;
-unsigned long lastValidDistanceMs = 0;
 
 // ================= HELPERS =================
 const char* stateName(FCWState s) {
@@ -69,10 +80,10 @@ const char* stateName(FCWState s) {
 
 const char* stateColorHex(FCWState s) {
   switch (s) {
-    case CLEAR: return "#1db954";        // green
-    case OBJECT_AHEAD: return "#f5c542"; // yellow
-    case APPROACHING: return "#ff8c42";  // orange
-    case WARNING: return "#ff3b30";      // red
+    case CLEAR: return "#1db954";
+    case OBJECT_AHEAD: return "#f5c542";
+    case APPROACHING: return "#ff8c42";
+    case WARNING: return "#ff3b30";
     default: return "#1db954";
   }
 }
@@ -82,6 +93,12 @@ String payloadToString(uint8_t* payload, size_t length) {
   s.reserve(length);
   for (size_t i = 0; i < length; i++) s += (char)payload[i];
   return s;
+}
+
+float clampf(float x, float lo, float hi) {
+  if (x < lo) return lo;
+  if (x > hi) return hi;
+  return x;
 }
 
 // ================= READ DISTANCE =================
@@ -105,9 +122,7 @@ float readQualityDistanceCm() {
     delay(15);
   }
 
-  if (validCount == 0) {
-    return -1.0f;
-  }
+  if (validCount == 0) return -1.0f;
 
   for (int i = 0; i < validCount - 1; i++) {
     for (int j = i + 1; j < validCount; j++) {
@@ -150,8 +165,6 @@ float updateFilteredDistance(float rawDistance) {
 void updateClosingSpeed(float dist, unsigned long nowMs) {
   if (dist < 0) {
     closingSpeedCmS = 0.0f;
-    lastValidDistance = -1.0f;
-    lastValidDistanceMs = nowMs;
     return;
   }
 
@@ -168,70 +181,121 @@ void updateClosingSpeed(float dist, unsigned long nowMs) {
     return;
   }
 
-  // positive means approaching
-  float rawSpeed = (lastValidDistance - dist) / dt;
-
-  // mild smoothing for test readability
+  float rawSpeed = (lastValidDistance - dist) / dt; // positive = approaching
   closingSpeedCmS = 0.65f * closingSpeedCmS + 0.35f * rawSpeed;
 
   lastValidDistance = dist;
   lastValidDistanceMs = nowMs;
 }
 
-// ================= FCW LOGIC =================
-void updateFCWState(float dist) {
-  if (dist < 0) {
-    currentState = CLEAR;
-    approachCounter = 0;
-    warningCounter = 0;
-    prevFilteredDistance = -1.0f;
+// ================= SMART FCW LOGIC =================
+void updateFCWState(float dist, unsigned long nowMs) {
+  if (dist >= 0) {
+    lastValidSeenMs = nowMs;
+
+    bool approachingNow = (closingSpeedCmS >= APPROACH_SPEED_CM_S);
+    bool warningSpeedNow = (closingSpeedCmS >= WARNING_SPEED_CM_S);
+
+    if (approachingNow) {
+      if (approachCounter < APPROACH_CONFIRM_COUNT) approachCounter++;
+    } else {
+      if (approachCounter > 0) approachCounter--;
+    }
+
+    if (warningSpeedNow) {
+      if (warningCounter < WARNING_CONFIRM_COUNT) warningCounter++;
+    } else {
+      if (warningCounter > 0) warningCounter--;
+    }
+
+    bool confirmedApproaching = (approachCounter >= APPROACH_CONFIRM_COUNT);
+    bool confirmedWarningSpeed = (warningCounter >= WARNING_CONFIRM_COUNT);
+
+    // Arm blind-zone hold only when target is very close AND still approaching
+    if (dist <= BLIND_ENTRY_TRIGGER_CM && closingSpeedCmS > 0.5f) {
+      blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+    }
+
+    // Priority 1: inside normal warning zone and closing fast
+    if (dist <= WARNING_ZONE_CM && confirmedWarningSpeed) {
+      currentState = WARNING;
+      if (dist <= BLIND_ENTRY_TRIGGER_CM) {
+        blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+      }
+      return;
+    }
+
+    // Priority 2: soft close zone
+    // - warning only if still closing meaningfully
+    // - otherwise just object ahead / approaching
+    if (dist <= VERY_CLOSE_ZONE_CM) {
+      if (confirmedWarningSpeed || closingSpeedCmS >= (WARNING_SPEED_CM_S * 0.7f)) {
+        currentState = WARNING;
+        if (dist <= BLIND_ENTRY_TRIGGER_CM) {
+          blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+        }
+        return;
+      }
+
+      if (confirmedApproaching) {
+        currentState = APPROACHING;
+      } else {
+        currentState = OBJECT_AHEAD;
+      }
+      return;
+    }
+
+    // Priority 3: object ahead and approaching
+    if (dist <= OBJECT_ZONE_CM && confirmedApproaching) {
+      currentState = APPROACHING;
+      return;
+    }
+
+    // Priority 4: object ahead but not aggressively approaching
+    if (dist <= OBJECT_ZONE_CM) {
+      currentState = OBJECT_AHEAD;
+      return;
+    }
+
+    // Returning to clear should require convincing distance
+    if (dist >= CLEAR_DISTANCE_CM) {
+      currentState = CLEAR;
+    } else {
+      currentState = OBJECT_AHEAD;
+    }
+
     return;
   }
 
-  float delta = 0.0f;
-  bool approaching = false;
-
-  if (prevFilteredDistance > 0) {
-    delta = prevFilteredDistance - dist;   // positive means getting closer
-    if (delta > APPROACH_DELTA_CM) {
-      approaching = true;
-    }
-  }
-
-  prevFilteredDistance = dist;
-
-  if (approaching) {
-    if (approachCounter < APPROACH_CONFIRM_COUNT) approachCounter++;
-  } else {
-    if (approachCounter > 0) approachCounter--;
-  }
-
-  bool confirmedApproaching = (approachCounter >= APPROACH_CONFIRM_COUNT);
-
-  if (dist <= WARNING_ZONE_CM && confirmedApproaching) {
-    if (warningCounter < WARNING_CONFIRM_COUNT) warningCounter++;
-  } else {
-    if (warningCounter > 0) warningCounter--;
-  }
-
-  bool confirmedWarning = (warningCounter >= WARNING_CONFIRM_COUNT);
-
-  if (confirmedWarning) {
+  // Invalid reading path:
+  // 1) if we recently had a close approaching object, assume blind-zone entry
+  if (nowMs < blindHoldUntilMs) {
     currentState = WARNING;
-  } else if (confirmedApproaching && dist <= OBJECT_ZONE_CM) {
-    currentState = APPROACHING;
-  } else if (dist <= OBJECT_ZONE_CM) {
-    currentState = OBJECT_AHEAD;
-  } else {
-    currentState = CLEAR;
+    return;
   }
+
+  // 2) don't instantly clear after a recent valid target
+  if ((nowMs - lastValidSeenMs) <= INVALID_HOLD_MS) {
+    if (currentState == APPROACHING || currentState == WARNING) {
+      currentState = APPROACHING;
+    } else if (currentState == OBJECT_AHEAD) {
+      currentState = OBJECT_AHEAD;
+    } else {
+      currentState = CLEAR;
+    }
+    return;
+  }
+
+  // 3) finally clear when invalid for long enough
+  currentState = CLEAR;
+  approachCounter = 0;
+  warningCounter = 0;
+  prevFilteredDistance = -1.0f;
 }
 
 // ================= WEB COMMANDS =================
 void handleCommand(const String& msg) {
-  if (msg == "PING") {
-    return;
-  }
+  if (msg == "PING") return;
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
@@ -437,6 +501,7 @@ ws.onmessage = (evt) => {
   diag.textContent =
     "approachCounter: " + d.approachCounter +
     " | warningCounter: " + d.warningCounter +
+    " | blindHoldMs: " + d.blindHoldRemainingMs +
     " | loop: " + d.loopMs.toFixed(0) + " ms";
 };
 </script>
@@ -486,7 +551,7 @@ void loop() {
   float smoothedDistance = updateFilteredDistance(rawDistance);
 
   updateClosingSpeed(smoothedDistance, nowMs);
-  updateFCWState(smoothedDistance);
+  updateFCWState(smoothedDistance, nowMs);
 
   Serial.print("Raw: ");
   if (rawDistance < 0) Serial.print("Invalid");
@@ -501,8 +566,11 @@ void loop() {
   Serial.print(" cm/s | State: ");
   Serial.println(stateName(currentState));
 
+  unsigned long blindRemain = 0;
+  if (blindHoldUntilMs > nowMs) blindRemain = blindHoldUntilMs - nowMs;
+
   String data;
-  data.reserve(320);
+  data.reserve(420);
   data += "{";
   data += "\"rawDistance\":" + String(rawDistance, 1) + ",";
   data += "\"filteredDistance\":" + String(smoothedDistance, 1) + ",";
@@ -514,8 +582,11 @@ void loop() {
   data += "\"maxValidCm\":" + String(MAX_VALID_CM, 1) + ",";
   data += "\"objectZoneCm\":" + String(OBJECT_ZONE_CM, 1) + ",";
   data += "\"warningZoneCm\":" + String(WARNING_ZONE_CM, 1) + ",";
+  data += "\"veryCloseZoneCm\":" + String(VERY_CLOSE_ZONE_CM, 1) + ",";
+  data += "\"blindEntryTriggerCm\":" + String(BLIND_ENTRY_TRIGGER_CM, 1) + ",";
   data += "\"approachCounter\":" + String(approachCounter) + ",";
   data += "\"warningCounter\":" + String(warningCounter) + ",";
+  data += "\"blindHoldRemainingMs\":" + String(blindRemain) + ",";
   data += "\"loopMs\":" + String(loopMs, 0);
   data += "}";
 
