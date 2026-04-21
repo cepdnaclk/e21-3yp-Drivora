@@ -1,599 +1,199 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:glassmorphism/glassmorphism.dart';
 import '../services/wifi_sensor_service.dart';
 import '../models/sensor_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/car_3d_visualization.dart';
 
-class DashboardScreen extends StatefulWidget {
+class DashboardScreen extends StatelessWidget {
   const DashboardScreen({Key? key}) : super(key: key);
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
-}
-
-class _DashboardScreenState extends State<DashboardScreen> {
-  int _selectedIndex = 0;
-
-  @override
   Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
-      builder: (context, sensorService, _) {
-        final data = sensorService.currentData;
-
-        return Scaffold(
-          backgroundColor: AppTheme.darkBackground,
-          appBar: AppBar(
-            title: const Text('DRIVORA - Driver Assistant'),
-            backgroundColor: AppTheme.darkSurface,
-            elevation: 0,
-            leading: Container(
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryNeon.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Center(
-                child: Text('⚙️', style: TextStyle(fontSize: 20)),
-              ),
-            ),
-            actions: [
-              Container(
-                margin: const EdgeInsets.all(8),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: sensorService.isConnected
-                      ? AppTheme.successGreen.withOpacity(0.2)
-                      : AppTheme.warningYellow.withOpacity(0.2),
-                  border: Border.all(
-                    color: sensorService.isConnected
-                        ? AppTheme.successGreen
-                        : AppTheme.warningYellow,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Center(
-                  child: Text(
-                    sensorService.isConnected ? '● Online' : '○ Offline',
-                    style: TextStyle(
-                      color: sensorService.isConnected
-                          ? AppTheme.successGreen
-                          : AppTheme.warningYellow,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          body: data != null
-              ? SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+    return Scaffold(
+      backgroundColor: AppTheme.darkBackground,
+      body: Consumer<WiFiSensorService>(
+        builder: (context, service, _) {
+          final data = service.currentData;
+          return SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(service),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(
                       children: [
-                        // 3D Car Visualization
+                        const SizedBox(height: 10),
+                        // 3D CAR VISUALIZATION (Tesla Style)
                         Car3DVisualization(
                           speed: data.speed,
-                          steeringAngle: data.steeringAngle,
-                          brakeActive: data.brakeStatus,
+                          lanePosition: data.lanePosition,
+                          brakeActive: data.brakeActive,
                           leftSignal: data.leftSignal,
                           rightSignal: data.rightSignal,
+                          tiltAngle: data.tiltAngle,
                         ),
                         const SizedBox(height: 24),
-
-                        // Quick Stats Grid
-                        GridView.count(
-                          crossAxisCount: 2,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          children: [
-                            _buildStatCard(
-                              context,
-                              title: 'RPM',
-                              value: '${data.rpm.toStringAsFixed(0)}',
-                              subtitle: 'Engine Speed',
-                              color: AppTheme.secondaryBlue,
-                              icon: '⚡',
-                            ),
-                            _buildStatCard(
-                              context,
-                              title: 'Temperature',
-                              value: '${data.temperature.toStringAsFixed(1)}°C',
-                              subtitle: 'Engine Temp',
-                              color: data.temperature > 100
-                                  ? AppTheme.dangerRed
-                                  : AppTheme.primaryNeon,
-                              icon: '🌡️',
-                            ),
-                            _buildStatCard(
-                              context,
-                              title: 'Fuel',
-                              value: '${data.fuelLevel.toStringAsFixed(0)}%',
-                              subtitle: 'Remaining',
-                              color: data.fuelLevel < 15
-                                  ? AppTheme.dangerRed
-                                  : AppTheme.successGreen,
-                              icon: '⛽',
-                            ),
-                            _buildStatCard(
-                              context,
-                              title: 'Battery',
-                              value: '${data.battery.toStringAsFixed(0)}%',
-                              subtitle: 'System Power',
-                              color: data.battery < 20
-                                  ? AppTheme.dangerRed
-                                  : AppTheme.primaryNeon,
-                              icon: '🔋',
-                            ),
-                          ],
-                        ),
+                        
+                        // SAFETY SHIELD CORE (Units A, B, C, D)
+                        _buildSafetyShieldGrid(data),
                         const SizedBox(height: 24),
-
-                        // Status Panels
-                        _buildStatusPanel(context, data),
-                        const SizedBox(height: 24),
-
-                        // Tire Pressures
-                        _buildTirPressurePanel(context, data),
-                        const SizedBox(height: 24),
-
-                        // Connection Status
-                        _buildConnectionPanel(context, sensorService),
+                        
+                        // REAL-TIME ALERT CENTER
+                        if (service.activeAlerts.isNotEmpty) _buildAlertCenter(service.activeAlerts),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
-                )
-              : Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.cloud_off,
-                        size: 64,
-                        color: AppTheme.textSecondary,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No Data Available',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        sensorService.connectionStatus,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: () => sensorService.simulateData(),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Start Simulation'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryNeon,
-                          foregroundColor: AppTheme.darkBackground,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _selectedIndex,
-            onTap: (index) {
-              setState(() => _selectedIndex = index);
-            },
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.dashboard),
-                label: 'Dashboard',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.warning),
-                label: 'Alerts',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.analytics),
-                label: 'Analytics',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.settings),
-                label: 'Settings',
-              ),
-            ],
-          ),
-        );
-      },
+                _buildSafetyControlBar(service),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildStatCard(
-    BuildContext context, {
-    required String title,
-    required String value,
-    required String subtitle,
-    required Color color,
-    required String icon,
-  }) {
+  Widget _buildHeader(WiFiSensorService service) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppTheme.cardBackground,
-            AppTheme.darkSurface,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withOpacity(0.3),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 8,
-            spreadRadius: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('DRIVORA U-ADAS', 
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
+              Text(service.isSimulating ? 'SAFETY SHIELD ACTIVE' : 'SYSTEMS STANDBY',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: service.isSimulating ? AppTheme.primaryNeon : Colors.white24, letterSpacing: 2)),
+            ],
           ),
+          Row(
+            children: [
+              _unitIndicator('A', service.currentData.unitAOnline),
+              _unitIndicator('B', service.currentData.unitBOnline),
+              _unitIndicator('C', service.currentData.unitCOnline),
+              _unitIndicator('D', service.currentData.unitDOnline),
+            ],
+          )
         ],
       ),
+    );
+  }
+
+  Widget _unitIndicator(String label, bool online) {
+    final color = online ? AppTheme.primaryNeon : Colors.red;
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      width: 24, height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: color.withOpacity(0.5), width: 1),
+        color: color.withOpacity(0.05),
+      ),
+      child: Center(child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color))),
+    );
+  }
+
+  Widget _buildSafetyShieldGrid(DrivoraSensorData data) {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      childAspectRatio: 1.4,
+      children: [
+        _safetyPanel('Unit A: Front Radar', 'TTC: ${data.ttc.toStringAsFixed(1)}s', 
+            data.ttc < 3.0 ? AppTheme.dangerRed : AppTheme.primaryNeon, 'Collision Warning'),
+        _safetyPanel('Unit D: AI Vision', 'POS: ${data.lanePosition > 0 ? "R" : "L"} ${data.lanePosition.abs().toStringAsFixed(2)}', 
+            data.ldwActive ? AppTheme.warningYellow : AppTheme.secondaryBlue, 'Lane Departure'),
+        _safetyPanel('Unit C: Dynamics', 'LAT-G: ${data.lateralG.toStringAsFixed(2)}', 
+            data.tiltAngle.abs() > 15 ? AppTheme.dangerRed : AppTheme.successGreen, 'Stability Monitor'),
+        _safetyPanel('Unit B: Rear Hub', 'SIDE: ${data.blindSpotLeftDist.toInt()}m | ${data.blindSpotRightDist.toInt()}m', 
+            AppTheme.primaryNeon, 'Blind Spot Safety'),
+      ],
+    );
+  }
+
+  Widget _safetyPanel(String unit, String val, Color color, String feature) {
+    return GlassmorphicContainer(
+      width: double.infinity, height: double.infinity, borderRadius: 24, blur: 20, alignment: Alignment.center, border: 1,
+      linearGradient: LinearGradient(colors: [Colors.white.withOpacity(0.05), Colors.white.withOpacity(0.02)]),
+      borderGradient: LinearGradient(colors: [color.withOpacity(0.3), Colors.transparent]),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-                Text(
-                  icon,
-                  style: const TextStyle(fontSize: 20),
-                ),
-              ],
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+            Text(unit, style: const TextStyle(fontSize: 10, color: Colors.white38, fontWeight: FontWeight.bold)),
+            Text(val, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color, fontFamily: 'RobotoMono')),
+            Text(feature, style: const TextStyle(fontSize: 9, color: Colors.white24, fontWeight: FontWeight.bold, letterSpacing: 1)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildStatusPanel(BuildContext context, SensorData data) {
+  Widget _buildAlertCenter(List<SafetyAlert> alerts) {
+    return Column(
+      children: alerts.map((a) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.dangerRed.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.dangerRed.withOpacity(0.3)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.warning_amber_rounded, color: AppTheme.dangerRed, size: 28),
+          const SizedBox(width: 15),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(a.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14)),
+            Text(a.message, style: const TextStyle(fontSize: 12, color: Colors.white60)),
+          ])),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+            child: Text(a.unitSource, style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.bold)),
+          ),
+        ]),
+      )).toList(),
+    );
+  }
+
+  Widget _buildSafetyControlBar(WiFiSensorService service) {
     return Container(
+      padding: const EdgeInsets.all(25),
       decoration: BoxDecoration(
-        color: AppTheme.cardBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppTheme.primaryNeon.withOpacity(0.3),
-          width: 1,
-        ),
+        color: AppTheme.darkSurface,
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Vehicle Status',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AppTheme.primaryNeon,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            _buildStatusLine(
-              'Engine',
-              data.engineStatus ? '✓ Running' : '✗ Off',
-              data.engineStatus ? AppTheme.successGreen : AppTheme.textSecondary,
-            ),
-            _buildStatusLine(
-              'Brake',
-              data.brakeStatus ? '🛑 Applied' : '○ Released',
-              data.brakeStatus ? AppTheme.dangerRed : AppTheme.successGreen,
-            ),
-            _buildStatusLine(
-              'Signals',
-              '${data.leftSignal ? 'L ' : ''}${data.rightSignal ? 'R ' : ''}${!data.leftSignal && !data.rightSignal ? 'Off' : ''}',
-              AppTheme.warningYellow,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusLine(String label, String status, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium,
+          const Icon(Icons.security, color: Colors.white24),
+          ElevatedButton(
+            onPressed: service.isSimulating ? service.stopSimulation : service.startSafetySimulation,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: service.isSimulating ? AppTheme.dangerRed : AppTheme.primaryNeon,
+              foregroundColor: Colors.black,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 18)
+            ),
+            child: Text(service.isSimulating ? 'DISENGAGE SHIELD' : 'ENGAGE SAFETY SHIELD', 
+              style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 12)),
           ),
-          Text(
-            status,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
+          const Icon(Icons.wifi, color: Colors.white24),
         ],
       ),
-    );
-  }
-
-  Widget _buildTirPressurePanel(BuildContext context, SensorData data) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppTheme.primaryNeon.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Tire Pressure',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AppTheme.primaryNeon,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildTirePressureIndicator('FL', data.tirePressureFL),
-                _buildTirePressureIndicator('FR', data.tirePressureFR),
-                _buildTirePressureIndicator('RL', data.tirePressureRL),
-                _buildTirePressureIndicator('RR', data.tirePressureRR),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTirePressureIndicator(String label, double pressure) {
-    final color = pressure < 30 || pressure > 35
-        ? AppTheme.dangerRed
-        : AppTheme.successGreen;
-
-    return Column(
-      children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-            color: color.withOpacity(0.1),
-          ),
-          child: Center(
-            child: Text(
-              pressure.toStringAsFixed(1),
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConnectionPanel(
-      BuildContext context, WiFiSensorService sensorService) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppTheme.primaryNeon.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'WiFi Sensor Connection',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AppTheme.primaryNeon,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              sensorService.connectionStatus,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: sensorService.isSimulating
-                  ? () => sensorService.stopSimulation()
-                  : () => sensorService.simulateData(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: sensorService.isSimulating
-                    ? AppTheme.dangerRed
-                    : AppTheme.primaryNeon,
-                foregroundColor: AppTheme.darkBackground,
-              ),
-              icon: Icon(
-                sensorService.isSimulating ? Icons.stop : Icons.play_arrow,
-              ),
-              label: Text(
-                sensorService.isSimulating ? 'Stop' : 'Start Sim',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-                ],
-              ),
-            ],
-          ),
-          _buildUnitHealthIndicators(service),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUnitHealthIndicators(CANBusService service) {
-    return Row(
-      children: [
-        _buildUnitIndicator('A', service.unitAHealth),
-        const SizedBox(width: 8),
-        _buildUnitIndicator('B', service.unitBHealth),
-        const SizedBox(width: 8),
-        _buildUnitIndicator('C', service.unitCHealth),
-        const SizedBox(width: 8),
-        _buildUnitIndicator('D', service.unitDHealth),
-      ],
-    );
-  }
-
-  Widget _buildUnitIndicator(String label, SystemHealth health) {
-    final color = health.isConnected && health.sensorFunctional
-        ? AppTheme.successGreen
-        : health.isConnected
-            ? AppTheme.warningYellow
-            : AppTheme.dangerRed;
-
-    return Tooltip(
-      message: 'Unit $label: ${health.signalStrength}%',
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.2),
-          border: Border.all(color: color, width: 2),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlertIndicator(CANBusService service) {
-    final hasCritical =
-        service.activeAlerts.any((a) => a.severity == AlertSeverity.critical);
-
-    return GestureDetector(
-      onTap: () =>
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Active Safety Alerts - Review recommended'),
-          )),
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: hasCritical ? AppTheme.dangerRed : AppTheme.warningYellow,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${service.activeAlerts.length} Active Alert${service.activeAlerts.length > 1 ? 's' : ''}',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNav(BuildContext context) {
-    return BottomNavigationBar(
-      backgroundColor: AppTheme.darkSurface,
-      selectedItemColor: AppTheme.primaryNeon,
-      unselectedItemColor: AppTheme.primaryNeon.withOpacity(0.5),
-      currentIndex: _selectedIndex,
-      type: BottomNavigationBarType.fixed,
-      onTap: (index) {
-        setState(() => _selectedIndex = index);
-      },
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.radar),
-          label: 'FCW',
-          tooltip: 'Forward Collision Warning',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.visibility_off),
-          label: 'Rear',
-          tooltip: 'Rear Safety',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.balance),
-          label: 'Dynamics',
-          tooltip: 'COG & Rollover',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.timeline),
-          label: 'LDW',
-          tooltip: 'Lane Departure Warning',
-        ),
-      ],
     );
   }
 }

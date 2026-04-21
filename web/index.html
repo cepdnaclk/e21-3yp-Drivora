@@ -1,98 +1,1192 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <base href="$FLUTTER_BASE_HREF">
-    <meta charset="UTF-8">
-    <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-    <meta name="description" content="Drivora - Advanced Flutter Driver Assistant">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="Drivora">
-    <link rel="apple-touch-icon" href="icons/Icon-192.png">
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap');
 
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" href="favicon.png">
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    <!-- iOS launch screen icons -->
-    <link rel="apple-touch-startup-image" href="icons/Icon-512.png">
+  :root {
+    --bg: #f5f5f7;
+    --panel: #ffffff;
+    --text-primary: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --accent: #0a84ff;
+    --accent-green: #30d158;
+    --accent-amber: #ff9f0a;
+    --accent-red: #ff3b30;
+    --border: rgba(0,0,0,0.08);
+    --shadow: 0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+    --shadow-lg: 0 8px 40px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.05);
+  }
 
-    <title>Drivora - Driver Assistant</title>
-    <link rel="manifest" href="manifest.json">
+  body {
+    background: var(--bg);
+    font-family: 'Rajdhani', sans-serif;
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    user-select: none;
+  }
 
-    <script>
-        // The value of window.FLUTTER_ENV is injected by flutter serve, build, etc.
-        const serviceWorkerVersion = null;
-    </script>
-    <!-- This script adds the flutter initialization JS code -->
-    <script src="flutter.js" defer></script>
+  /* Top Header Bar */
+  .header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(20px);
+  }
 
-    <style>
-        html, body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            background: #050A10;
-            font-family: 'Roboto', sans-serif;
-        }
+  .header-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
 
-        body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-        }
+  .logo-mark {
+    width: 32px;
+    height: 32px;
+    background: var(--text-primary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
-        #loading {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #050A10 0%, #080E18 100%);
-        }
+  .logo-mark svg { width: 18px; height: 18px; }
 
-        .spinner {
-            border: 4px solid rgba(0, 245, 212, 0.1);
-            border-top: 4px solid #00F5D4;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-        }
+  .logo-name {
+    font-family: 'Orbitron', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--text-primary);
+  }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+  .header-center {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
-        .loading-text {
-            color: #00F5D4;
-            font-size: 18px;
-            margin-top: 20px;
-            font-weight: bold;
-        }
-    </style>
+  .shield-badge {
+    background: var(--accent-green);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    animation: pulseGreen 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseGreen {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.3); }
+    50% { box-shadow: 0 0 0 6px rgba(48, 209, 88, 0); }
+  }
+
+  .shield-dot {
+    width: 6px; height: 6px;
+    background: white;
+    border-radius: 50%;
+    animation: blink 1.5s step-end infinite;
+  }
+
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .header-time {
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  /* Main Layout */
+  .main {
+    display: grid;
+    grid-template-columns: 300px 1fr 300px;
+    gap: 0;
+    min-height: calc(100vh - 56px);
+  }
+
+  /* Side Panels */
+  .side-panel {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .side-panel.right {
+    border-right: none;
+    border-left: 1px solid var(--border);
+  }
+
+  .panel-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 2.5px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  /* Safety Feature Card */
+  .feature-card {
+    background: var(--bg);
+    border-radius: 16px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .feature-card.active { border-color: var(--accent-green); }
+  .feature-card.warning { border-color: var(--accent-amber); }
+  .feature-card.alert { border-color: var(--accent-red); animation: alertPulse 0.8s ease-in-out infinite; }
+
+  @keyframes alertPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.15); }
+    50% { box-shadow: 0 0 0 8px rgba(255, 59, 48, 0); }
+  }
+
+  .feature-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .feature-icon-wrap {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .feature-icon-wrap.green { background: rgba(48, 209, 88, 0.12); }
+  .feature-icon-wrap.blue { background: rgba(10, 132, 255, 0.12); }
+  .feature-icon-wrap.amber { background: rgba(255, 159, 10, 0.12); }
+  .feature-icon-wrap.red { background: rgba(255, 59, 48, 0.12); }
+
+  .feature-icon-wrap svg { width: 18px; height: 18px; }
+
+  .status-pill {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  .status-pill.ok { background: rgba(48,209,88,0.1); color: var(--accent-green); }
+  .status-pill.warn { background: rgba(255,159,10,0.1); color: var(--accent-amber); }
+  .status-pill.alert { background: rgba(255,59,48,0.1); color: var(--accent-red); }
+
+  .feature-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    letter-spacing: 0.3px;
+  }
+
+  .feature-abbr {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+  }
+
+  .feature-metric {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .metric-val {
+    font-family: 'Orbitron', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .metric-val.green { color: var(--accent-green); }
+  .metric-val.blue { color: var(--accent); }
+  .metric-val.amber { color: var(--accent-amber); }
+  .metric-val.red { color: var(--accent-red); }
+
+  .metric-unit {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .metric-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  /* Mini bar chart */
+  .mini-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 28px;
+    margin-top: 8px;
+  }
+
+  .mini-bar {
+    flex: 1;
+    border-radius: 2px;
+    transition: height 0.5s ease;
+  }
+
+  /* Arc gauge */
+  .gauge-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 4px 0;
+  }
+
+  /* Radar Sweep Animation */
+  .radar-sweep-container {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 8px;
+  }
+
+  /* Center Car Display */
+  .center-display {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 20px;
+    position: relative;
+  }
+
+  .car-scene {
+    width: 100%;
+    max-width: 520px;
+    background: var(--panel);
+    border-radius: 24px;
+    border: 1px solid var(--border);
+    padding: 24px;
+    position: relative;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 16px;
+  }
+
+  .car-scene-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  /* 3D Car SVG */
+  .car-svg-wrap {
+    position: relative;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Safety zone rings */
+  .zone-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid;
+    animation: ringPulse 2.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes ringPulse {
+    0% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.15); }
+  }
+
+  /* Bottom stats strip */
+  .stats-strip {
+    width: 100%;
+    max-width: 520px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .stat-tile {
+    background: var(--panel);
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    padding: 14px 12px;
+    text-align: center;
+    transition: all 0.3s ease;
+  }
+
+  .stat-tile:hover { box-shadow: var(--shadow); }
+
+  .stat-tile-val {
+    font-family: 'Orbitron', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .stat-tile-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+  }
+
+  /* Alert Banner */
+  .alert-banner {
+    background: rgba(255, 59, 48, 0.06);
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    border-radius: 12px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--accent-red);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    width: 100%;
+    max-width: 520px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .alert-banner.visible { opacity: 1; }
+
+  .alert-icon { font-size: 16px; animation: shake 0.5s ease-in-out infinite; }
+
+  @keyframes shake {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-5deg); }
+    75% { transform: rotate(5deg); }
+  }
+
+  /* Radar dots on car scene */
+  .radar-dot {
+    position: absolute;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 6px var(--accent-green);
+    animation: dotPulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes dotPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: 0.7; }
+  }
+
+  /* COG indicator */
+  .cog-meter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .cog-bar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(0,0,0,0.06);
+    border-radius: 3px;
+    position: relative;
+    margin: 8px 0;
+    overflow: visible;
+  }
+
+  .cog-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-amber) 70%, var(--accent-red) 100%);
+    transition: width 1s ease;
+    position: relative;
+  }
+
+  .cog-bar-thumb {
+    position: absolute;
+    right: -5px;
+    top: -5px;
+    width: 16px; height: 16px;
+    background: var(--panel);
+    border-radius: 50%;
+    border: 2px solid var(--accent-amber);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+
+  /* Scan line animation on car */
+  @keyframes scanDown {
+    0% { top: 5%; opacity: 0.8; }
+    100% { top: 95%; opacity: 0; }
+  }
+
+  .scan-line {
+    position: absolute;
+    left: 5%;
+    width: 90%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scanDown 3s linear infinite;
+    pointer-events: none;
+  }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+
+  /* Unit info chips */
+  .unit-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .chip {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.04);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  /* Signal bars */
+  .signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
+  }
+
+  .sig-bar {
+    width: 4px;
+    background: var(--accent-green);
+    border-radius: 1px;
+    transition: all 0.5s ease;
+  }
+
+  .sig-bar.off { background: var(--border); }
+
+  /* Radar canvas ring */
+  .radar-canvas-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 4px 0;
+  }
+
+</style>
 </head>
 <body>
-    <div id="loading">
-        <div>
-            <div class="spinner"></div>
-            <div class="loading-text">Loading Drivora...</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 20 20" fill="none">
+        <path d="M10 2L4 5v6c0 3.3 2.5 6.4 6 7.4C16.5 17.4 19 14.3 19 11V5L10 2z" fill="white" opacity="0.9"/>
+        <path d="M7 10l2 2 4-4" stroke="#1d1d1f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <span class="logo-name">DRIVORA</span>
+  </div>
+  <div class="header-center">
+    <div class="shield-badge">
+      <div class="shield-dot"></div>
+      SAFETY SHIELD ACTIVE
+    </div>
+  </div>
+  <div class="header-time" id="clock">--:--:--</div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main">
+
+  <!-- LEFT PANEL: FCW + LDW -->
+  <div class="side-panel">
+    <div class="panel-title">Forward Systems</div>
+
+    <!-- FCW Card -->
+    <div class="feature-card" id="fcw-card" onclick="triggerAlert('fcw')">
+      <div class="feature-header">
+        <div class="feature-icon-wrap green">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L3 7v10l9 5 9-5V7L12 2z" stroke="#30d158" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 8v5M12 16h.01" stroke="#30d158" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
         </div>
+        <span class="status-pill ok" id="fcw-status">CLEAR</span>
+      </div>
+      <div class="feature-name">Forward Collision Warning</div>
+      <div class="feature-abbr">FCW · UNIT A · DUAL 24GHz DOPPLER</div>
+      <div class="feature-metric">
+        <span class="metric-val green" id="fcw-val">8.4</span>
+        <span class="metric-unit">s TTC</span>
+      </div>
+      <div class="metric-sub" id="fcw-sub">Time-to-collision nominal</div>
+      <div class="mini-bars" id="fcw-bars"></div>
+      <div class="divider" style="margin-top:10px"></div>
+      <div class="unit-chips">
+        <span class="chip">ESP32-C3</span>
+        <span class="chip">CDM324×2</span>
+        <span class="chip">LM358 AMP</span>
+      </div>
     </div>
 
-    <script>
-        window.addEventListener('flutter-first-frame', function() {
-            document.querySelector('#loading').style.display = 'none';
-        });
-        _flutter.loader.loadEntrypoint({
-            serviceWorkerVersion: serviceWorkerVersion,
-        }).then(function(engineInitializer) {
-            return engineInitializer.initializeEngine();
-        }).then(function(appRunner) {
-            return appRunner.runApp();
-        });
-    </script>
+    <!-- LDW Card -->
+    <div class="feature-card" id="ldw-card" onclick="triggerAlert('ldw')">
+      <div class="feature-header">
+        <div class="feature-icon-wrap blue">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 17L12 3l9 14H3z" stroke="#0a84ff" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 8v5M12 16h.01" stroke="#0a84ff" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <span class="status-pill ok" id="ldw-status">CENTERED</span>
+      </div>
+      <div class="feature-name">Lane Departure Warning</div>
+      <div class="feature-abbr">LDW · UNIT D · AI-VISION OV2640</div>
+
+      <!-- Lane preview strip -->
+      <div style="position:relative;height:48px;background:rgba(10,132,255,0.04);border-radius:10px;margin:8px 0;overflow:hidden;border:1px solid rgba(10,132,255,0.1)">
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(10,132,255,0.15);transform:translateX(-50%)"></div>
+        <!-- Road markings -->
+        <div style="position:absolute;left:28%;top:50%;width:1.5px;height:60%;background:#0a84ff;opacity:0.6;transform:translateY(-50%)"></div>
+        <div style="position:absolute;right:28%;top:50%;width:1.5px;height:60%;background:#0a84ff;opacity:0.6;transform:translateY(-50%)"></div>
+        <!-- Vehicle position indicator -->
+        <div id="lane-car" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:18px;height:28px;border-radius:4px;background:#0a84ff;opacity:0.8;transition:left 0.5s ease">
+          <div style="width:100%;height:3px;background:white;opacity:0.4;border-radius:1px;margin-top:4px"></div>
+          <div style="width:100%;height:3px;background:white;opacity:0.4;border-radius:1px;margin-top:3px"></div>
+        </div>
+      </div>
+
+      <div class="feature-metric">
+        <span class="metric-val blue" id="ldw-val">0.0</span>
+        <span class="metric-unit">m offset</span>
+      </div>
+      <div class="metric-sub">Lane position nominal</div>
+      <div class="divider" style="margin-top:8px"></div>
+      <div class="unit-chips">
+        <span class="chip">ESP32-S3</span>
+        <span class="chip">8MB PSRAM</span>
+        <span class="chip">OV2640 CAM</span>
+      </div>
+    </div>
+
+    <!-- Signal quality -->
+    <div style="background:var(--bg);border-radius:12px;padding:12px 14px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:10px;letter-spacing:1.5px;color:var(--text-secondary)">CAN-BUS BACKBONE</span>
+        <div class="signal-bars" id="signal-bars"></div>
+      </div>
+      <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--accent-green)">4-CORE SHIELDED · ACTIVE</div>
+      <div style="font-size:10px;color:var(--text-secondary);margin-top:2px">PWR · GND · CAN_H · CAN_L</div>
+    </div>
+  </div>
+
+  <!-- CENTER: Car Visualization -->
+  <div class="center-display">
+
+    <!-- Alert Banner -->
+    <div class="alert-banner" id="alert-banner">
+      <span class="alert-icon">⚠</span>
+      <span id="alert-text">WARNING: Collision detected</span>
+    </div>
+
+    <!-- Car Scene -->
+    <div class="car-scene">
+      <div class="car-scene-title">REAL-TIME SENSOR FUSION · 360° SAFETY ENVELOPE</div>
+
+      <div class="car-svg-wrap">
+        <svg viewBox="0 0 480 340" width="100%" style="max-height:340px">
+          <defs>
+            <radialGradient id="carBody" cx="50%" cy="40%" r="60%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="60%" stop-color="#e8e8ed"/>
+              <stop offset="100%" stop-color="#d0d0d8"/>
+            </radialGradient>
+            <radialGradient id="roofGrad" cx="50%" cy="30%" r="60%">
+              <stop offset="0%" stop-color="#f0f0f5"/>
+              <stop offset="100%" stop-color="#c8c8d0"/>
+            </radialGradient>
+            <radialGradient id="groundGrad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="rgba(10,132,255,0.08)"/>
+              <stop offset="100%" stop-color="rgba(10,132,255,0)"/>
+            </radialGradient>
+
+            <!-- FCW cone gradient -->
+            <linearGradient id="fcwGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#30d158" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="#30d158" stop-opacity="0.02"/>
+            </linearGradient>
+
+            <!-- Side sensor gradient -->
+            <radialGradient id="sideGrad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#0a84ff" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#0a84ff" stop-opacity="0"/>
+            </radialGradient>
+
+            <!-- Rear gradient -->
+            <linearGradient id="rearGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ff9f0a" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="#ff9f0a" stop-opacity="0.02"/>
+            </linearGradient>
+
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- Ground shadow / reflection -->
+          <ellipse cx="240" cy="300" rx="140" ry="22" fill="url(#groundGrad)"/>
+          <ellipse cx="240" cy="300" rx="100" ry="12" fill="rgba(0,0,0,0.04)"/>
+
+          <!-- FCW radar cone (forward) -->
+          <path id="fcw-cone" d="M240 130 L160 30 L240 20 L320 30 Z" fill="url(#fcwGrad)" opacity="1">
+            <animate attributeName="opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite"/>
+          </path>
+
+          <!-- FCW radar arc lines -->
+          <path d="M195 95 Q240 50 285 95" fill="none" stroke="#30d158" stroke-width="0.8" opacity="0.4" stroke-dasharray="3,3"/>
+          <path d="M175 70 Q240 20 305 70" fill="none" stroke="#30d158" stroke-width="0.8" opacity="0.25" stroke-dasharray="3,3"/>
+          <path d="M215 110 Q240 80 265 110" fill="none" stroke="#30d158" stroke-width="1" opacity="0.5"/>
+
+          <!-- Side safety zones -->
+          <ellipse id="side-left" cx="185" cy="200" rx="45" ry="30" fill="url(#sideGrad)" opacity="0.8">
+            <animate attributeName="rx" values="40;48;40" dur="2.5s" repeatCount="indefinite"/>
+          </ellipse>
+          <ellipse id="side-right" cx="295" cy="200" rx="45" ry="30" fill="url(#sideGrad)" opacity="0.8">
+            <animate attributeName="rx" values="40;48;40" dur="2.5s" begin="0.5s" repeatCount="indefinite"/>
+          </ellipse>
+
+          <!-- Rear safety zone -->
+          <path d="M200 285 Q240 330 280 285 L290 310 Q240 360 190 310 Z" fill="url(#rearGrad)" opacity="0.9">
+            <animate attributeName="opacity" values="0.5;0.9;0.5" dur="3s" repeatCount="indefinite"/>
+          </path>
+          <path d="M210 285 Q240 315 270 285" fill="none" stroke="#ff9f0a" stroke-width="0.8" opacity="0.5" stroke-dasharray="4,4"/>
+          <path d="M205 295 Q240 330 275 295" fill="none" stroke="#ff9f0a" stroke-width="0.8" opacity="0.3" stroke-dasharray="4,4"/>
+
+          <!-- === 3D TRUCK BODY === -->
+          <!-- Wheels shadows -->
+          <ellipse cx="198" cy="288" rx="22" ry="5" fill="rgba(0,0,0,0.1)"/>
+          <ellipse cx="282" cy="288" rx="22" ry="5" fill="rgba(0,0,0,0.1)"/>
+          <ellipse cx="198" cy="185" rx="22" ry="5" fill="rgba(0,0,0,0.1)"/>
+          <ellipse cx="282" cy="185" rx="22" ry="5" fill="rgba(0,0,0,0.1)"/>
+
+          <!-- Rear wheels (right side perspective) -->
+          <rect x="270" y="262" width="32" height="36" rx="16" fill="#2c2c2e"/>
+          <rect x="274" y="266" width="24" height="28" rx="12" fill="#48484a"/>
+          <circle cx="286" cy="280" r="8" fill="#636366"/>
+          <circle cx="286" cy="280" r="3" fill="#1c1c1e"/>
+
+          <rect x="176" y="262" width="32" height="36" rx="16" fill="#2c2c2e"/>
+          <rect x="180" y="266" width="24" height="28" rx="12" fill="#48484a"/>
+          <circle cx="192" cy="280" r="8" fill="#636366"/>
+          <circle cx="192" cy="280" r="3" fill="#1c1c1e"/>
+
+          <!-- Front wheels -->
+          <rect x="270" y="158" width="32" height="36" rx="16" fill="#2c2c2e"/>
+          <rect x="274" y="162" width="24" height="28" rx="12" fill="#48484a"/>
+          <circle cx="286" cy="176" r="8" fill="#636366"/>
+          <circle cx="286" cy="176" r="3" fill="#1c1c1e"/>
+
+          <rect x="176" y="158" width="32" height="36" rx="16" fill="#2c2c2e"/>
+          <rect x="180" y="162" width="24" height="28" rx="12" fill="#48484a"/>
+          <circle cx="192" cy="176" r="8" fill="#636366"/>
+          <circle cx="192" cy="176" r="3" fill="#1c1c1e"/>
+
+          <!-- === TRUCK BODY (top-down perspective) === -->
+          <!-- Main body -->
+          <rect x="193" y="140" width="94" height="158" rx="10" fill="url(#carBody)"/>
+
+          <!-- Truck cab (front) -->
+          <rect x="197" y="140" width="86" height="55" rx="8" fill="url(#roofGrad)"/>
+
+          <!-- Windshield -->
+          <rect x="205" y="148" width="70" height="30" rx="5" fill="rgba(120,180,255,0.25)" stroke="rgba(100,160,240,0.3)" stroke-width="0.5"/>
+
+          <!-- Cab interior detail -->
+          <rect x="225" y="155" width="30" height="8" rx="2" fill="rgba(0,0,0,0.08)"/>
+
+          <!-- Side windows -->
+          <rect x="197" y="152" width="6" height="16" rx="2" fill="rgba(120,180,255,0.2)"/>
+          <rect x="277" y="152" width="6" height="16" rx="2" fill="rgba(120,180,255,0.2)"/>
+
+          <!-- Truck cargo area -->
+          <rect x="196" y="198" width="88" height="95" rx="6" fill="rgba(210,210,220,0.6)" stroke="rgba(180,180,190,0.5)" stroke-width="0.5"/>
+
+          <!-- Cargo lines -->
+          <line x1="196" y1="225" x2="284" y2="225" stroke="rgba(150,150,160,0.3)" stroke-width="0.5"/>
+          <line x1="196" y1="252" x2="284" y2="252" stroke="rgba(150,150,160,0.3)" stroke-width="0.5"/>
+          <line x1="196" y1="278" x2="284" y2="278" stroke="rgba(150,150,160,0.3)" stroke-width="0.5"/>
+          <line x1="240" y1="198" x2="240" y2="293" stroke="rgba(150,150,160,0.3)" stroke-width="0.5"/>
+
+          <!-- Body highlight -->
+          <rect x="200" y="143" width="80" height="2" rx="1" fill="rgba(255,255,255,0.7)"/>
+          <rect x="200" y="143" width="2" height="148" rx="1" fill="rgba(255,255,255,0.4)"/>
+
+          <!-- Body shadow right -->
+          <rect x="278" y="145" width="4" height="144" rx="2" fill="rgba(0,0,0,0.07)"/>
+
+          <!-- Front bumper -->
+          <rect x="201" y="137" width="78" height="8" rx="4" fill="#d0d0d8"/>
+
+          <!-- Headlights -->
+          <rect x="203" y="138" width="16" height="6" rx="3" fill="rgba(255,220,120,0.7)" filter="url(#glow)"/>
+          <rect x="261" y="138" width="16" height="6" rx="3" fill="rgba(255,220,120,0.7)" filter="url(#glow)"/>
+
+          <!-- Rear lights -->
+          <rect x="202" y="289" width="14" height="5" rx="2" fill="rgba(255,59,48,0.6)"/>
+          <rect x="264" y="289" width="14" height="5" rx="2" fill="rgba(255,59,48,0.6)"/>
+
+          <!-- IMU/COG sensor dot (center chassis) -->
+          <circle cx="240" cy="232" r="4" fill="#ff9f0a" opacity="0.8" filter="url(#glow)"/>
+          <circle cx="240" cy="232" r="2" fill="#ff9f0a"/>
+
+          <!-- Camera/radar unit labels -->
+          <rect x="232" y="135" width="16" height="6" rx="2" fill="#30d158" opacity="0.8"/>
+          <text x="240" y="140" text-anchor="middle" fill="white" font-size="4" font-family="monospace" font-weight="bold">FCW</text>
+
+          <!-- Scan line overlay -->
+          <rect class="scan-line" x="193" y="140" width="94" height="158" rx="10" fill="none" opacity="0"/>
+
+          <!-- Sensor dots on sides -->
+          <circle cx="193" cy="190" r="3" fill="#0a84ff" opacity="0.9" filter="url(#glow)">
+            <animate attributeName="r" values="2;4;2" dur="2s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="287" cy="190" r="3" fill="#0a84ff" opacity="0.9" filter="url(#glow)">
+            <animate attributeName="r" values="2;4;2" dur="2s" begin="0.5s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="240" cy="295" r="3" fill="#ff9f0a" opacity="0.9" filter="url(#glow)">
+            <animate attributeName="r" values="2;4;2" dur="2.5s" repeatCount="indefinite"/>
+          </circle>
+
+          <!-- Unit labels floating -->
+          <text x="155" y="193" text-anchor="middle" fill="#0a84ff" font-size="7" font-family="'Rajdhani',sans-serif" font-weight="700" opacity="0.8">UNIT B</text>
+          <text x="325" y="193" text-anchor="middle" fill="#0a84ff" font-size="7" font-family="'Rajdhani',sans-serif" font-weight="700" opacity="0.8">UNIT B</text>
+          <text x="240" y="328" text-anchor="middle" fill="#ff9f0a" font-size="7" font-family="'Rajdhani',sans-serif" font-weight="700" opacity="0.8">UNIT B · REAR</text>
+          <text x="240" y="108" text-anchor="middle" fill="#30d158" font-size="7" font-family="'Rajdhani',sans-serif" font-weight="700" opacity="0.8">UNIT A · FCW ZONE</text>
+
+          <!-- COG label -->
+          <text x="258" y="234" fill="#ff9f0a" font-size="7" font-family="'Rajdhani',sans-serif" font-weight="700" opacity="0.8">UNIT C</text>
+
+        </svg>
+      </div>
+
+      <!-- Scan line CSS overlay -->
+      <div class="scan-line" style="border-radius:24px"></div>
+    </div>
+
+    <!-- Bottom Stats Strip -->
+    <div class="stats-strip">
+      <div class="stat-tile">
+        <div class="stat-tile-val" style="color:var(--accent-green)" id="stat-ttc">8.4<span style="font-size:12px">s</span></div>
+        <div class="stat-tile-label">TTC</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-tile-val" style="color:var(--accent)" id="stat-lane">0.0<span style="font-size:12px">m</span></div>
+        <div class="stat-tile-label">Lane Offset</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-tile-val" style="color:var(--accent-amber)" id="stat-lat">0.08<span style="font-size:12px">g</span></div>
+        <div class="stat-tile-label">Lateral G</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-tile-val" style="color:var(--accent-green)" id="stat-score">98<span style="font-size:12px">%</span></div>
+        <div class="stat-tile-label">Safety Score</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL: Side+Rear + COG -->
+  <div class="side-panel right">
+    <div class="panel-title">Rear & Dynamics</div>
+
+    <!-- Side & Rear Safety Card -->
+    <div class="feature-card" id="side-card" onclick="triggerAlert('side')">
+      <div class="feature-header">
+        <div class="feature-icon-wrap amber">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M21 12H3M3 12l4-4M3 12l4 4" stroke="#ff9f0a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="19" cy="8" r="2.5" stroke="#ff9f0a" stroke-width="1.5"/>
+            <circle cx="19" cy="16" r="2.5" stroke="#ff9f0a" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <span class="status-pill ok" id="side-status">ALL CLEAR</span>
+      </div>
+      <div class="feature-name">Side & Rear Safety</div>
+      <div class="feature-abbr">BSM · RCTA · UNIT B · 3×ULTRASONIC</div>
+
+      <!-- Sensor array visualization -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:10px 0">
+        <div style="text-align:center">
+          <canvas id="sensor-l" width="70" height="50"></canvas>
+          <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.5px">LEFT</div>
+        </div>
+        <div style="text-align:center">
+          <canvas id="sensor-r" width="70" height="50"></canvas>
+          <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.5px">RIGHT</div>
+        </div>
+        <div style="text-align:center">
+          <canvas id="sensor-b" width="70" height="50"></canvas>
+          <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.5px">REAR</div>
+        </div>
+      </div>
+
+      <div class="feature-metric">
+        <span class="metric-val amber" id="side-val">3.8</span>
+        <span class="metric-unit">m nearest</span>
+      </div>
+      <div class="metric-sub">No objects in blind zone</div>
+      <div class="divider" style="margin-top:8px"></div>
+      <div class="unit-chips">
+        <span class="chip">ESP32-C3</span>
+        <span class="chip">JSN-SR04T×3</span>
+      </div>
+    </div>
+
+    <!-- COG & Rollover Card -->
+    <div class="feature-card" id="cog-card" onclick="triggerAlert('cog')">
+      <div class="feature-header">
+        <div class="feature-icon-wrap red">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="#ff3b30" stroke-width="1.5"/>
+            <path d="M12 8v4l3 3" stroke="#ff3b30" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M5 12H3M21 12h-2M12 3V5M12 19v2" stroke="#ff3b30" stroke-width="1" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <span class="status-pill ok" id="cog-status">STABLE</span>
+      </div>
+      <div class="feature-name">Dynamics & Rollover Monitor</div>
+      <div class="feature-abbr">COG · UNIT C · BNO055 9-AXIS IMU</div>
+
+      <!-- COG visualization -->
+      <div class="gauge-wrap" style="margin:10px 0">
+        <svg viewBox="0 0 200 110" width="200" height="110">
+          <defs>
+            <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#30d158"/>
+              <stop offset="50%" stop-color="#ff9f0a"/>
+              <stop offset="100%" stop-color="#ff3b30"/>
+            </linearGradient>
+          </defs>
+
+          <!-- Arc track -->
+          <path d="M20 95 A 80 80 0 0 1 180 95" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="12" stroke-linecap="round"/>
+          <path d="M20 95 A 80 80 0 0 1 180 95" fill="none" stroke="url(#gaugeGrad)" stroke-width="12" stroke-linecap="round" opacity="0.7"/>
+
+          <!-- Tick marks -->
+          <g id="gauge-ticks">
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-10 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-30 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-50 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-70 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-90 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-110 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-130 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-150 100 95)"/>
+            <line x1="20" y1="95" x2="33" y2="95" stroke="rgba(0,0,0,0.15)" stroke-width="1" transform="rotate(-170 100 95)"/>
+          </g>
+
+          <!-- Needle -->
+          <g id="needle-grp" transform="rotate(-85 100 95)">
+            <line x1="100" y1="95" x2="100" y2="22" stroke="var(--text-primary)" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <circle cx="100" cy="95" r="6" fill="var(--text-primary)" opacity="0.9"/>
+            <circle cx="100" cy="95" r="3" fill="white"/>
+          </g>
+
+          <!-- Labels -->
+          <text x="15" y="108" fill="var(--text-secondary)" font-size="8" font-family="'Orbitron',monospace">-30°</text>
+          <text x="180" y="108" text-anchor="end" fill="var(--text-secondary)" font-size="8" font-family="'Orbitron',monospace">+30°</text>
+          <text x="100" y="108" text-anchor="middle" fill="var(--text-secondary)" font-size="8" font-family="'Orbitron',monospace">0°</text>
+
+          <!-- Center value -->
+          <text x="100" y="75" text-anchor="middle" fill="var(--text-primary)" font-size="16" font-family="'Orbitron',monospace" font-weight="700" id="needle-val">1.2°</text>
+        </svg>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div style="text-align:center;background:rgba(0,0,0,0.03);border-radius:8px;padding:8px">
+          <div style="font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--accent-green)" id="cog-lat">0.08g</div>
+          <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.5px">LATERAL G</div>
+        </div>
+        <div style="text-align:center;background:rgba(0,0,0,0.03);border-radius:8px;padding:8px">
+          <div style="font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--accent-green)" id="cog-tilt">1.2°</div>
+          <div style="font-size:9px;color:var(--text-secondary);letter-spacing:0.5px">TILT ANGLE</div>
+        </div>
+      </div>
+
+      <!-- COG position bar -->
+      <div style="margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-secondary);margin-bottom:4px">
+          <span>CENTER OF GRAVITY SHIFT</span>
+          <span id="cog-pct">12%</span>
+        </div>
+        <div class="cog-bar-track">
+          <div class="cog-bar-fill" id="cog-bar" style="width:12%">
+            <div class="cog-bar-thumb"></div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text-secondary);margin-top:3px">
+          <span>SAFE</span><span>CAUTION</span><span>CRITICAL</span>
+        </div>
+      </div>
+
+      <div class="divider" style="margin-top:8px"></div>
+      <div class="unit-chips">
+        <span class="chip">ESP32-C3</span>
+        <span class="chip">BNO055</span>
+        <span class="chip">9-AXIS IMU</span>
+      </div>
+    </div>
+
+    <!-- Safety Score -->
+    <div style="background:var(--bg);border-radius:12px;padding:12px 14px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:10px;letter-spacing:1.5px;color:var(--text-secondary)">SAFETY SCORE</div>
+          <div style="font-family:'Orbitron',monospace;font-size:22px;font-weight:700;color:var(--accent-green)" id="score-big">98</div>
+        </div>
+        <svg viewBox="0 0 60 60" width="50" height="50">
+          <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="5"/>
+          <circle cx="30" cy="30" r="24" fill="none" stroke="#30d158" stroke-width="5" stroke-dasharray="150.8" stroke-dashoffset="3" stroke-linecap="round" transform="rotate(-90 30 30)" id="score-ring">
+            <animate attributeName="stroke-dashoffset" values="150;3;3" dur="1.5s" fill="freeze"/>
+          </circle>
+          <text x="30" y="35" text-anchor="middle" fill="#30d158" font-size="11" font-family="'Orbitron',monospace" font-weight="700">98%</text>
+        </svg>
+      </div>
+      <div style="font-size:10px;color:var(--accent-green);margin-top:4px;letter-spacing:0.5px">All systems nominal · Shield active</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Clock
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', {hour12:false});
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // Signal bars
+  function buildSignalBars() {
+    const c = document.getElementById('signal-bars');
+    for (let i=0; i<5; i++) {
+      const b = document.createElement('div');
+      b.className = 'sig-bar';
+      b.style.height = (5 + i*3) + 'px';
+      c.appendChild(b);
+    }
+  }
+  buildSignalBars();
+
+  // FCW mini bars
+  function buildFcwBars() {
+    const c = document.getElementById('fcw-bars');
+    const vals = [0.6, 0.4, 0.7, 0.5, 0.8, 0.6, 0.9, 0.7, 0.5, 0.8, 0.7, 0.9, 1.0, 0.8, 0.6, 0.7];
+    vals.forEach((v, i) => {
+      const b = document.createElement('div');
+      b.className = 'mini-bar';
+      b.style.height = Math.max(4, v*24) + 'px';
+      b.style.background = v > 0.8 ? 'var(--accent-green)' : 'rgba(48,209,88,0.35)';
+      c.appendChild(b);
+    });
+  }
+  buildFcwBars();
+
+  // Sensor canvases
+  function drawSensor(id, dist, color) {
+    const c = document.getElementById(id);
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0,0,70,50);
+    const cx = 35, cy = 50;
+    const maxDist = 8;
+    const arcs = 4;
+    for (let i=1; i<=arcs; i++) {
+      const r = (i/arcs) * 42;
+      const alpha = dist < (i/arcs)*maxDist ? 0.7 : 0.1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, Math.PI, 0);
+      ctx.strokeStyle = color.replace(')', `,${alpha})`).replace('rgb','rgba');
+      ctx.lineWidth = i === Math.round((dist/maxDist)*arcs) ? 2 : 1;
+      ctx.stroke();
+    }
+    // Distance text
+    ctx.fillStyle = color;
+    ctx.font = 'bold 10px Orbitron, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dist.toFixed(1)+'m', cx, 15);
+  }
+
+  // State
+  let state = {
+    fcwTTC: 8.4, ldwOffset: 0.0, sideNearest: 3.8,
+    cogTilt: 1.2, cogLat: 0.08, cogPct: 12,
+    score: 98, alertActive: false
+  };
+
+  let alertTimeout = null;
+
+  function triggerAlert(type) {
+    if (alertTimeout) clearTimeout(alertTimeout);
+    const banner = document.getElementById('alert-banner');
+    const messages = {
+      fcw: { text:'⚠ FCW: Collision risk detected · TTC < 2.0s', card:'fcw-card', status:'fcw-status', statusText:'ALERT', statusClass:'alert' },
+      ldw: { text:'⚠ LDW: Lane departure detected · Correcting', card:'ldw-card', status:'ldw-status', statusText:'WARN', statusClass:'warn' },
+      side: { text:'⚠ BSM: Object in blind spot · Left zone', card:'side-card', status:'side-status', statusText:'OBJECT', statusClass:'warn' },
+      cog: { text:'⚠ COG: High lateral G-force · Slow down', card:'cog-card', status:'cog-status', statusText:'CAUTION', statusClass:'warn' }
+    };
+    const m = messages[type];
+    document.getElementById('alert-text').textContent = m.text;
+    banner.classList.add('visible');
+    document.querySelectorAll('.feature-card').forEach(c => { c.classList.remove('alert','warning'); });
+    document.querySelectorAll('.status-pill').forEach(p => { p.className = 'status-pill ok'; });
+    const card = document.getElementById(m.card);
+    const pill = document.getElementById(m.status);
+    card.classList.add(m.statusClass === 'alert' ? 'alert' : 'warning');
+    pill.className = 'status-pill ' + m.statusClass;
+    pill.textContent = m.statusText;
+    alertTimeout = setTimeout(() => {
+      banner.classList.remove('visible');
+      card.classList.remove('alert','warning');
+      pill.className = 'status-pill ok';
+      pill.textContent = type === 'fcw' ? 'CLEAR' : type === 'ldw' ? 'CENTERED' : type === 'side' ? 'ALL CLEAR' : 'STABLE';
+    }, 4000);
+  }
+
+  // Live data simulation
+  let tick = 0;
+  function update() {
+    tick++;
+    const t = tick * 0.03;
+
+    // FCW TTC oscillation
+    const ttc = 8.4 + Math.sin(t*0.5) * 1.5 + Math.sin(t*1.3)*0.8;
+    state.fcwTTC = Math.max(2.5, ttc);
+    document.getElementById('fcw-val').textContent = state.fcwTTC.toFixed(1);
+    document.getElementById('stat-ttc').innerHTML = state.fcwTTC.toFixed(1)+'<span style="font-size:12px">s</span>';
+
+    // LDW offset
+    const off = Math.sin(t*0.4) * 0.25 + Math.sin(t*1.1)*0.1;
+    state.ldwOffset = off;
+    document.getElementById('ldw-val').textContent = Math.abs(off).toFixed(2);
+    document.getElementById('stat-lane').innerHTML = Math.abs(off).toFixed(2)+'<span style="font-size:12px">m</span>';
+    // Move lane car
+    const lanePct = 50 + off * 80;
+    document.getElementById('lane-car').style.left = Math.min(80, Math.max(20, lanePct)) + '%';
+
+    // Side nearest
+    const sn = 3.8 + Math.sin(t*0.7)*1.2 + Math.sin(t*2.1)*0.4;
+    state.sideNearest = Math.max(0.5, sn);
+    document.getElementById('side-val').textContent = state.sideNearest.toFixed(1);
+
+    // COG
+    const tilt = 1.2 + Math.sin(t*0.6)*2.5 + Math.sin(t*1.7)*0.8;
+    const lat = 0.08 + Math.sin(t*0.6)*0.12 + Math.sin(t*1.7)*0.04;
+    const pct = Math.min(85, Math.max(5, 12 + Math.abs(tilt)*4));
+    state.cogTilt = tilt;
+    state.cogLat = Math.abs(lat);
+    state.cogPct = pct;
+
+    document.getElementById('cog-tilt').textContent = tilt.toFixed(1)+'°';
+    document.getElementById('cog-lat').textContent = Math.abs(lat).toFixed(2)+'g';
+    document.getElementById('stat-lat').innerHTML = Math.abs(lat).toFixed(2)+'<span style="font-size:12px">g</span>';
+    document.getElementById('needle-val').textContent = tilt.toFixed(1)+'°';
+    document.getElementById('cog-pct').textContent = Math.round(pct)+'%';
+    document.getElementById('cog-bar').style.width = pct+'%';
+
+    // Needle rotation: -170 to 0 degrees for arc
+    const needleAngle = (tilt / 30) * 85;
+    document.getElementById('needle-grp').setAttribute('transform', `rotate(${needleAngle - 85} 100 95)`);
+
+    // COG status color
+    const cogCard = document.getElementById('cog-card');
+    const cogStatus = document.getElementById('cog-status');
+    if (!cogCard.classList.contains('alert') && !cogCard.classList.contains('warning')) {
+      if (Math.abs(tilt) > 20) {
+        cogStatus.className = 'status-pill alert';
+        cogStatus.textContent = 'CRITICAL';
+        cogCard.classList.add('warning');
+      } else if (Math.abs(tilt) > 10) {
+        cogStatus.className = 'status-pill warn';
+        cogStatus.textContent = 'CAUTION';
+      } else {
+        cogStatus.className = 'status-pill ok';
+        cogStatus.textContent = 'STABLE';
+        cogCard.classList.remove('warning','alert');
+      }
+    }
+
+    // Score
+    const baseScore = 98;
+    const penalty = Math.abs(tilt)*0.3 + Math.max(0, 5-state.fcwTTC)*2 + Math.abs(off)*5;
+    const score = Math.max(70, Math.round(baseScore - penalty));
+    document.getElementById('stat-score').innerHTML = score+'<span style="font-size:12px">%</span>';
+    document.getElementById('score-big').textContent = score;
+
+    // Score ring color
+    const ring = document.getElementById('score-ring');
+    if (score > 90) ring.style.stroke = 'var(--accent-green)';
+    else if (score > 80) ring.style.stroke = 'var(--accent-amber)';
+    else ring.style.stroke = 'var(--accent-red)';
+
+    // Sensor visualizations
+    const ld = 2.5 + Math.sin(t*1.1)*1.5;
+    const rd = 3.0 + Math.sin(t*0.8)*1.8;
+    const bd = 4.5 + Math.sin(t*0.5)*2.0;
+    drawSensor('sensor-l', Math.max(0.3, ld), 'rgb(10,132,255)');
+    drawSensor('sensor-r', Math.max(0.3, rd), 'rgb(10,132,255)');
+    drawSensor('sensor-b', Math.max(0.3, bd), 'rgb(255,159,10)');
+  }
+
+  setInterval(update, 80);
+  update();
+</script>
+
 </body>
 </html>
