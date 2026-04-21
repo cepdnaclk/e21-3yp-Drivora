@@ -1,4 +1,3 @@
-
 # Drivora: Distributed Universal Advanced Driver Assistance System (U-ADAS)
 
 **Drivora** is a comprehensive, distributed retrofit safety platform designed to modernize legacy passenger vehicles and enhance the safety of heavy commercial transport. Unlike traditional integrated factory systems, Drivora utilizes a multi-unit hardware suite that communicates over a robust **CAN-Bus backbone**, creating a "Safety Shield" around the vehicle.
@@ -29,4 +28,3 @@ The project utilizes a **4-core shielded "Backbone"** (Power, Ground, CAN_H, CAN
 
 ---
 *Developed as a 3rd Year Undergraduate Project in Computer Engineering.*
->>>>>>> 428f767cc7ccd29c4bd8f75903baef63fb64e6e6
