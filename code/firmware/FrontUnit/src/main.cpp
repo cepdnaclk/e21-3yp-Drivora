@@ -21,10 +21,23 @@ const float MAX_VALID_CM = 250.0f;
 const float OBJECT_ZONE_CM   = 180.0f;
 const float WARNING_ZONE_CM  = 80.0f;
 
-// New smarter thresholds
-const float VERY_CLOSE_ZONE_CM      = 35.0f;   // close zone, not always warning
-const float BLIND_ENTRY_TRIGGER_CM  = 30.0f;   // above blind zone, used to infer blind-zone entry
-const float CLEAR_DISTANCE_CM       = 205.0f;  // stronger evidence before returning clear
+// Close / blind-zone related thresholds
+const float VERY_CLOSE_ZONE_CM      = 35.0f;
+const float BLIND_ENTRY_TRIGGER_CM  = 30.0f;
+const float CLEAR_DISTANCE_CM       = 205.0f;
+
+// Suspicious reading logic
+const float SUSPICIOUS_JUMP_CM      = 18.0f;
+const float BLIND_RELEASE_MIN_CM    = 34.0f;
+const int   BLIND_RELEASE_COUNT_REQ = 2;
+
+// Moving-away based blind release
+const float BLIND_RELEASE_MOVING_AWAY_CM_S = -6.0f;
+const float BLIND_RELEASE_MOVING_AWAY_MIN_CM = 28.0f;
+
+// New: fast blind-entry detection
+const float FAST_BLIND_ARM_CM   = 45.0f;
+const float FAST_ENTRY_JUMP_CM  = 12.0f;
 
 // ================= SAMPLING =================
 const int sampleSize = 2;
@@ -53,6 +66,12 @@ unsigned long blindHoldUntilMs = 0;
 unsigned long lastValidSeenMs = 0;
 const unsigned long BLIND_HOLD_MS   = 1200;
 const unsigned long INVALID_HOLD_MS = 650;
+
+// Blind-zone latch logic
+bool blindZoneLatched = false;
+float blindLatchDistance = -1.0f;
+unsigned long blindLatchSetMs = 0;
+int blindReleaseCounter = 0;
 
 // ================= OUTPUT STATE =================
 enum FCWState {
@@ -188,9 +207,65 @@ void updateClosingSpeed(float dist, unsigned long nowMs) {
   lastValidDistanceMs = nowMs;
 }
 
+bool isSuspiciousReading(float dist) {
+  if (dist < 0.0f) return true;
+  if (!blindZoneLatched) return false;
+  if (blindLatchDistance < 0.0f) return false;
+
+  if (fabs(dist - blindLatchDistance) > SUSPICIOUS_JUMP_CM && dist < BLIND_RELEASE_MIN_CM) {
+    return true;
+  }
+
+  if (dist <= BLIND_RELEASE_MIN_CM && closingSpeedCmS > -2.0f) {
+    return true;
+  }
+
+  return false;
+}
+
+void latchBlindZone(unsigned long nowMs, float refDist) {
+  blindZoneLatched = true;
+  blindLatchSetMs = nowMs;
+  blindLatchDistance = refDist;
+  blindReleaseCounter = 0;
+  blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+}
+
+// New: fast blind-entry detector for sudden close approach
+bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
+  if (blindZoneLatched) return false;
+  if (lastValidDistance < 0.0f) return false;
+
+  bool wasClose = (lastValidDistance <= FAST_BLIND_ARM_CM);
+  if (!wasClose) return false;
+
+  bool invalidNow = (filteredDist < 0.0f);
+
+  bool suspiciousNow = false;
+  if (rawDist > 0.0f) {
+    bool erraticNearBlind = (rawDist <= BLIND_RELEASE_MIN_CM);
+    bool suddenJumpTowardBlind = ((lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) && (rawDist <= VERY_CLOSE_ZONE_CM);
+    suspiciousNow = erraticNearBlind || suddenJumpTowardBlind;
+  } else {
+    suspiciousNow = true;
+  }
+
+  return invalidNow || suspiciousNow;
+}
+
 // ================= SMART FCW LOGIC =================
-void updateFCWState(float dist, unsigned long nowMs) {
-  if (dist >= 0) {
+void updateFCWState(float rawDist, float dist, unsigned long nowMs) {
+  // Fast blind-entry latch for sudden close approach
+  if (shouldFastLatchBlindZone(rawDist, dist)) {
+    latchBlindZone(nowMs, lastValidDistance);
+    currentState = WARNING;
+    return;
+  }
+
+  bool distValid = (dist >= 0.0f);
+  bool suspicious = isSuspiciousReading(dist);
+
+  if (distValid && !suspicious) {
     lastValidSeenMs = nowMs;
 
     bool approachingNow = (closingSpeedCmS >= APPROACH_SPEED_CM_S);
@@ -211,28 +286,44 @@ void updateFCWState(float dist, unsigned long nowMs) {
     bool confirmedApproaching = (approachCounter >= APPROACH_CONFIRM_COUNT);
     bool confirmedWarningSpeed = (warningCounter >= WARNING_CONFIRM_COUNT);
 
-    // Arm blind-zone hold only when target is very close AND still approaching
     if (dist <= BLIND_ENTRY_TRIGGER_CM && closingSpeedCmS > 0.5f) {
-      blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+      latchBlindZone(nowMs, dist);
     }
 
-    // Priority 1: inside normal warning zone and closing fast
+    if (blindZoneLatched) {
+      bool distanceRelease = (dist >= BLIND_RELEASE_MIN_CM);
+      bool movingAwayRelease = (closingSpeedCmS <= BLIND_RELEASE_MOVING_AWAY_CM_S &&
+                                dist >= BLIND_RELEASE_MOVING_AWAY_MIN_CM);
+
+      if (distanceRelease || movingAwayRelease) {
+        blindReleaseCounter++;
+      } else {
+        blindReleaseCounter = 0;
+      }
+
+      if (blindReleaseCounter >= BLIND_RELEASE_COUNT_REQ) {
+        blindZoneLatched = false;
+        blindReleaseCounter = 0;
+        blindLatchDistance = -1.0f;
+      } else {
+        currentState = WARNING;
+        return;
+      }
+    }
+
     if (dist <= WARNING_ZONE_CM && confirmedWarningSpeed) {
       currentState = WARNING;
       if (dist <= BLIND_ENTRY_TRIGGER_CM) {
-        blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+        latchBlindZone(nowMs, dist);
       }
       return;
     }
 
-    // Priority 2: soft close zone
-    // - warning only if still closing meaningfully
-    // - otherwise just object ahead / approaching
     if (dist <= VERY_CLOSE_ZONE_CM) {
       if (confirmedWarningSpeed || closingSpeedCmS >= (WARNING_SPEED_CM_S * 0.7f)) {
         currentState = WARNING;
         if (dist <= BLIND_ENTRY_TRIGGER_CM) {
-          blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+          latchBlindZone(nowMs, dist);
         }
         return;
       }
@@ -245,19 +336,16 @@ void updateFCWState(float dist, unsigned long nowMs) {
       return;
     }
 
-    // Priority 3: object ahead and approaching
     if (dist <= OBJECT_ZONE_CM && confirmedApproaching) {
       currentState = APPROACHING;
       return;
     }
 
-    // Priority 4: object ahead but not aggressively approaching
     if (dist <= OBJECT_ZONE_CM) {
       currentState = OBJECT_AHEAD;
       return;
     }
 
-    // Returning to clear should require convincing distance
     if (dist >= CLEAR_DISTANCE_CM) {
       currentState = CLEAR;
     } else {
@@ -267,14 +355,22 @@ void updateFCWState(float dist, unsigned long nowMs) {
     return;
   }
 
-  // Invalid reading path:
-  // 1) if we recently had a close approaching object, assume blind-zone entry
+  if (!blindZoneLatched && prevFilteredDistance > 0.0f &&
+      prevFilteredDistance <= BLIND_ENTRY_TRIGGER_CM &&
+      closingSpeedCmS > 0.5f) {
+    latchBlindZone(nowMs, prevFilteredDistance);
+  }
+
+  if (blindZoneLatched) {
+    currentState = WARNING;
+    return;
+  }
+
   if (nowMs < blindHoldUntilMs) {
     currentState = WARNING;
     return;
   }
 
-  // 2) don't instantly clear after a recent valid target
   if ((nowMs - lastValidSeenMs) <= INVALID_HOLD_MS) {
     if (currentState == APPROACHING || currentState == WARNING) {
       currentState = APPROACHING;
@@ -286,7 +382,6 @@ void updateFCWState(float dist, unsigned long nowMs) {
     return;
   }
 
-  // 3) finally clear when invalid for long enough
   currentState = CLEAR;
   approachCounter = 0;
   warningCounter = 0;
@@ -501,7 +596,9 @@ ws.onmessage = (evt) => {
   diag.textContent =
     "approachCounter: " + d.approachCounter +
     " | warningCounter: " + d.warningCounter +
-    " | blindHoldMs: " + d.blindHoldRemainingMs +
+    " | blindLatched: " + (d.blindZoneLatched ? "YES" : "NO") +
+    " | suspicious: " + (d.suspiciousReading ? "YES" : "NO") +
+    " | fastBlind: " + (d.fastBlindTriggered ? "YES" : "NO") +
     " | loop: " + d.loopMs.toFixed(0) + " ms";
 };
 </script>
@@ -551,7 +648,9 @@ void loop() {
   float smoothedDistance = updateFilteredDistance(rawDistance);
 
   updateClosingSpeed(smoothedDistance, nowMs);
-  updateFCWState(smoothedDistance, nowMs);
+  bool suspicious = isSuspiciousReading(smoothedDistance);
+  bool fastBlind = shouldFastLatchBlindZone(rawDistance, smoothedDistance);
+  updateFCWState(rawDistance, smoothedDistance, nowMs);
 
   Serial.print("Raw: ");
   if (rawDistance < 0) Serial.print("Invalid");
@@ -563,14 +662,17 @@ void loop() {
 
   Serial.print(" cm | Speed: ");
   Serial.print(closingSpeedCmS, 1);
-  Serial.print(" cm/s | State: ");
+  Serial.print(" cm/s | BlindLatched: ");
+  Serial.print(blindZoneLatched ? "YES" : "NO");
+  Serial.print(" | Suspicious: ");
+  Serial.print(suspicious ? "YES" : "NO");
+  Serial.print(" | FastBlind: ");
+  Serial.print(fastBlind ? "YES" : "NO");
+  Serial.print(" | State: ");
   Serial.println(stateName(currentState));
 
-  unsigned long blindRemain = 0;
-  if (blindHoldUntilMs > nowMs) blindRemain = blindHoldUntilMs - nowMs;
-
   String data;
-  data.reserve(420);
+  data.reserve(500);
   data += "{";
   data += "\"rawDistance\":" + String(rawDistance, 1) + ",";
   data += "\"filteredDistance\":" + String(smoothedDistance, 1) + ",";
@@ -586,7 +688,9 @@ void loop() {
   data += "\"blindEntryTriggerCm\":" + String(BLIND_ENTRY_TRIGGER_CM, 1) + ",";
   data += "\"approachCounter\":" + String(approachCounter) + ",";
   data += "\"warningCounter\":" + String(warningCounter) + ",";
-  data += "\"blindHoldRemainingMs\":" + String(blindRemain) + ",";
+  data += "\"blindZoneLatched\":" + String(blindZoneLatched ? 1 : 0) + ",";
+  data += "\"suspiciousReading\":" + String(suspicious ? 1 : 0) + ",";
+  data += "\"fastBlindTriggered\":" + String(fastBlind ? 1 : 0) + ",";
   data += "\"loopMs\":" + String(loopMs, 0);
   data += "}";
 
