@@ -25,11 +25,6 @@ MPU6050 mpu;
 bool autoMode = false;
 bool calibrated = false;
 
-// Frame mode:
-// false = normal raw frame
-// true  = upside-frame emulation (the mode that behaved best for you)
-bool useUpsideFrame = true;
-
 // ================= VEHICLE MODEL =================
 // Controllable from the UI
 int vehicleType = 3;           // 1 = Compact / low profile, 2 = Passenger vehicle, 3 = Tall vehicle / SUV
@@ -56,21 +51,38 @@ float refGravZ = 1.0f;
 unsigned long calibrationHoldUntil = 0;
 
 // ================= FILTER STATE =================
+// Selected mode state (kept for compatibility with the rest of the logic)
 float pitchAngle = 0.0f, rollAngle = 0.0f;
 float pitchDisplay = 0.0f, rollDisplay = 0.0f;
+
+// Manual path state
+float pitchAngleManual = 0.0f, rollAngleManual = 0.0f;
+float pitchDisplayManual = 0.0f, rollDisplayManual = 0.0f;
+
+// Auto path state
+float pitchAngleAuto = 0.0f, rollAngleAuto = 0.0f;
+float pitchDisplayAuto = 0.0f, rollDisplayAuto = 0.0f;
 
 unsigned long lastMicros = 0;
 unsigned long lastRiskChangeMs = 0;
 
-// ================= BASE TUNING =================
-float baseAlphaStill   = 0.93f;
-float baseAlphaMotion  = 0.998f;
-float baseAccelWarn    = 0.04f;
-float baseAccelHigh    = 0.16f;
-float baseDisplayAlpha = 0.35f;
-float baseDeadband     = 0.12f;
+// ================= MANUAL BASE TUNING =================
+float manualBaseAlphaStill   = 0.93f;
+float manualBaseAlphaMotion  = 0.998f;
+float manualBaseAccelWarn    = 0.04f;
+float manualBaseAccelHigh    = 0.16f;
+float manualBaseDisplayAlpha = 0.35f;
+float manualBaseDeadband     = 0.12f;
 
-// ================= LIVE TUNING VALUES =================
+// ================= AUTO BASE TUNING =================
+float autoBaseAlphaStill   = 0.93f;
+float autoBaseAlphaMotion  = 0.998f;
+float autoBaseAccelWarn    = 0.04f;
+float autoBaseAccelHigh    = 0.16f;
+float autoBaseDisplayAlpha = 0.35f;
+float autoBaseDeadband     = 0.12f;
+
+// ================= LIVE TUNING VALUES (ACTIVE SELECTED MODE ONLY) =================
 float alphaStill   = 0.93f;
 float alphaMotion  = 0.998f;
 float accelWarn    = 0.04f;
@@ -96,31 +108,22 @@ const char* vehicleTypeName(int v) {
   }
 }
 
-float mapAlpha(float err) {
-  if (accelHigh <= accelWarn + 0.0001f) {
-    accelHigh = accelWarn + 0.0001f;
+float mapAlphaFor(float err, float aStill, float aMotion, float aWarn, float aHigh) {
+  if (aHigh <= aWarn + 0.0001f) {
+    aHigh = aWarn + 0.0001f;
   }
 
-  if (err <= accelWarn) return alphaStill;
-  if (err >= accelHigh) return alphaMotion;
+  if (err <= aWarn) return aStill;
+  if (err >= aHigh) return aMotion;
 
-  float t = (err - accelWarn) / (accelHigh - accelWarn);
-  return alphaStill + t * (alphaMotion - alphaStill);
+  float t = (err - aWarn) / (aHigh - aWarn);
+  return aStill + t * (aMotion - aStill);
 }
 
 int riskLevel(float s) {
   if (s < 0.35f) return 0;     // SAFE
   if (s < 0.70f) return 1;     // CAUTION
   return 2;                    // HIGH
-}
-
-const char* riskName(int level) {
-  switch (level) {
-    case 0: return "SAFE";
-    case 1: return "CAUTION";
-    case 2: return "HIGH";
-    default: return "SAFE";
-  }
 }
 
 void computeVehicle() {
@@ -141,32 +144,30 @@ void computeVehicle() {
   criticalPitchDeg = atan(wheelBase_m  / (2.0f * cogH)) * 180.0f / PI;
 }
 
-void applyManualTuning() {
-  alphaStill   = baseAlphaStill;
-  alphaMotion  = baseAlphaMotion;
-  accelWarn    = baseAccelWarn;
-  accelHigh    = baseAccelHigh;
-  displayAlpha = baseDisplayAlpha;
-  deadband     = baseDeadband;
+void applySelectedModeLiveValues() {
+  if (autoMode) {
+    float stability = 0.0f;
+    float motion = 0.0f;
+    // actual auto live values are updated in loop
+    alphaStill   = autoBaseAlphaStill;
+    alphaMotion  = autoBaseAlphaMotion;
+    accelWarn    = autoBaseAccelWarn;
+    accelHigh    = autoBaseAccelHigh;
+    displayAlpha = autoBaseDisplayAlpha;
+    deadband     = autoBaseDeadband;
+  } else {
+    alphaStill   = manualBaseAlphaStill;
+    alphaMotion  = manualBaseAlphaMotion;
+    accelWarn    = manualBaseAccelWarn;
+    accelHigh    = manualBaseAccelHigh;
+    displayAlpha = manualBaseDisplayAlpha;
+    deadband     = manualBaseDeadband;
+  }
 }
 
-void autoTune(float accErr, float angRate) {
-  float stability = clampf(1.0f - accErr * 5.0f, 0.0f, 1.0f);
-  float motion = clampf(angRate / 15.0f, 0.0f, 1.0f);
-
-  alphaStill   = clampf(baseAlphaStill + 0.05f * stability, 0.80f, 0.99f);
-  alphaMotion  = clampf(baseAlphaMotion + 0.004f * motion, 0.990f, 0.9999f);
-  accelWarn    = clampf(baseAccelWarn + 0.05f * motion, 0.000f, 0.25f);
-  accelHigh    = clampf(baseAccelHigh + 0.10f * motion, accelWarn + 0.01f, 0.40f);
-  displayAlpha = clampf(baseDisplayAlpha + 0.20f * stability - 0.05f * motion, 0.10f, 0.95f);
-  deadband     = clampf(baseDeadband + 0.08f * (1.0f - stability), 0.0f, 0.30f);
-}
-
-// Emulate the useful upside-down frame in software.
+// UPSIDE frame behavior, always active.
 // Applied after bias correction.
 void applyMountTransform(float &ax, float &ay, float &az, float &gx, float &gy, float &gz) {
-  if (!useUpsideFrame) return;
-
   ax = -ax;
   az = -az;
   gx = -gx;
@@ -178,7 +179,6 @@ void calibrate() {
 
   long ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
 
-  // Raw bias averaging without mount transform
   for (int i = 0; i < 1200; i++) {
     int16_t a, b, c, d, e, f;
     mpu.getMotion6(&a, &b, &c, &d, &e, &f);
@@ -207,7 +207,6 @@ void calibrate() {
   double gravYSum = 0.0;
   double gravZSum = 0.0;
 
-  // Reference angle averaging after bias correction, then apply mount transform
   for (int i = 0; i < 800; i++) {
     int16_t a, b, c, d, e, f;
     mpu.getMotion6(&a, &b, &c, &d, &e, &f);
@@ -265,6 +264,16 @@ void calibrate() {
   pitchDisplay = 0.0f;
   rollDisplay = 0.0f;
 
+  pitchAngleManual = 0.0f;
+  rollAngleManual = 0.0f;
+  pitchDisplayManual = 0.0f;
+  rollDisplayManual = 0.0f;
+
+  pitchAngleAuto = 0.0f;
+  rollAngleAuto = 0.0f;
+  pitchDisplayAuto = 0.0f;
+  rollDisplayAuto = 0.0f;
+
   calibrated = true;
   calibrationHoldUntil = millis() + 500;
   lastMicros = micros();
@@ -295,18 +304,6 @@ void handleCommand(const String& msg) {
 
   if (msg == "AUTO_OFF") {
     autoMode = false;
-    return;
-  }
-
-  if (msg == "FRAME_UP") {
-    useUpsideFrame = true;
-    calibrate();
-    return;
-  }
-
-  if (msg == "FRAME_NORMAL") {
-    useUpsideFrame = false;
-    calibrate();
     return;
   }
 
@@ -346,20 +343,27 @@ void handleCommand(const String& msg) {
     }
   }
 
-  if (doc["alphaStill"].is<float>())   baseAlphaStill = clampf(doc["alphaStill"].as<float>(), 0.80f, 0.99f);
-  if (doc["alphaMotion"].is<float>())  baseAlphaMotion = clampf(doc["alphaMotion"].as<float>(), 0.990f, 0.9999f);
-  if (doc["accelWarn"].is<float>())    baseAccelWarn = clampf(doc["accelWarn"].as<float>(), 0.0f, 0.25f);
-  if (doc["accelHigh"].is<float>())    baseAccelHigh = clampf(doc["accelHigh"].as<float>(), baseAccelWarn + 0.01f, 0.40f);
-  if (doc["displayAlpha"].is<float>())  baseDisplayAlpha = clampf(doc["displayAlpha"].as<float>(), 0.10f, 0.95f);
-  if (doc["deadband"].is<float>())     baseDeadband = clampf(doc["deadband"].as<float>(), 0.0f, 0.30f);
+  // Manual bank
+  if (doc["manualAlphaStill"].is<float>())   manualBaseAlphaStill = clampf(doc["manualAlphaStill"].as<float>(), 0.80f, 0.99f);
+  if (doc["manualAlphaMotion"].is<float>())  manualBaseAlphaMotion = clampf(doc["manualAlphaMotion"].as<float>(), 0.990f, 0.9999f);
+  if (doc["manualAccelWarn"].is<float>())    manualBaseAccelWarn = clampf(doc["manualAccelWarn"].as<float>(), 0.0f, 0.25f);
+  if (doc["manualAccelHigh"].is<float>())    manualBaseAccelHigh = clampf(doc["manualAccelHigh"].as<float>(), manualBaseAccelWarn + 0.01f, 0.40f);
+  if (doc["manualDisplayAlpha"].is<float>()) manualBaseDisplayAlpha = clampf(doc["manualDisplayAlpha"].as<float>(), 0.10f, 0.95f);
+  if (doc["manualDeadband"].is<float>())     manualBaseDeadband = clampf(doc["manualDeadband"].as<float>(), 0.0f, 0.30f);
+
+  // Auto bank
+  if (doc["autoAlphaStill"].is<float>())   autoBaseAlphaStill = clampf(doc["autoAlphaStill"].as<float>(), 0.80f, 0.99f);
+  if (doc["autoAlphaMotion"].is<float>())  autoBaseAlphaMotion = clampf(doc["autoAlphaMotion"].as<float>(), 0.990f, 0.9999f);
+  if (doc["autoAccelWarn"].is<float>())    autoBaseAccelWarn = clampf(doc["autoAccelWarn"].as<float>(), 0.0f, 0.25f);
+  if (doc["autoAccelHigh"].is<float>())    autoBaseAccelHigh = clampf(doc["autoAccelHigh"].as<float>(), autoBaseAccelWarn + 0.01f, 0.40f);
+  if (doc["autoDisplayAlpha"].is<float>()) autoBaseDisplayAlpha = clampf(doc["autoDisplayAlpha"].as<float>(), 0.10f, 0.95f);
+  if (doc["autoDeadband"].is<float>())     autoBaseDeadband = clampf(doc["autoDeadband"].as<float>(), 0.0f, 0.30f);
 
   if (vehicleChanged) {
     computeVehicle();
   }
 
-  if (!autoMode) {
-    applyManualTuning();
-  }
+  applySelectedModeLiveValues();
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
@@ -428,7 +432,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     left: 0;
   }
 
-  #dot {
+  #dotManual, #dotAuto {
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -436,14 +440,52 @@ const char webpage[] PROGMEM = R"rawliteral(
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    background: #ff4040;
-    box-shadow: 0 0 12px rgba(255, 64, 64, 0.9);
+  }
+
+  #dotManual {
+    background: rgba(255, 64, 64, 0.62);
+    box-shadow: 0 0 12px rgba(255, 64, 64, 0.62);
+  }
+
+  #dotAuto {
+    background: rgba(64, 128, 255, 0.62);
+    box-shadow: 0 0 12px rgba(64, 128, 255, 0.62);
   }
 
   #statusBar {
     padding: 10px 12px 0 12px;
     font-size: 14px;
     line-height: 1.5;
+  }
+
+  #legend {
+    padding: 6px 12px 2px 12px;
+    font-size: 13px;
+    color: #ddd;
+  }
+
+  .legendItem {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 16px;
+  }
+
+  .legendDot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+
+  .legendManual {
+    background: rgba(255, 64, 64, 0.62);
+    box-shadow: 0 0 8px rgba(255, 64, 64, 0.62);
+  }
+
+  .legendAuto {
+    background: rgba(64, 128, 255, 0.62);
+    box-shadow: 0 0 8px rgba(64, 128, 255, 0.62);
   }
 
   #controls {
@@ -470,6 +512,13 @@ const char webpage[] PROGMEM = R"rawliteral(
     margin: 12px 0 6px 0;
     font-size: 15px;
     color: #ddd;
+    font-weight: bold;
+  }
+
+  .subTitle {
+    margin: 10px 0 4px 0;
+    font-size: 14px;
+    color: #cfcfcf;
     font-weight: bold;
   }
 
@@ -519,7 +568,8 @@ const char webpage[] PROGMEM = R"rawliteral(
 
     <div id="lineV" class="line"></div>
     <div id="lineH" class="line"></div>
-    <div id="dot"></div>
+    <div id="dotManual"></div>
+    <div id="dotAuto"></div>
   </div>
 </div>
 
@@ -533,13 +583,16 @@ const char webpage[] PROGMEM = R"rawliteral(
   <div id="statusText">Roll: 0.00° | Pitch: 0.00° | Confidence: 1.00 | Risk: SAFE</div>
 </div>
 
+<div id="legend">
+  <span class="legendItem"><span class="legendDot legendManual"></span>Manual</span>
+  <span class="legendItem"><span class="legendDot legendAuto"></span>Auto</span>
+</div>
+
 <div id="controls">
   <div class="row">
     <button onclick="calibrate()">Calibrate</button>
     <button onclick="setAuto(true)">AUTO MODE</button>
     <button onclick="setAuto(false)">MANUAL MODE</button>
-    <button onclick="setFrame(true)">UPSIDE FRAME</button>
-    <button onclick="setFrame(false)">NORMAL FRAME</button>
   </div>
 
   <div class="groupTitle">Vehicle settings</div>
@@ -570,36 +623,45 @@ const char webpage[] PROGMEM = R"rawliteral(
     <option value="2" selected>Heavy</option>
   </select>
 
-  <div class="groupTitle">Quick tuning</div>
+  <div class="groupTitle">Manual parameters</div>
 
-  <div class="label"><span>Stability ↔ Responsiveness</span><span id="quickBalanceVal">0.50</span></div>
-  <input id="quickBalance" type="range" min="0" max="1" step="0.01" value="0.50" oninput="quickBalanceChanged(this.value)">
+  <div class="label"><span>alphaStill</span><span id="manualAlphaStillVal">0.930</span></div>
+  <input id="manualAlphaStill" type="range" min="0.80" max="0.99" step="0.001" value="0.930" oninput="sendParam('manualAlphaStill', this.value)">
 
-  <div class="label"><span>Visual smoothing</span><span id="quickSmoothVal">0.50</span></div>
-  <input id="quickSmooth" type="range" min="0" max="1" step="0.01" value="0.50" oninput="quickSmoothChanged(this.value)">
+  <div class="label"><span>alphaMotion</span><span id="manualAlphaMotionVal">0.998</span></div>
+  <input id="manualAlphaMotion" type="range" min="0.990" max="0.9999" step="0.0001" value="0.998" oninput="sendParam('manualAlphaMotion', this.value)">
 
-  <div class="label"><span>Deadband</span><span id="quickDeadVal">0.50</span></div>
-  <input id="quickDead" type="range" min="0" max="1" step="0.01" value="0.50" oninput="quickDeadChanged(this.value)">
+  <div class="label"><span>accelWarn</span><span id="manualAccelWarnVal">0.040</span></div>
+  <input id="manualAccelWarn" type="range" min="0.000" max="0.250" step="0.001" value="0.040" oninput="sendParam('manualAccelWarn', this.value)">
 
-  <div class="groupTitle">Manual tuning parameters</div>
+  <div class="label"><span>accelHigh</span><span id="manualAccelHighVal">0.160</span></div>
+  <input id="manualAccelHigh" type="range" min="0.050" max="0.400" step="0.001" value="0.160" oninput="sendParam('manualAccelHigh', this.value)">
 
-  <div class="label"><span>alphaStill</span><span id="alphaStillVal">0.930</span></div>
-  <input id="alphaStill" type="range" min="0.80" max="0.99" step="0.001" value="0.930" oninput="sendParam('alphaStill', this.value)">
+  <div class="label"><span>displayAlpha</span><span id="manualDisplayAlphaVal">0.350</span></div>
+  <input id="manualDisplayAlpha" type="range" min="0.10" max="0.95" step="0.01" value="0.350" oninput="sendParam('manualDisplayAlpha', this.value)">
 
-  <div class="label"><span>alphaMotion</span><span id="alphaMotionVal">0.998</span></div>
-  <input id="alphaMotion" type="range" min="0.990" max="0.9999" step="0.0001" value="0.998" oninput="sendParam('alphaMotion', this.value)">
+  <div class="label"><span>deadband</span><span id="manualDeadbandVal">0.120</span></div>
+  <input id="manualDeadband" type="range" min="0.00" max="0.30" step="0.01" value="0.120" oninput="sendParam('manualDeadband', this.value)">
 
-  <div class="label"><span>accelWarn</span><span id="accelWarnVal">0.040</span></div>
-  <input id="accelWarn" type="range" min="0.000" max="0.250" step="0.001" value="0.040" oninput="sendParam('accelWarn', this.value)">
+  <div class="groupTitle">Auto base parameters</div>
 
-  <div class="label"><span>accelHigh</span><span id="accelHighVal">0.160</span></div>
-  <input id="accelHigh" type="range" min="0.050" max="0.400" step="0.001" value="0.160" oninput="sendParam('accelHigh', this.value)">
+  <div class="label"><span>alphaStill</span><span id="autoAlphaStillVal">0.930</span></div>
+  <input id="autoAlphaStill" type="range" min="0.80" max="0.99" step="0.001" value="0.930" oninput="sendParam('autoAlphaStill', this.value)">
 
-  <div class="label"><span>displayAlpha</span><span id="displayAlphaVal">0.350</span></div>
-  <input id="displayAlpha" type="range" min="0.10" max="0.95" step="0.01" value="0.350" oninput="sendParam('displayAlpha', this.value)">
+  <div class="label"><span>alphaMotion</span><span id="autoAlphaMotionVal">0.998</span></div>
+  <input id="autoAlphaMotion" type="range" min="0.990" max="0.9999" step="0.0001" value="0.998" oninput="sendParam('autoAlphaMotion', this.value)">
 
-  <div class="label"><span>deadband</span><span id="deadbandVal">0.120</span></div>
-  <input id="deadband" type="range" min="0.00" max="0.30" step="0.01" value="0.120" oninput="sendParam('deadband', this.value)">
+  <div class="label"><span>accelWarn</span><span id="autoAccelWarnVal">0.040</span></div>
+  <input id="autoAccelWarn" type="range" min="0.000" max="0.250" step="0.001" value="0.040" oninput="sendParam('autoAccelWarn', this.value)">
+
+  <div class="label"><span>accelHigh</span><span id="autoAccelHighVal">0.160</span></div>
+  <input id="autoAccelHigh" type="range" min="0.050" max="0.400" step="0.001" value="0.160" oninput="sendParam('autoAccelHigh', this.value)">
+
+  <div class="label"><span>displayAlpha</span><span id="autoDisplayAlphaVal">0.350</span></div>
+  <input id="autoDisplayAlpha" type="range" min="0.10" max="0.95" step="0.01" value="0.350" oninput="sendParam('autoDisplayAlpha', this.value)">
+
+  <div class="label"><span>deadband</span><span id="autoDeadbandVal">0.120</span></div>
+  <input id="autoDeadband" type="range" min="0.00" max="0.30" step="0.01" value="0.120" oninput="sendParam('autoDeadband', this.value)">
 
   <div class="groupTitle">Live values</div>
   <div id="paramBox" class="valueBox"></div>
@@ -607,7 +669,8 @@ const char webpage[] PROGMEM = R"rawliteral(
 
 <script>
 let ws = new WebSocket("ws://" + location.hostname + ":81");
-let dot = document.getElementById("dot");
+let dotManual = document.getElementById("dotManual");
+let dotAuto = document.getElementById("dotAuto");
 let field = document.getElementById("field");
 
 function resizeField() {
@@ -629,10 +692,6 @@ function setAuto(v) {
   ws.send(v ? "AUTO_ON" : "AUTO_OFF");
 }
 
-function setFrame(v) {
-  ws.send(v ? "FRAME_UP" : "FRAME_NORMAL");
-}
-
 function sendParam(k, v) {
   let obj = {};
   obj[k] = (k === "vehicleType" || k === "loadCondition") ? parseInt(v) : parseFloat(v);
@@ -644,43 +703,10 @@ function vehicleNumberChanged(k, v, labelId, suffix) {
   sendParam(k, v);
 }
 
-function quickBalanceChanged(v) {
-  let x = parseFloat(v);
-  document.getElementById("quickBalanceVal").innerText = x.toFixed(2);
-
-  let alphaStill   = 0.86 + 0.13 * x;
-  let alphaMotion  = 0.995 + 0.0045 * x;
-  let accelWarn    = 0.01 + 0.07 * x;
-  let accelHigh    = 0.08 + 0.22 * x;
-
-  ws.send(JSON.stringify({
-    alphaStill: alphaStill,
-    alphaMotion: alphaMotion,
-    accelWarn: accelWarn,
-    accelHigh: accelHigh
-  }));
-}
-
-function quickSmoothChanged(v) {
-  let x = parseFloat(v);
-  document.getElementById("quickSmoothVal").innerText = x.toFixed(2);
-
-  let displayAlpha = 0.10 + 0.85 * x;
-  ws.send(JSON.stringify({ displayAlpha: displayAlpha }));
-}
-
-function quickDeadChanged(v) {
-  let x = parseFloat(v);
-  document.getElementById("quickDeadVal").innerText = x.toFixed(2);
-
-  let deadband = 0.30 * x;
-  ws.send(JSON.stringify({ deadband: deadband }));
-}
-
-function softAxisPosition(valueDeg, criticalDeg, radiusPx, upsideFrame) {
+function softAxisPosition(valueDeg, criticalDeg, radiusPx) {
   const INNER_RATIO = 0.78;
-  const OUTER_RATIO = upsideFrame ? 0.90 : 0.95;
-  const HEADROOM = upsideFrame ? 2.85 : 1.25;
+  const OUTER_RATIO = 0.90;
+  const HEADROOM = 2.85;
 
   const absV = Math.abs(valueDeg);
   const sign = valueDeg >= 0 ? 1 : -1;
@@ -709,16 +735,20 @@ ws.onmessage = (msg) => {
   const centerY = rect.height / 2;
   const radius = Math.min(rect.width, rect.height) / 2 - 12;
 
-  const upside = d.useUpsideFrame === 1 || d.useUpsideFrame === true;
+  const pxManual = centerX + softAxisPosition(d.manualRoll, d.criticalRollDeg, radius);
+  const pyManual = centerY + softAxisPosition(d.manualPitch, d.criticalPitchDeg, radius);
 
-  const px = centerX + softAxisPosition(d.roll, d.criticalRollDeg, radius, upside);
-  const py = centerY + softAxisPosition(d.pitch, d.criticalPitchDeg, radius, upside);
+  const pxAuto = centerX + softAxisPosition(d.autoRoll, d.criticalRollDeg, radius);
+  const pyAuto = centerY + softAxisPosition(d.autoPitch, d.criticalPitchDeg, radius);
 
-  dot.style.left = px + "px";
-  dot.style.top = py + "px";
+  dotManual.style.left = pxManual + "px";
+  dotManual.style.top = pyManual + "px";
+
+  dotAuto.style.left = pxAuto + "px";
+  dotAuto.style.top = pyAuto + "px";
 
   document.getElementById("modeBadge").innerText = d.autoMode ? "AUTO" : "MANUAL";
-  document.getElementById("frameBadge").innerText = d.useUpsideFrame ? "FRAME: UPSIDE" : "FRAME: NORMAL";
+  document.getElementById("frameBadge").innerText = "FRAME: UPSIDE";
   document.getElementById("vehBadge").innerText = d.vehicleTypeName;
   document.getElementById("calBadge").innerText = d.calibrated ? "CALIBRATED" : "NOT CALIBRATED";
 
@@ -741,19 +771,35 @@ ws.onmessage = (msg) => {
   document.getElementById("wheelBaseVal").innerText = d.wheelBase_m.toFixed(2) + " m";
   document.getElementById("vehicleHeightVal").innerText = d.vehicleHeight_m.toFixed(2) + " m";
 
-  document.getElementById("alphaStill").value = d.baseAlphaStill.toFixed(3);
-  document.getElementById("alphaMotion").value = d.baseAlphaMotion.toFixed(4);
-  document.getElementById("accelWarn").value = d.baseAccelWarn.toFixed(3);
-  document.getElementById("accelHigh").value = d.baseAccelHigh.toFixed(3);
-  document.getElementById("displayAlpha").value = d.baseDisplayAlpha.toFixed(3);
-  document.getElementById("deadband").value = d.baseDeadband.toFixed(3);
+  // Manual bank UI
+  document.getElementById("manualAlphaStill").value = d.manualBaseAlphaStill.toFixed(3);
+  document.getElementById("manualAlphaMotion").value = d.manualBaseAlphaMotion.toFixed(4);
+  document.getElementById("manualAccelWarn").value = d.manualBaseAccelWarn.toFixed(3);
+  document.getElementById("manualAccelHigh").value = d.manualBaseAccelHigh.toFixed(3);
+  document.getElementById("manualDisplayAlpha").value = d.manualBaseDisplayAlpha.toFixed(3);
+  document.getElementById("manualDeadband").value = d.manualBaseDeadband.toFixed(3);
 
-  document.getElementById("alphaStillVal").innerText = d.alphaStill.toFixed(3);
-  document.getElementById("alphaMotionVal").innerText = d.alphaMotion.toFixed(4);
-  document.getElementById("accelWarnVal").innerText = d.accelWarn.toFixed(3);
-  document.getElementById("accelHighVal").innerText = d.accelHigh.toFixed(3);
-  document.getElementById("displayAlphaVal").innerText = d.displayAlpha.toFixed(3);
-  document.getElementById("deadbandVal").innerText = d.deadband.toFixed(3);
+  document.getElementById("manualAlphaStillVal").innerText = d.manualBaseAlphaStill.toFixed(3);
+  document.getElementById("manualAlphaMotionVal").innerText = d.manualBaseAlphaMotion.toFixed(4);
+  document.getElementById("manualAccelWarnVal").innerText = d.manualBaseAccelWarn.toFixed(3);
+  document.getElementById("manualAccelHighVal").innerText = d.manualBaseAccelHigh.toFixed(3);
+  document.getElementById("manualDisplayAlphaVal").innerText = d.manualBaseDisplayAlpha.toFixed(3);
+  document.getElementById("manualDeadbandVal").innerText = d.manualBaseDeadband.toFixed(3);
+
+  // Auto bank UI
+  document.getElementById("autoAlphaStill").value = d.autoBaseAlphaStill.toFixed(3);
+  document.getElementById("autoAlphaMotion").value = d.autoBaseAlphaMotion.toFixed(4);
+  document.getElementById("autoAccelWarn").value = d.autoBaseAccelWarn.toFixed(3);
+  document.getElementById("autoAccelHigh").value = d.autoBaseAccelHigh.toFixed(3);
+  document.getElementById("autoDisplayAlpha").value = d.autoBaseDisplayAlpha.toFixed(3);
+  document.getElementById("autoDeadband").value = d.autoBaseDeadband.toFixed(3);
+
+  document.getElementById("autoAlphaStillVal").innerText = d.autoBaseAlphaStill.toFixed(3);
+  document.getElementById("autoAlphaMotionVal").innerText = d.autoBaseAlphaMotion.toFixed(4);
+  document.getElementById("autoAccelWarnVal").innerText = d.autoBaseAccelWarn.toFixed(3);
+  document.getElementById("autoAccelHighVal").innerText = d.autoBaseAccelHigh.toFixed(3);
+  document.getElementById("autoDisplayAlphaVal").innerText = d.autoBaseDisplayAlpha.toFixed(3);
+  document.getElementById("autoDeadbandVal").innerText = d.autoBaseDeadband.toFixed(3);
 
   document.getElementById("paramBox").innerHTML =
     "<b>Vehicle</b><br>" +
@@ -765,21 +811,14 @@ ws.onmessage = (msg) => {
     "criticalRollDeg: " + d.criticalRollDeg.toFixed(2) + "°<br>" +
     "criticalPitchDeg: " + d.criticalPitchDeg.toFixed(2) + "°<br><br>" +
 
-    "<b>Base values</b><br>" +
-    "alphaStill: " + d.baseAlphaStill.toFixed(3) + "<br>" +
-    "alphaMotion: " + d.baseAlphaMotion.toFixed(4) + "<br>" +
-    "accelWarn: " + d.baseAccelWarn.toFixed(3) + "<br>" +
-    "accelHigh: " + d.baseAccelHigh.toFixed(3) + "<br>" +
-    "displayAlpha: " + d.baseDisplayAlpha.toFixed(3) + "<br>" +
-    "deadband: " + d.baseDeadband.toFixed(3) + "<br><br>" +
-
-    "<b>Live values</b><br>" +
+    "<b>Selected mode live values</b><br>" +
     "alphaStill: " + d.alphaStill.toFixed(3) + "<br>" +
     "alphaMotion: " + d.alphaMotion.toFixed(4) + "<br>" +
     "accelWarn: " + d.accelWarn.toFixed(3) + "<br>" +
     "accelHigh: " + d.accelHigh.toFixed(3) + "<br>" +
     "displayAlpha: " + d.displayAlpha.toFixed(3) + "<br>" +
     "deadband: " + d.deadband.toFixed(3) + "<br><br>" +
+
     "<b>Calibration reference</b><br>" +
     "calibRollRef: " + d.calibRollRef.toFixed(3) + "<br>" +
     "calibPitchRef: " + d.calibPitchRef.toFixed(3);
@@ -824,7 +863,7 @@ void setup() {
   }
 
   computeVehicle();
-  applyManualTuning();
+  applySelectedModeLiveValues();
 
   lastMicros = micros();
   lastRiskChangeMs = millis();
@@ -865,34 +904,106 @@ void loop() {
   float pitchAcc = pitchAccRaw - calibPitchRef;
   float rollAcc  = rollAccRaw - calibRollRef;
 
-  float pitchGyro = pitchAngle + gy * dt;
-  float rollGyro  = rollAngle + gx * dt;
-
   float angRate = max(fabs(gx), fabs(gy));
 
+  // ================= MANUAL PATH =================
+  {
+    float mAlphaStill   = manualBaseAlphaStill;
+    float mAlphaMotion  = manualBaseAlphaMotion;
+    float mAccelWarn    = manualBaseAccelWarn;
+    float mAccelHigh    = manualBaseAccelHigh;
+    float mDisplayAlpha = manualBaseDisplayAlpha;
+    float mDeadband     = manualBaseDeadband;
+
+    float alphaManual = mapAlphaFor(accErr, mAlphaStill, mAlphaMotion, mAccelWarn, mAccelHigh);
+
+    float pitchGyroManual = pitchAngleManual + gy * dt;
+    float rollGyroManual  = rollAngleManual + gx * dt;
+
+    pitchAngleManual = alphaManual * pitchGyroManual + (1.0f - alphaManual) * pitchAcc;
+    rollAngleManual  = alphaManual * rollGyroManual  + (1.0f - alphaManual) * rollAcc;
+
+    if (!calibrated || millis() < calibrationHoldUntil) {
+      pitchAngleManual = 0.0f;
+      rollAngleManual = 0.0f;
+      pitchDisplayManual = 0.0f;
+      rollDisplayManual = 0.0f;
+    }
+
+    pitchDisplayManual = mDisplayAlpha * pitchAngleManual + (1.0f - mDisplayAlpha) * pitchDisplayManual;
+    rollDisplayManual  = mDisplayAlpha * rollAngleManual  + (1.0f - mDisplayAlpha) * rollDisplayManual;
+
+    if (fabs(pitchDisplayManual) < mDeadband) pitchDisplayManual = 0.0f;
+    if (fabs(rollDisplayManual) < mDeadband)  rollDisplayManual = 0.0f;
+  }
+
+  // ================= AUTO PATH =================
+  float aAlphaStill;
+  float aAlphaMotion;
+  float aAccelWarn;
+  float aAccelHigh;
+  float aDisplayAlpha;
+  float aDeadband;
+
+  {
+    float aStability = clampf(1.0f - accErr * 5.0f, 0.0f, 1.0f);
+    float aMotion = clampf(angRate / 15.0f, 0.0f, 1.0f);
+
+    aAlphaStill   = clampf(autoBaseAlphaStill + 0.05f * aStability, 0.80f, 0.99f);
+    aAlphaMotion  = clampf(autoBaseAlphaMotion + 0.004f * aMotion, 0.990f, 0.9999f);
+    aAccelWarn    = clampf(autoBaseAccelWarn + 0.05f * aMotion, 0.000f, 0.25f);
+    aAccelHigh    = clampf(autoBaseAccelHigh + 0.10f * aMotion, aAccelWarn + 0.01f, 0.40f);
+    aDisplayAlpha = clampf(autoBaseDisplayAlpha + 0.20f * aStability - 0.05f * aMotion, 0.10f, 0.95f);
+    aDeadband     = clampf(autoBaseDeadband + 0.08f * (1.0f - aStability), 0.0f, 0.30f);
+
+    float alphaAuto = mapAlphaFor(accErr, aAlphaStill, aAlphaMotion, aAccelWarn, aAccelHigh);
+
+    float pitchGyroAuto = pitchAngleAuto + gy * dt;
+    float rollGyroAuto  = rollAngleAuto + gx * dt;
+
+    pitchAngleAuto = alphaAuto * pitchGyroAuto + (1.0f - alphaAuto) * pitchAcc;
+    rollAngleAuto  = alphaAuto * rollGyroAuto  + (1.0f - alphaAuto) * rollAcc;
+
+    if (!calibrated || millis() < calibrationHoldUntil) {
+      pitchAngleAuto = 0.0f;
+      rollAngleAuto = 0.0f;
+      pitchDisplayAuto = 0.0f;
+      rollDisplayAuto = 0.0f;
+    }
+
+    pitchDisplayAuto = aDisplayAlpha * pitchAngleAuto + (1.0f - aDisplayAlpha) * pitchDisplayAuto;
+    rollDisplayAuto  = aDisplayAlpha * rollAngleAuto  + (1.0f - aDisplayAlpha) * rollDisplayAuto;
+
+    if (fabs(pitchDisplayAuto) < aDeadband) pitchDisplayAuto = 0.0f;
+    if (fabs(rollDisplayAuto) < aDeadband)  rollDisplayAuto = 0.0f;
+  }
+
+  // Keep the existing selected-mode behavior unchanged
   if (autoMode) {
-    autoTune(accErr, angRate);
+    alphaStill   = aAlphaStill;
+    alphaMotion  = aAlphaMotion;
+    accelWarn    = aAccelWarn;
+    accelHigh    = aAccelHigh;
+    displayAlpha = aDisplayAlpha;
+    deadband     = aDeadband;
+
+    pitchAngle = pitchAngleAuto;
+    rollAngle = rollAngleAuto;
+    pitchDisplay = pitchDisplayAuto;
+    rollDisplay = rollDisplayAuto;
   } else {
-    applyManualTuning();
+    alphaStill   = manualBaseAlphaStill;
+    alphaMotion  = manualBaseAlphaMotion;
+    accelWarn    = manualBaseAccelWarn;
+    accelHigh    = manualBaseAccelHigh;
+    displayAlpha = manualBaseDisplayAlpha;
+    deadband     = manualBaseDeadband;
+
+    pitchAngle = pitchAngleManual;
+    rollAngle = rollAngleManual;
+    pitchDisplay = pitchDisplayManual;
+    rollDisplay = rollDisplayManual;
   }
-
-  float alpha = mapAlpha(accErr);
-
-  pitchAngle = alpha * pitchGyro + (1.0f - alpha) * pitchAcc;
-  rollAngle  = alpha * rollGyro  + (1.0f - alpha) * rollAcc;
-
-  if (!calibrated || millis() < calibrationHoldUntil) {
-    pitchAngle = 0.0f;
-    rollAngle = 0.0f;
-    pitchDisplay = 0.0f;
-    rollDisplay = 0.0f;
-  }
-
-  pitchDisplay = displayAlpha * pitchAngle + (1.0f - displayAlpha) * pitchDisplay;
-  rollDisplay  = displayAlpha * rollAngle  + (1.0f - displayAlpha) * rollDisplay;
-
-  if (fabs(pitchDisplay) < deadband) pitchDisplay = 0.0f;
-  if (fabs(rollDisplay) < deadband)  rollDisplay = 0.0f;
 
   float confidence = 1.0f - clampf((accErr - 0.02f) / 0.18f, 0.0f, 1.0f);
 
@@ -915,13 +1026,9 @@ void loop() {
     severityTilt = totalTiltDeg / criticalTiltDeg;
   }
 
-  // Use the worst case among roll, pitch, and total 3D tilt
   float severity = max(max(nRoll, nPitch), severityTilt);
-
-  // Optional small confidence influence only for display value, not for state
   float effectiveRisk = clampf(severity * (0.7f + 0.3f * confidence), 0.0f, 1.0f);
 
-  // State is based on the real threshold only
   int desired;
   if (severity >= 1.0f) {
     desired = 2;   // HIGH
@@ -943,20 +1050,22 @@ void loop() {
     lastRiskChangeMs = now;
   }
 
-  // Only flip pitch for the visualizer
   float visualRoll = rollDisplay;
-  float visualPitch = useUpsideFrame ? pitchDisplay : -pitchDisplay;
+  float visualPitch = pitchDisplay;
 
   String data;
-  data.reserve(520);
+  data.reserve(1100);
   data += "{";
   data += "\"roll\":" + String(visualRoll, 3) + ",";
   data += "\"pitch\":" + String(visualPitch, 3) + ",";
+  data += "\"manualRoll\":" + String(rollDisplayManual, 3) + ",";
+  data += "\"manualPitch\":" + String(pitchDisplayManual, 3) + ",";
+  data += "\"autoRoll\":" + String(rollDisplayAuto, 3) + ",";
+  data += "\"autoPitch\":" + String(pitchDisplayAuto, 3) + ",";
   data += "\"confidence\":" + String(confidence, 3) + ",";
   data += "\"risk\":" + String(effectiveRisk, 3) + ",";
   data += "\"level\":" + String(stableRisk) + ",";
   data += "\"autoMode\":" + String(autoMode ? 1 : 0) + ",";
-  data += "\"useUpsideFrame\":" + String(useUpsideFrame ? 1 : 0) + ",";
   data += "\"calibrated\":" + String(calibrated ? 1 : 0) + ",";
   data += "\"vehicleType\":" + String(vehicleType) + ",";
   data += "\"vehicleTypeName\":\"";
@@ -968,18 +1077,28 @@ void loop() {
   data += "\"loadCondition\":" + String(loadCondition) + ",";
   data += "\"criticalRollDeg\":" + String(criticalRollDeg, 2) + ",";
   data += "\"criticalPitchDeg\":" + String(criticalPitchDeg, 2) + ",";
-  data += "\"baseAlphaStill\":" + String(baseAlphaStill, 3) + ",";
-  data += "\"baseAlphaMotion\":" + String(baseAlphaMotion, 4) + ",";
-  data += "\"baseAccelWarn\":" + String(baseAccelWarn, 3) + ",";
-  data += "\"baseAccelHigh\":" + String(baseAccelHigh, 3) + ",";
-  data += "\"baseDisplayAlpha\":" + String(baseDisplayAlpha, 3) + ",";
-  data += "\"baseDeadband\":" + String(baseDeadband, 3) + ",";
+
+  data += "\"manualBaseAlphaStill\":" + String(manualBaseAlphaStill, 3) + ",";
+  data += "\"manualBaseAlphaMotion\":" + String(manualBaseAlphaMotion, 4) + ",";
+  data += "\"manualBaseAccelWarn\":" + String(manualBaseAccelWarn, 3) + ",";
+  data += "\"manualBaseAccelHigh\":" + String(manualBaseAccelHigh, 3) + ",";
+  data += "\"manualBaseDisplayAlpha\":" + String(manualBaseDisplayAlpha, 3) + ",";
+  data += "\"manualBaseDeadband\":" + String(manualBaseDeadband, 3) + ",";
+
+  data += "\"autoBaseAlphaStill\":" + String(autoBaseAlphaStill, 3) + ",";
+  data += "\"autoBaseAlphaMotion\":" + String(autoBaseAlphaMotion, 4) + ",";
+  data += "\"autoBaseAccelWarn\":" + String(autoBaseAccelWarn, 3) + ",";
+  data += "\"autoBaseAccelHigh\":" + String(autoBaseAccelHigh, 3) + ",";
+  data += "\"autoBaseDisplayAlpha\":" + String(autoBaseDisplayAlpha, 3) + ",";
+  data += "\"autoBaseDeadband\":" + String(autoBaseDeadband, 3) + ",";
+
   data += "\"alphaStill\":" + String(alphaStill, 3) + ",";
   data += "\"alphaMotion\":" + String(alphaMotion, 4) + ",";
   data += "\"accelWarn\":" + String(accelWarn, 3) + ",";
   data += "\"accelHigh\":" + String(accelHigh, 3) + ",";
   data += "\"displayAlpha\":" + String(displayAlpha, 3) + ",";
   data += "\"deadband\":" + String(deadband, 3) + ",";
+
   data += "\"calibRollRef\":" + String(calibRollRef, 3) + ",";
   data += "\"calibPitchRef\":" + String(calibPitchRef, 3);
   data += "}";
