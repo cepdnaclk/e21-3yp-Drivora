@@ -15,25 +15,25 @@ WebSocketsServer webSocket(81);
 #define ECHOPIN 4
 
 // ================= DISTANCE SETTINGS =================
-const float MIN_VALID_CM = 25.0f;
+const float MIN_VALID_CM = 23.0f;
 const float MAX_VALID_CM = 250.0f;
 
 const float OBJECT_ZONE_CM   = 180.0f;
 const float WARNING_ZONE_CM  = 80.0f;
 
 // Close / blind-zone related thresholds
-const float VERY_CLOSE_ZONE_CM      = 35.0f;
-const float BLIND_ENTRY_TRIGGER_CM  = 30.0f;
+const float VERY_CLOSE_ZONE_CM      = 25.0f;
+const float BLIND_ENTRY_TRIGGER_CM  = 24.0f;
 const float CLEAR_DISTANCE_CM       = 205.0f;
 
 // Suspicious reading logic
 const float SUSPICIOUS_JUMP_CM      = 18.0f;
-const float BLIND_RELEASE_MIN_CM    = 34.0f;
-const int   BLIND_RELEASE_COUNT_REQ = 2;
+const float BLIND_RELEASE_MIN_CM    = 29.0f;
+const int   BLIND_RELEASE_COUNT_REQ = 3;
 
 // Moving-away based blind release
 const float BLIND_RELEASE_MOVING_AWAY_CM_S = -6.0f;
-const float BLIND_RELEASE_MOVING_AWAY_MIN_CM = 28.0f;
+const float BLIND_RELEASE_MOVING_AWAY_MIN_CM = 25.0f;
 
 // Fast blind-entry detection
 const float FAST_BLIND_ARM_CM   = 45.0f;
@@ -269,7 +269,7 @@ bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
 
   bool suspiciousNow = false;
   if (rawDist > 0.0f) {
-    bool erraticNearBlind = (rawDist <= BLIND_RELEASE_MIN_CM);
+    bool erraticNearBlind = (rawDist <= BLIND_ENTRY_TRIGGER_CM);
     bool suddenJumpTowardBlind = ((lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) && (rawDist <= VERY_CLOSE_ZONE_CM);
     suspiciousNow = erraticNearBlind || suddenJumpTowardBlind;
   } else {
