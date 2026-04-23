@@ -22,11 +22,15 @@ const float OBJECT_DETECTED_CM = 120.0f;
 const float CAUTION_CM         = 50.0f;
 const float WARNING_CM         = 30.0f;
 
+// ================= STATE HYSTERESIS =================
+const float OBJECT_DETECTED_EXIT_CM = 128.0f;
+const float CAUTION_EXIT_CM         = 56.0f;
+
 // ================= REAR WARNING LATCH =================
 const float WARNING_LATCH_ENTRY_CM   = 30.0f;
-const float WARNING_LATCH_RELEASE_CM = 35.0f;
+const float WARNING_LATCH_RELEASE_CM = 34.0f;
 const int   WARNING_LATCH_RELEASE_CONFIRM = 3;
-const float FAST_WARNING_RELEASE_CM  = 45.0f;
+const float FAST_WARNING_RELEASE_CM  = 37.0f;
 const int   FAST_WARNING_RELEASE_CONFIRM = 2;
 
 // ================= FAST WARNING ENTRY =================
@@ -189,22 +193,31 @@ bool isRecentValidMemoryAvailable(unsigned long nowMs) {
   return (nowMs - lastValidDistanceMs) <= RECENT_VALID_MEMORY_MS;
 }
 
-bool isSuspiciousReleaseReading(float dist, unsigned long nowMs) {
+bool isSuspiciousReadingWhileLatched(float rawDist, float dist, unsigned long nowMs) {
   if (!warningLatched) return false;
+
   if (dist < 0.0f) return true;
 
-  // If it is clearly far enough for fast release, do not treat it as suspicious.
-  // The fast release path itself will require confirmation count.
   if (dist >= FAST_WARNING_RELEASE_CM) return false;
 
-  if (!isRecentValidMemoryAvailable(nowMs)) return false;
-  if (lastLatchedCloseDistance < 0.0f) return false;
+  bool nearBlindArea = (dist <= WARNING_LATCH_RELEASE_CM);
 
-  bool largeJumpFromRecentValid =
-    (lastValidDistance >= 0.0f) &&
-    (fabs(dist - lastValidDistance) >= RELEASE_SUSPICIOUS_JUMP_CM);
+  bool jumpFromLatchedClose = false;
+  if (lastLatchedCloseDistance >= 0.0f) {
+    jumpFromLatchedClose = fabs(dist - lastLatchedCloseDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
+  }
 
-  return largeJumpFromRecentValid;
+  bool jumpFromRecentValid = false;
+  if (isRecentValidMemoryAvailable(nowMs) && lastValidDistance >= 0.0f) {
+    jumpFromRecentValid = fabs(dist - lastValidDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
+  }
+
+  bool rawLooksBlindish = false;
+  if (rawDist > 0.0f) {
+    rawLooksBlindish = (rawDist <= WARNING_LATCH_ENTRY_CM);
+  }
+
+  return nearBlindArea || rawLooksBlindish || jumpFromLatchedClose || jumpFromRecentValid;
 }
 
 // ================= FAST WARNING ENTRY DETECTOR =================
@@ -252,9 +265,16 @@ void updateRearState(float rawDist, float dist, unsigned long nowMs) {
     }
 
     if (warningLatched) {
-      bool suspiciousRelease = isSuspiciousReleaseReading(dist, nowMs);
+      bool suspiciousWhileLatched = isSuspiciousReadingWhileLatched(rawDist, dist, nowMs);
 
-      if (dist >= FAST_WARNING_RELEASE_CM && !suspiciousRelease) {
+      if (suspiciousWhileLatched) {
+        warningReleaseCounter = 0;
+        fastWarningReleaseCounter = 0;
+        currentState = WARNING;
+        return;
+      }
+
+      if (dist >= FAST_WARNING_RELEASE_CM) {
         fastWarningReleaseCounter++;
       } else {
         fastWarningReleaseCounter = 0;
@@ -265,7 +285,7 @@ void updateRearState(float rawDist, float dist, unsigned long nowMs) {
         warningReleaseCounter = 0;
         fastWarningReleaseCounter = 0;
         lastLatchedCloseDistance = -1.0f;
-      } else if (dist >= WARNING_LATCH_RELEASE_CM && !suspiciousRelease) {
+      } else if (dist >= WARNING_LATCH_RELEASE_CM) {
         warningReleaseCounter++;
       } else {
         warningReleaseCounter = 0;
@@ -286,7 +306,11 @@ void updateRearState(float rawDist, float dist, unsigned long nowMs) {
       currentState = WARNING;
     } else if (dist <= CAUTION_CM) {
       currentState = CAUTION;
+    } else if (currentState == CAUTION && dist <= CAUTION_EXIT_CM) {
+      currentState = CAUTION;
     } else if (dist <= OBJECT_DETECTED_CM) {
+      currentState = OBJECT_DETECTED;
+    } else if (currentState == OBJECT_DETECTED && dist <= OBJECT_DETECTED_EXIT_CM) {
       currentState = OBJECT_DETECTED;
     } else {
       currentState = CLEAR;
@@ -298,6 +322,8 @@ void updateRearState(float rawDist, float dist, unsigned long nowMs) {
   // Invalid reading path:
   // If already latched, keep warning through blind-zone instability.
   if (warningLatched) {
+    warningReleaseCounter = 0;
+    fastWarningReleaseCounter = 0;
     currentState = WARNING;
     return;
   }
@@ -595,6 +621,7 @@ ws.onmessage = (evt) => {
     " | releaseCounter: " + d.warningReleaseCounter +
     " | fastReleaseCounter: " + d.fastWarningReleaseCounter +
     " | fastWarning: " + (d.fastWarningTriggered ? "YES" : "NO") +
+    " | suspiciousLatched: " + (d.suspiciousLatched ? "YES" : "NO") +
     " | invalidStreak: " + d.invalidStreak +
     " | loop: " + d.loopMs.toFixed(0) + " ms";
 
@@ -673,13 +700,16 @@ void loop() {
   }
 
   if (invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
-      (nowMs - lastRecoveryMs) > RECOVERY_COOLDOWN_MS) {
+      (nowMs - lastRecoveryMs) > RECOVERY_COOLDOWN_MS &&
+      !warningLatched &&
+      currentState != WARNING) {
     resetSensorState();
     lastRecoveryMs = nowMs;
     invalidStreak = 0;
   }
 
   bool fastWarning = shouldFastLatchWarning(rawDistance, smoothedDistance, nowMs);
+  bool suspiciousLatched = isSuspiciousReadingWhileLatched(rawDistance, smoothedDistance, nowMs);
   updateRearState(rawDistance, smoothedDistance, nowMs);
   updateLastValidDistance(smoothedDistance, nowMs);
 
@@ -699,13 +729,15 @@ void loop() {
   Serial.print(fastWarningReleaseCounter);
   Serial.print(" | FastWarning: ");
   Serial.print(fastWarning ? "YES" : "NO");
+  Serial.print(" | SuspiciousLatched: ");
+  Serial.print(suspiciousLatched ? "YES" : "NO");
   Serial.print(" | InvalidStreak: ");
   Serial.print(invalidStreak);
   Serial.print(" | State: ");
   Serial.println(stateName(currentState));
 
   String data;
-  data.reserve(560);
+  data.reserve(600);
   data += "{";
   data += "\"rawDistance\":" + String(rawDistance, 1) + ",";
   data += "\"filteredDistance\":" + String(smoothedDistance, 1) + ",";
@@ -721,6 +753,7 @@ void loop() {
   data += "\"warningReleaseCounter\":" + String(warningReleaseCounter) + ",";
   data += "\"fastWarningReleaseCounter\":" + String(fastWarningReleaseCounter) + ",";
   data += "\"fastWarningTriggered\":" + String(fastWarning ? 1 : 0) + ",";
+  data += "\"suspiciousLatched\":" + String(suspiciousLatched ? 1 : 0) + ",";
   data += "\"invalidStreak\":" + String(invalidStreak) + ",";
   data += "\"loopMs\":" + String(loopMs, 0);
   data += "}";
