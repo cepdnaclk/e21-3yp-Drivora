@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/wifi_sensor_service.dart';
 import 'theme/app_theme.dart';
-import 'screens/dashboard_screen.dart';
+import 'screens/registration_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,42 +17,15 @@ class DrivoraApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<WiFiSensorService>(
-          create: (_) => WiFiSensorService(),
+          create: (_) => WiFiSensorService()..initialize(),
         ),
       ],
       child: MaterialApp(
-        title: 'DRIVORA - Driver Assistant',
+        title: 'DRIVORA U-ADAS',
         theme: AppTheme.darkTheme,
         debugShowCheckedModeBanner: false,
-        home: const MainApp(),
+        home: const RegistrationScreen(),
       ),
-    );
-  }
-}
-
-class MainApp extends StatefulWidget {
-  const MainApp({Key? key}) : super(key: key);
-
-  @override
-  State<MainApp> createState() => _MainAppState();
-}
-
-class _MainAppState extends State<MainApp> {
-  @override
-  void initState() {
-    super.initState();
-    // Initialize WiFi Sensor service
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final sensorService =
-          Provider.of<WiFiSensorService>(context, listen: false);
-      await sensorService.initialize();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: DashboardScreen(),
     );
   }
 }

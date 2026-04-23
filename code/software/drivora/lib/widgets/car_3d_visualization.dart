@@ -4,18 +4,20 @@ import '../theme/app_theme.dart';
 
 class Car3DVisualization extends StatefulWidget {
   final double speed;
-  final double steeringAngle;
+  final double lanePosition;
   final bool brakeActive;
   final bool leftSignal;
   final bool rightSignal;
+  final double tiltAngle;
 
   const Car3DVisualization({
     Key? key,
     required this.speed,
-    this.steeringAngle = 0,
+    this.lanePosition = 0,
     this.brakeActive = false,
     this.leftSignal = false,
     this.rightSignal = false,
+    this.tiltAngle = 0,
   }) : super(key: key);
 
   @override
@@ -24,20 +26,20 @@ class Car3DVisualization extends StatefulWidget {
 
 class _Car3DVisualizationState extends State<Car3DVisualization>
     with SingleTickerProviderStateMixin {
-  late AnimationController _glowController;
+  late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _glowController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 2),
       vsync: this,
-    )..repeat(reverse: true);
+    )..repeat();
   }
 
   @override
   void dispose() {
-    _glowController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -45,607 +47,217 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      height: 280,
+      height: 400,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppTheme.darkBackground,
-            AppTheme.cardBackground,
+        color: AppTheme.panel,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.border),
+        boxShadow: AppTheme.shadowLg,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            // Scan line animation
+            const _ScanLine(),
+            
+            // Safety zone rings
+            Center(
+              child: AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  return CustomPaint(
+                    painter: _SafetyEnvelopePainter(
+                      pulse: _pulseController.value,
+                      tilt: widget.tiltAngle,
+                    ),
+                    size: const Size(double.infinity, double.infinity),
+                  );
+                },
+              ),
+            ),
+
+            // Car Model
+            Center(
+              child: Transform(
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.001)
+                  ..rotateX(0.2)
+                  ..rotateY(widget.lanePosition * 0.1)
+                  ..rotateZ(widget.tiltAngle * (math.pi / 180)),
+                alignment: Alignment.center,
+                child: CustomPaint(
+                  size: const Size(200, 300),
+                  painter: _CarArtistPainter(
+                    brakeActive: widget.brakeActive,
+                    leftSignal: widget.leftSignal,
+                    rightSignal: widget.rightSignal,
+                  ),
+                ),
+              ),
+            ),
+
+            // Central Telemetry HUD
+            Positioned(
+              bottom: 40, left: 0, right: 0,
+              child: Column(
+                children: [
+                  Text('${widget.speed.toInt()}', 
+                    style: const TextStyle(
+                      fontSize: 64, 
+                      fontWeight: FontWeight.w700, 
+                      color: AppTheme.textPrimary, 
+                      fontFamily: 'Orbitron',
+                      letterSpacing: -2,
+                    )),
+                  const Text('VEHICLE SPEED (KM/H)', 
+                    style: TextStyle(
+                      color: AppTheme.textSecondary, 
+                      fontWeight: FontWeight.bold, 
+                      letterSpacing: 3, 
+                      fontSize: 9
+                    )),
+                ],
+              ),
+            ),
+            
+            const Positioned(
+              top: 15, left: 0, right: 0,
+              child: Text('360° SAFETY ENVELOPE', 
+                textAlign: TextAlign.center,
+                style: TextStyle(fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+            ),
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppTheme.primaryNeon.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Background grid
-          CustomPaint(
-            painter: GridPainter(),
-            child: Container(),
-          ),
-          // 3D Car Visualization
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ScaleTransition(
-                  scale: Tween<double>(begin: 1.0, end: 1.05)
-                      .animate(_glowController),
-                  child: CustomPaint(
-                    size: const Size(200, 150),
-                    painter: Car3DPainter(
-                      steeringAngle: widget.steeringAngle,
-                      brakeActive: widget.brakeActive,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // Speed and Status Row
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (widget.leftSignal)
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.warningYellow.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppTheme.warningYellow),
-                          ),
-                          child: const Icon(
-                            Icons.arrow_back,
-                            color: AppTheme.warningYellow,
-                            size: 16,
-                          ),
-                        ),
-                      const Spacer(),
-                      Column(
-                        children: [
-                          Text(
-                            '${widget.speed.toStringAsFixed(0)} km/h',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(
-                                  color: AppTheme.primaryNeon,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          if (widget.brakeActive)
-                            Text(
-                              '🛑 BRAKE ACTIVE',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color: AppTheme.dangerRed,
-                                  ),
-                            ),
-                        ],
-                      ),
-                      const Spacer(),
-                      if (widget.rightSignal)
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.warningYellow.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppTheme.warningYellow),
-                          ),
-                          child: const Icon(
-                            Icons.arrow_forward,
-                            color: AppTheme.warningYellow,
-                            size: 16,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
-class Car3DPainter extends CustomPainter {
-  final double steeringAngle;
+class _CarArtistPainter extends CustomPainter {
   final bool brakeActive;
+  final bool leftSignal;
+  final bool rightSignal;
 
-  Car3DPainter({
-    required this.steeringAngle,
-    required this.brakeActive,
-  });
+  _CarArtistPainter({required this.brakeActive, required this.leftSignal, required this.rightSignal});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-
+    
+    // Main Chassis
     final bodyPaint = Paint()
-      ..color = brakeActive ? AppTheme.dangerRed : AppTheme.primaryNeon
-      ..style = PaintingStyle.fill;
-
-    final windowPaint = Paint()
-      ..color = AppTheme.secondaryBlue.withOpacity(0.4)
-      ..style = PaintingStyle.fill;
-
-    final brakeLightPaint = Paint()
-      ..color = brakeActive ? AppTheme.dangerRed : Colors.grey.shade700
-      ..style = PaintingStyle.fill;
-
-    // Main car body (top view with perspective)
-    final bodyPath = Path()
-      ..moveTo(center.dx - 60, center.dy - 30)
-      ..lineTo(center.dx - 50, center.dy - 50)
-      ..lineTo(center.dx + 50, center.dy - 50)
-      ..lineTo(center.dx + 60, center.dy - 30)
-      ..lineTo(center.dx + 55, center.dy + 50)
-      ..lineTo(center.dx - 55, center.dy + 50)
-      ..close();
-
-    canvas.drawPath(bodyPath, bodyPaint);
-
-    // Front windshield
-    canvas.drawRect(
-      Rect.fromLTWH(
-        center.dx - 40,
-        center.dy - 45,
-        80,
-        15,
-      ),
-      windowPaint,
+      ..shader = const RadialGradient(
+        colors: [Color(0xFFFFFFFF), Color(0xFFD0D0D8)],
+      ).createShader(Rect.fromCenter(center: center, width: 94, height: 158));
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 94, height: 158), const Radius.circular(10)),
+      bodyPaint
     );
 
-    // Rear window
-    canvas.drawRect(
-      Rect.fromLTWH(
-        center.dx - 35,
-        center.dy + 10,
-        70,
-        15,
-      ),
-      windowPaint,
+    // Cab
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(center.dx - 43, center.dy - 79, 86, 55), const Radius.circular(8)),
+      Paint()..shader = const LinearGradient(colors: [Color(0xFFF0F0F5), Color(0xFFC8C8D0)]).createShader(Rect.fromLTWH(0, 0, 100, 100))
     );
 
-    // Front wheels with steering angle
-    _drawWheel(
-      canvas,
-      Offset(center.dx - 35, center.dy - 25),
-      steeringAngle,
-      2,
-    );
-    _drawWheel(
-      canvas,
-      Offset(center.dx + 35, center.dy - 25),
-      steeringAngle,
-      2,
+    // Windshield
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(center.dx - 35, center.dy - 71, 70, 30), const Radius.circular(5)),
+      Paint()..color = const Color(0xFF0A84FF).withOpacity(0.2)
     );
 
-    // Rear wheels (fixed)
-    _drawWheel(
-      canvas,
-      Offset(center.dx - 35, center.dy + 40),
-      0,
-      1.5,
-    );
-    _drawWheel(
-      canvas,
-      Offset(center.dx + 35, center.dy + 40),
-      0,
-      1.5,
-    );
-
-    // Headlights
-    canvas.drawCircle(
-      Offset(center.dx - 20, center.dy - 55),
-      4,
-      Paint()..color = AppTheme.warningYellow,
-    );
-    canvas.drawCircle(
-      Offset(center.dx + 20, center.dy - 55),
-      4,
-      Paint()..color = AppTheme.warningYellow,
-    );
-
-    // Brake lights (rear)
-    canvas.drawCircle(
-      Offset(center.dx - 20, center.dy + 58),
-      4,
-      brakeLightPaint,
-    );
-    canvas.drawCircle(
-      Offset(center.dx + 20, center.dy + 58),
-      4,
-      brakeLightPaint,
-    );
-  }
-
-  void _drawWheel(
-    Canvas canvas,
-    Offset center,
-    double rotationAngle,
-    double scale,
-  ) {
-    final radius = 8.0 * scale;
-
-    // Wheel rim
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..color = Colors.grey.shade700
-        ..style = PaintingStyle.fill,
-    );
-
-    // Wheel treads (rotated)
-    const treadCount = 6;
-    for (int i = 0; i < treadCount; i++) {
-      final angle = (i / treadCount * 2 * math.pi) + (rotationAngle * 0.05);
-      final x = center.dx + (radius - 2) * math.cos(angle);
-      final y = center.dy + (radius - 2) * math.sin(angle);
-
-      canvas.drawCircle(
-        Offset(x, y),
-        1 * scale,
-        Paint()..color = Colors.grey.shade500,
-      );
+    // Dynamic Lights
+    if (brakeActive) {
+      final brakeGlow = Paint()..color = AppTheme.accentRed..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
+      canvas.drawRect(Rect.fromLTWH(center.dx - 40, center.dy + 75, 20, 5), brakeGlow);
+      canvas.drawRect(Rect.fromLTWH(center.dx + 20, center.dy + 75, 20, 5), brakeGlow);
+    }
+    
+    // Signals
+    if (leftSignal) {
+      canvas.drawCircle(center.translate(-45, -70), 6, Paint()..color = AppTheme.accentAmber..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+    }
+    if (rightSignal) {
+      canvas.drawCircle(center.translate(45, -70), 6, Paint()..color = AppTheme.accentAmber..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
     }
 
-    // Center hub
-    canvas.drawCircle(
-      center,
-      3 * scale,
-      Paint()..color = AppTheme.primaryNeon,
-    );
+    // Sensor Dots
+    canvas.drawCircle(center.translate(0, -80), 3, Paint()..color = AppTheme.accentGreen); // FCW Unit
+    canvas.drawCircle(center.translate(0, 30), 4, Paint()..color = AppTheme.accentAmber); // IMU Unit
   }
 
-  @override
-  bool shouldRepaint(Car3DPainter oldDelegate) {
-    return oldDelegate.steeringAngle != steeringAngle ||
-        oldDelegate.brakeActive != brakeActive;
-  }
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-class GridPainter extends CustomPainter {
+class _SafetyEnvelopePainter extends CustomPainter {
+  final double pulse;
+  final double tilt;
+  _SafetyEnvelopePainter({required this.pulse, required this.tilt});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppTheme.primaryNeon.withOpacity(0.05)
-      ..strokeWidth = 0.5;
+    final center = Offset(size.width / 2, size.height / 2);
+    
+    // Forward Cone
+    final conePath = Path()
+      ..moveTo(center.dx, center.dy - 80)
+      ..lineTo(center.dx - 100, center.dy - 220)
+      ..lineTo(center.dx + 100, center.dy - 220)
+      ..close();
+    
+    canvas.drawPath(conePath, Paint()..shader = LinearGradient(
+      colors: [AppTheme.accentGreen.withOpacity(0.1), Colors.transparent],
+      begin: Alignment.bottomCenter, end: Alignment.topCenter
+    ).createShader(Rect.fromLTWH(0, 0, 500, 500)));
 
-    const spacing = 20.0;
-    for (double i = 0; i < size.width; i += spacing) {
-      canvas.drawLine(
-        Offset(i, 0),
-        Offset(i, size.height),
-        paint,
-      );
-    }
-    for (double i = 0; i < size.height; i += spacing) {
-      canvas.drawLine(
-        Offset(0, i),
-        Offset(size.width, i),
-        paint,
-      );
-    }
+    // Pulsing Rings
+    final ringPaint = Paint()
+      ..color = AppTheme.accentBlue.withOpacity(0.2 * (1 - pulse))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    
+    canvas.drawCircle(center, 120 + pulse * 50, ringPaint);
+    
+    // Tilt Indicator
+    final tiltPaint = Paint()..color = AppTheme.accentAmber.withOpacity(0.5)..strokeWidth = 1;
+    canvas.drawLine(center.translate(-60, 100), center.translate(60, 100), tiltPaint);
+    canvas.drawCircle(center.translate(tilt * 2, 100), 5, Paint()..color = AppTheme.accentAmber);
   }
 
-  @override
-  bool shouldRepaint(GridPainter oldDelegate) => false;
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
+class _ScanLine extends StatefulWidget {
+  const _ScanLine();
   @override
-  State<Car3DVisualization> createState() => _Car3DVisualizationState();
+  State<_ScanLine> createState() => _ScanLineState();
 }
 
-class _Car3DVisualizationState extends State<Car3DVisualization>
-    with TickerProviderStateMixin {
-  late AnimationController _wheelController;
-  late AnimationController _glowController;
-
+class _ScanLineState extends State<_ScanLine> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
   @override
   void initState() {
     super.initState();
-    _wheelController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    )..repeat();
-
-    _glowController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    )..repeat(reverse: true);
+    _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
   }
-
   @override
-  void dispose() {
-    _wheelController.dispose();
-    _glowController.dispose();
-    super.dispose();
-  }
-
-  Color _getCarColor() {
-    if (!widget.engineStatus) return Colors.grey.shade700;
-    if (widget.temperature > 100) return DrivoraTheme.dangerRed;
-    if (widget.battery < 20) return DrivoraTheme.warningYellow;
-    return DrivoraTheme.primaryNeon;
-  }
-
+  void dispose() { _ctrl.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Rotating glow effect
-        ScaleTransition(
-          scale: Tween<double>(begin: 0.8, end: 1.2)
-              .animate(_glowController),
-          child: Container(
-            width: 320,
-            height: 280,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: _getCarColor().withOpacity(0.3),
-                  blurRadius: 40,
-                  spreadRadius: 10,
-                ),
-              ],
-            ),
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) => Positioned(
+        top: 400 * _ctrl.value,
+        left: 0, right: 0,
+        child: Container(
+          height: 1,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [Colors.transparent, AppTheme.accentBlue.withOpacity(0.5), Colors.transparent])
           ),
         ),
-        // 3D Car Drawing
-        Transform.rotate(
-          angle: widget.heading * math.pi / 180,
-          child: CustomPaint(
-            size: const Size(240, 320),
-            painter: Car3DPainter(
-              color: _getCarColor(),
-              wheelRotation: _wheelController.value,
-              speed: widget.speed,
-              temperature: widget.temperature,
-            ),
-          ),
-        ),
-        // Status badges
-        Positioned(
-          top: 20,
-          left: 20,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: DrivoraTheme.surfaceLight,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: DrivoraTheme.primaryNeon, width: 1),
-            ),
-            child: Text(
-              'Speed: ${widget.speed.toStringAsFixed(1)} km/h',
-              style: const TextStyle(
-                color: DrivoraTheme.primaryNeon,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-        // Battery indicator
-        Positioned(
-          top: 20,
-          right: 20,
-          child: Container(
-            width: 40,
-            height: 24,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: widget.battery > 20
-                    ? DrivoraTheme.successGreen
-                    : DrivoraTheme.dangerRed,
-                width: 2,
-              ),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Stack(
-              children: [
-                Container(
-                  width: (widget.battery / 100) * 36,
-                  height: 20,
-                  margin: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: widget.battery > 20
-                        ? DrivoraTheme.successGreen
-                        : DrivoraTheme.dangerRed,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class Car3DPainter extends CustomPainter {
-  final Color color;
-  final double wheelRotation;
-  final double speed;
-  final double temperature;
-
-  Car3DPainter({
-    required this.color,
-    required this.wheelRotation,
-    required this.speed,
-    required this.temperature,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint mainBodyPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final Paint windowPaint = Paint()
-      ..color = Colors.cyan.withOpacity(0.3)
-      ..style = PaintingStyle.fill;
-
-    final Paint wheelPaint = Paint()
-      ..color = Colors.grey.shade800
-      ..style = PaintingStyle.fill;
-
-    final Paint headlightPaint = Paint()
-      ..color = Colors.yellow.withOpacity(0.7)
-      ..style = PaintingStyle.fill;
-
-    final Paint glarePaint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
-      ..style = PaintingStyle.fill;
-
-    final center = Offset(size.width / 2, size.height / 2);
-
-    // Draw shadow under car
-    canvas.drawEllipse(
-      Rect.fromCenter(
-        center: Offset(center.dx, size.height - 20),
-        width: 180,
-        height: 30,
       ),
-      Paint()
-        ..color = Colors.black.withOpacity(0.2)
-        ..style = PaintingStyle.fill,
     );
-
-    // Draw main body (with 3D effect)
-    final bodyPath = Path()
-      ..moveTo(center.dx - 70, center.dy + 40)
-      ..lineTo(center.dx - 80, center.dy - 20)
-      ..lineTo(center.dx - 60, center.dy - 60)
-      ..lineTo(center.dx + 60, center.dy - 60)
-      ..lineTo(center.dx + 80, center.dy - 20)
-      ..lineTo(center.dx + 70, center.dy + 40)
-      ..close();
-
-    canvas.drawPath(bodyPath, mainBodyPaint);
-
-    // Draw rear bumper
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(center.dx, center.dy + 50),
-        width: 140,
-        height: 20,
-      ),
-      Paint()..color = color.withOpacity(0.8),
-    );
-
-    // Draw front windshield
-    final windshieldPath = Path()
-      ..moveTo(center.dx - 50, center.dy - 45)
-      ..lineTo(center.dx - 45, center.dy - 70)
-      ..lineTo(center.dx + 45, center.dy - 70)
-      ..lineTo(center.dx + 50, center.dy - 45)
-      ..close();
-
-    canvas.drawPath(windshieldPath, windowPaint);
-
-    // Draw rear window
-    final rearWindowPath = Path()
-      ..moveTo(center.dx - 60, center.dy - 30)
-      ..lineTo(center.dx - 55, center.dy - 50)
-      ..lineTo(center.dx + 55, center.dy - 50)
-      ..lineTo(center.dx + 60, center.dy - 30)
-      ..close();
-
-    canvas.drawPath(rearWindowPath, windowPaint);
-
-    // Draw headlights
-    canvas.drawCircle(
-      Offset(center.dx - 35, center.dy - 65),
-      12,
-      headlightPaint,
-    );
-    canvas.drawCircle(
-      Offset(center.dx + 35, center.dy - 65),
-      12,
-      headlightPaint,
-    );
-
-    // Draw headlight glare
-    canvas.drawCircle(
-      Offset(center.dx - 35, center.dy - 65),
-      8,
-      glarePaint,
-    );
-    canvas.drawCircle(
-      Offset(center.dx + 35, center.dy - 65),
-      8,
-      glarePaint,
-    );
-
-    // Draw front wheels (left and right)
-    _drawWheel(canvas, Offset(center.dx - 55, center.dy + 35), wheelPaint);
-    _drawWheel(canvas, Offset(center.dx + 55, center.dy + 35), wheelPaint);
-
-    // Draw middle accent line
-    canvas.drawLine(
-      Offset(center.dx - 70, center.dy + 10),
-      Offset(center.dx + 70, center.dy + 10),
-      Paint()
-        ..color = color.withOpacity(0.5)
-        ..strokeWidth = 2,
-    );
-
-    // Draw temperature indicator (warning glow if hot)
-    if (temperature > 100) {
-      canvas.drawPath(
-        bodyPath,
-        Paint()
-          ..color = Colors.red.withOpacity(0.2)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3,
-      );
-    }
-  }
-
-  void _drawWheel(Canvas canvas, Offset center, Paint paint) {
-    // Outer rim
-    canvas.drawCircle(center, 18, paint);
-
-    // Tire tread (rotated)
-    const int treads = 8;
-    for (int i = 0; i < treads; i++) {
-      final angle = (i / treads * 2 * math.pi) + wheelRotation * 2 * math.pi;
-      final x = center.dx + 12 * math.cos(angle);
-      final y = center.dy + 12 * math.sin(angle);
-
-      canvas.drawCircle(
-        Offset(x, y),
-        2,
-        Paint()..color = Colors.grey.shade600,
-      );
-    }
-
-    // Center hub
-    canvas.drawCircle(
-      center,
-      6,
-      Paint()..color = Colors.grey.shade400,
-    );
-  }
-
-  @override
-  bool shouldRepaint(Car3DPainter oldDelegate) {
-    return oldDelegate.wheelRotation != wheelRotation ||
-        oldDelegate.color != color ||
-        oldDelegate.temperature != temperature;
   }
 }

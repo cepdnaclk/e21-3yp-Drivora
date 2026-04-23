@@ -2,158 +2,77 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  // Safety System Colors
-  static const Color primaryNeon = Color(0xFF00F5D4); // Cyan
-  static const Color secondaryBlue = Color(0xFF4CC9F0);
-  static const Color accentPurple = Color(0xFF7209B7);
+  // Apple-style High-Tech Light Palette
+  static const Color background = Color(0xFFF5F5F7);
+  static const Color panel = Color(0xFFFFFFFF);
+  static const Color textPrimary = Color(0xFF1D1D1F);
+  static const Color textSecondary = Color(0xFF6E6E73);
   
-  // Status Colors
-  static const Color successGreen = Color(0xFF06D6A0); // All clear
-  static const Color warningYellow = Color(0xFFFFBE0B); // Caution
-  static const Color dangerRed = Color(0xFFFF595A); // Critical
+  static const Color accentBlue = Color(0xFF0A84FF);
+  static const Color accentGreen = Color(0xFF30D158);
+  static const Color accentAmber = Color(0xFFFF9F0A);
+  static const Color accentRed = Color(0xFFFF3B30);
   
-  // Background Colors
-  static const Color darkBackground = Color(0xFF0a0e27);
-  static const Color darkSurface = Color(0xFF1a2332);
-  static const Color cardBackground = Color(0xFF242d3d);
-  
-  // Text Colors
-  static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFF88A0B5);
-  static const Color textTertiary = Color(0xFF5A6F82);
-  static const Color dividerColor = Color(0xFF3a4555);
+  static const Color border = Color(0x14000000); 
 
-  // Material Theme
-  static ThemeData get darkTheme {
+  static List<BoxShadow> get shadow => [
+    BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20, offset: const Offset(0, 2)),
+    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 1)),
+  ];
+
+  static List<BoxShadow> get shadowLg => [
+    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 40, offset: const Offset(0, 8)),
+    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
+  ];
+
+  static LinearGradient get techGradient => LinearGradient(
+    colors: [panel, background],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static ThemeData get lightTechTheme {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: darkBackground,
-      primaryColor: primaryNeon,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: background,
+      primaryColor: accentBlue,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: accentBlue,
+        background: background,
+        surface: panel,
+        onSurface: textPrimary,
+      ),
       appBarTheme: AppBarTheme(
-        backgroundColor: darkSurface,
-        elevation: 1,
+        backgroundColor: panel,
+        elevation: 0,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.roboto(
-          fontSize: 20,
+        titleTextStyle: GoogleFonts.orbitron(
+          fontSize: 15,
           fontWeight: FontWeight.bold,
           color: textPrimary,
+          letterSpacing: 3,
         ),
-        iconTheme: const IconThemeData(color: primaryNeon),
-      ),
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: darkSurface,
-        selectedItemColor: primaryNeon,
-        unselectedItemColor: textSecondary,
-        elevation: 8,
+        iconTheme: const IconThemeData(color: textPrimary),
       ),
       textTheme: TextTheme(
-        displayLarge: GoogleFonts.robotoMono(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-        ),
-        displayMedium: GoogleFonts.robotoMono(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-        ),
-        headlineLarge: GoogleFonts.roboto(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-        ),
-        headlineMedium: GoogleFonts.roboto(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-        ),
-        headlineSmall: GoogleFonts.roboto(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-        ),
-        titleLarge: GoogleFonts.roboto(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        bodyLarge: GoogleFonts.roboto(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: textPrimary,
-        ),
-        bodyMedium: GoogleFonts.roboto(
-          fontSize: 14,
-          fontWeight: FontWeight.normal,
-          color: textSecondary,
-        ),
-        bodySmall: GoogleFonts.roboto(
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
-          color: textTertiary,
-        ),
-        labelLarge: GoogleFonts.roboto(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        labelMedium: GoogleFonts.roboto(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: textSecondary,
-        ),
-        labelSmall: GoogleFonts.roboto(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: textTertiary,
-        ),
-      ),
-      cardTheme: CardTheme(
-        color: cardBackground,
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      iconTheme: const IconThemeData(
-        color: primaryNeon,
-        size: 24,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: darkSurface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: dividerColor),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: dividerColor),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: primaryNeon, width: 2),
-        ),
+        displayLarge: GoogleFonts.orbitron(color: textPrimary, fontWeight: FontWeight.bold),
+        headlineMedium: GoogleFonts.rajdhani(color: textPrimary, fontWeight: FontWeight.bold, fontSize: 22),
+        bodyLarge: GoogleFonts.rajdhani(color: textPrimary, fontSize: 16),
+        bodyMedium: GoogleFonts.rajdhani(color: textSecondary, fontSize: 14),
+        labelSmall: GoogleFonts.orbitron(color: textSecondary, fontSize: 9, letterSpacing: 2),
       ),
     );
   }
 
-  static const List<BoxShadow> softShadow = [
-    BoxShadow(
-      color: Color(0x1A000000),
-      blurRadius: 8,
-      spreadRadius: 0,
-      offset: Offset(0, 2),
-    ),
-  ];
-
-  static const List<BoxShadow> neonGlow = [
-    BoxShadow(
-      color: primaryNeon,
-      blurRadius: 20,
-      spreadRadius: 0,
-      offset: Offset(0, 0),
-    ),
-  ];
+  // Maintaining aliases for compatibility
+  static const Color primaryNeon = accentGreen;
+  static const Color secondaryBlue = accentBlue;
+  static const Color successGreen = accentGreen;
+  static const Color warningYellow = accentAmber;
+  static const Color dangerRed = accentRed;
+  static const Color darkBackground = background;
+  static const Color darkSurface = panel;
+  static const Color cardBackground = panel;
+  static ThemeData get darkTheme => lightTechTheme;
 }
