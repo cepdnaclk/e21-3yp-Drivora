@@ -15,7 +15,8 @@ WebSocketsServer webSocket(81);
 static const gpio_num_t CAN_TX_PIN = GPIO_NUM_17;
 static const gpio_num_t CAN_RX_PIN = GPIO_NUM_16;
 
-const uint32_t FRONT_MAIN_ID = 0x200;
+const uint32_t FRONT_MAIN_ID  = 0x200;
+const uint32_t FRONT_DEBUG_ID = 0x201;
 
 // ================= DATA STRUCTS =================
 struct LeanData {
@@ -37,6 +38,15 @@ struct FrontData {
   float rawDistanceCm = -1.0f;
   float closingSpeedCmS = 0.0f;
   unsigned long lastUpdateMs = 0;
+
+  // Debug payload from 0x201
+  uint8_t debugFlags = 0;
+  uint8_t approachCounter = 0;
+  uint8_t warningCounter = 0;
+  uint8_t blindReleaseCounter = 0;
+  uint8_t invalidStreak = 0;
+  uint8_t debugCounter = 0;
+  unsigned long lastDebugUpdateMs = 0;
 };
 
 struct RearData {
@@ -212,7 +222,7 @@ void receiveCANFrames(unsigned long nowMs) {
       frontData.online             = true;
       frontData.lastUpdateMs       = nowMs;
 
-      Serial.print("CAN Front | state=");
+      Serial.print("CAN Front Main | state=");
       Serial.print(frontData.state);
       Serial.print(" filtered=");
       Serial.print(frontData.filteredDistanceCm, 1);
@@ -221,13 +231,33 @@ void receiveCANFrames(unsigned long nowMs) {
       Serial.print(" speed=");
       Serial.println(frontData.closingSpeedCmS, 1);
     }
+    else if (message.identifier == FRONT_DEBUG_ID && message.data_length_code >= 8) {
+      frontData.debugFlags         = message.data[0];
+      frontData.approachCounter    = message.data[1];
+      frontData.warningCounter     = message.data[2];
+      frontData.blindReleaseCounter= message.data[3];
+      frontData.invalidStreak      = message.data[4];
+      frontData.debugCounter       = message.data[7];
+      frontData.lastDebugUpdateMs  = nowMs;
+
+      Serial.print("CAN Front Debug | flags=0x");
+      Serial.print(frontData.debugFlags, HEX);
+      Serial.print(" approach=");
+      Serial.print(frontData.approachCounter);
+      Serial.print(" warning=");
+      Serial.print(frontData.warningCounter);
+      Serial.print(" blindRelease=");
+      Serial.print(frontData.blindReleaseCounter);
+      Serial.print(" invalid=");
+      Serial.println(frontData.invalidStreak);
+    }
   }
 }
 
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(900);
+  data.reserve(1100);
 
   bool leanOffline = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
@@ -256,7 +286,12 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"stateColor\":\"" + String(stateColorByLevel(frontData.state)) + "\",";
   data += "\"filteredDistanceCm\":" + String(frontData.filteredDistanceCm, 1) + ",";
   data += "\"rawDistanceCm\":" + String(frontData.rawDistanceCm, 1) + ",";
-  data += "\"closingSpeedCmS\":" + String(frontData.closingSpeedCmS, 1);
+  data += "\"closingSpeedCmS\":" + String(frontData.closingSpeedCmS, 1) + ",";
+  data += "\"debugFlags\":" + String(frontData.debugFlags) + ",";
+  data += "\"approachCounter\":" + String(frontData.approachCounter) + ",";
+  data += "\"warningCounter\":" + String(frontData.warningCounter) + ",";
+  data += "\"blindReleaseCounter\":" + String(frontData.blindReleaseCounter) + ",";
+  data += "\"invalidStreak\":" + String(frontData.invalidStreak);
   data += "},";
 
   data += "\"rear\":{";
