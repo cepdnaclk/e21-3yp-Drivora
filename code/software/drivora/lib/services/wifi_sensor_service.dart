@@ -145,6 +145,40 @@ class WiFiSensorService extends ChangeNotifier {
     });
   }
 
+<<<<<<< HEAD
+=======
+  // --- 4. New Method: Transmit Calibration to Hardware ---
+  Future<void> sendCalibrationToHardware({
+    required double height,
+    required double width,
+    String? ipAddress,
+  }) async {
+    final hubIP = ipAddress ?? '192.168.4.1'; // Default IP
+    _status = 'Calibrating Hardware...';
+    notifyListeners();
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://$hubIP/calibrate'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'vHeight': height,
+          'vWidth': width,
+        }),
+      ).timeout(const Duration(seconds: 2));
+
+      if (response.statusCode == 200) {
+        _status = 'Calibration Success';
+      } else {
+        _status = 'Calibration Error: ${response.statusCode}';
+      }
+    } catch (e) {
+      _status = 'Hardware Link Error (Calibration)';
+    }
+    notifyListeners();
+  }
+
+>>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   void _updateData(DrivoraSensorData data) {
     _currentData = data;
     _dataHistory.add(_currentData);
