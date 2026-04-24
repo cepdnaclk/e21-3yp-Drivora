@@ -2,6 +2,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <math.h>
+#include "driver/twai.h"
 
 // ================= WIFI / WEB =================
 const char* ssid = "ADASBrain";
@@ -9,6 +10,12 @@ const char* password = "12345678";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
+
+// ================= CAN / TWAI =================
+static const gpio_num_t CAN_TX_PIN = GPIO_NUM_17;
+static const gpio_num_t CAN_RX_PIN = GPIO_NUM_16;
+
+const uint32_t FRONT_MAIN_ID = 0x200;
 
 // ================= DATA STRUCTS =================
 struct LeanData {
@@ -108,7 +115,26 @@ bool isOffline(unsigned long lastMs, unsigned long nowMs) {
   return (nowMs - lastMs) > OFFLINE_MS;
 }
 
+uint16_t packU16FromBytes(uint8_t lo, uint8_t hi) {
+  return (uint16_t)lo | ((uint16_t)hi << 8);
+}
+
+int16_t packS16FromBytes(uint8_t lo, uint8_t hi) {
+  return (int16_t)((uint16_t)lo | ((uint16_t)hi << 8));
+}
+
+float unpackDistanceCm(uint16_t v) {
+  if (v == 0xFFFF) return -1.0f;
+  return v / 10.0f;
+}
+
+float unpackSpeedCmS(int16_t v) {
+  return v / 10.0f;
+}
+
 // ================= MOCK DATA =================
+// Keep only Lean + Rear mocked for this version.
+// Front data will come from real CAN frames.
 void updateMockData(unsigned long nowMs) {
   if (nowMs - lastMockUpdateMs < MOCK_UPDATE_MS) return;
   lastMockUpdateMs = nowMs;
@@ -132,24 +158,6 @@ void updateMockData(unsigned long nowMs) {
 
   leanData.lastUpdateMs = nowMs;
 
-  // Front mock
-  frontData.online = true;
-  frontData.filteredDistanceCm = 140.0f + 70.0f * sinf(t * 0.8f);
-  frontData.rawDistanceCm = frontData.filteredDistanceCm + 2.0f * sinf(t * 2.3f);
-  frontData.closingSpeedCmS = 25.0f * cosf(t * 0.8f);
-
-  if (frontData.filteredDistanceCm <= 80.0f && frontData.closingSpeedCmS > 15.0f) {
-    frontData.state = 3;
-  } else if (frontData.filteredDistanceCm <= 180.0f && frontData.closingSpeedCmS > 8.0f) {
-    frontData.state = 2;
-  } else if (frontData.filteredDistanceCm <= 180.0f) {
-    frontData.state = 1;
-  } else {
-    frontData.state = 0;
-  }
-
-  frontData.lastUpdateMs = nowMs;
-
   // Rear mock
   rearData.online = true;
   rearData.filteredDistanceCm = 90.0f + 55.0f * sinf(t * 0.9f + 1.5f);
@@ -161,6 +169,59 @@ void updateMockData(unsigned long nowMs) {
   else rearData.state = 0;
 
   rearData.lastUpdateMs = nowMs;
+}
+
+// ================= CAN / TWAI =================
+bool initCAN() {
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
+  twai_timing_config_t  t_config = TWAI_TIMING_CONFIG_500KBITS();
+  twai_filter_config_t  f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+  esp_err_t err = twai_driver_install(&g_config, &t_config, &f_config);
+  if (err != ESP_OK) {
+    Serial.printf("TWAI install failed: %d\n", err);
+    return false;
+  }
+
+  err = twai_start();
+  if (err != ESP_OK) {
+    Serial.printf("TWAI start failed: %d\n", err);
+    return false;
+  }
+
+  Serial.println("TWAI started on brain");
+  return true;
+}
+
+void receiveCANFrames(unsigned long nowMs) {
+  twai_message_t message;
+
+  while (twai_receive(&message, 0) == ESP_OK) {
+    if (message.extd || message.rtr) continue;
+
+    if (message.identifier == FRONT_MAIN_ID && message.data_length_code >= 8) {
+      frontData.state = message.data[0];
+
+      uint16_t filtered_x10 = packU16FromBytes(message.data[1], message.data[2]);
+      int16_t  speed_x10    = packS16FromBytes(message.data[3], message.data[4]);
+      uint16_t raw_x10      = packU16FromBytes(message.data[5], message.data[6]);
+
+      frontData.filteredDistanceCm = unpackDistanceCm(filtered_x10);
+      frontData.closingSpeedCmS    = unpackSpeedCmS(speed_x10);
+      frontData.rawDistanceCm      = unpackDistanceCm(raw_x10);
+      frontData.online             = true;
+      frontData.lastUpdateMs       = nowMs;
+
+      Serial.print("CAN Front | state=");
+      Serial.print(frontData.state);
+      Serial.print(" filtered=");
+      Serial.print(frontData.filteredDistanceCm, 1);
+      Serial.print(" raw=");
+      Serial.print(frontData.rawDistanceCm, 1);
+      Serial.print(" speed=");
+      Serial.println(frontData.closingSpeedCmS, 1);
+    }
+  }
 }
 
 // ================= JSON BROADCAST =================
@@ -361,7 +422,6 @@ const char webpage[] PROGMEM = R"rawliteral(
     grid-template-columns:1fr 1fr;
   }
 
-  /* Lean values in one row in both portrait and landscape */
   #leanPanel .grid{
     grid-template-columns:1fr 1fr 1fr;
   }
@@ -487,13 +547,11 @@ const char webpage[] PROGMEM = R"rawliteral(
       gap:6px;
     }
 
-    /* Front values stay in one row */
     #frontPanel .grid{
       grid-template-columns:1fr 1fr;
       gap:6px;
     }
 
-    /* Lean values stay in one row */
     #leanPanel .grid{
       grid-template-columns:1fr 1fr 1fr;
       gap:6px;
@@ -785,6 +843,8 @@ void setup() {
   webSocket.begin();
   webSocket.onEvent(onWebSocketEvent);
 
+  initCAN();
+
   Serial.println("ADAS Brain UI skeleton ready");
 }
 
@@ -795,7 +855,8 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  updateMockData(nowMs);
+  updateMockData(nowMs);      // lean + rear only
+  receiveCANFrames(nowMs);    // real front from CAN
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
     lastBroadcastMs = nowMs;
