@@ -5,10 +5,17 @@
 static const gpio_num_t CAN_TX_PIN = GPIO_NUM_6;
 static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 
-const uint32_t FRONT_MAIN_ID = 0x200;
+const uint32_t FRONT_MAIN_ID  = 0x200;
+const uint32_t FRONT_DEBUG_ID = 0x201;
+
 unsigned long lastCanSendMs = 0;
 const unsigned long CAN_SEND_MS = 50;
+
+unsigned long lastDebugSendMs = 0;
+const unsigned long DEBUG_SEND_MS = 200;
+
 uint8_t frontCanCounter = 0;
+uint8_t frontDebugCounter = 0;
 
 // ================= ULTRASONIC PINS =================
 #define TRIGPIN 3
@@ -103,12 +110,6 @@ const char* stateName(FCWState s) {
   }
 }
 
-float clampf(float x, float lo, float hi) {
-  if (x < lo) return lo;
-  if (x > hi) return hi;
-  return x;
-}
-
 uint16_t encodeDistanceX10(float distCm) {
   if (distCm < 0.0f) return 0xFFFF;
   int v = (int)roundf(distCm * 10.0f);
@@ -145,6 +146,15 @@ bool initCAN() {
   return true;
 }
 
+uint8_t buildFrontDebugFlags(bool suspicious, bool fastBlind) {
+  uint8_t flags = 0;
+  if (blindZoneLatched) flags |= (1 << 0);
+  if (suspicious)       flags |= (1 << 1);
+  if (fastBlind)        flags |= (1 << 2);
+  if (filteredDistance < 0.0f) flags |= (1 << 3);
+  return flags;
+}
+
 void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDistance) {
   if (nowMs - lastCanSendMs < CAN_SEND_MS) return;
   lastCanSendMs = nowMs;
@@ -170,7 +180,7 @@ void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDi
 
   esp_err_t err = twai_transmit(&msg, 0);
   if (err == ESP_OK) {
-    Serial.print("CAN TX | state=");
+    Serial.print("CAN MAIN TX | state=");
     Serial.print((int)currentState);
     Serial.print(" filtered=");
     Serial.print(smoothedDistance, 1);
@@ -178,6 +188,42 @@ void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDi
     Serial.print(rawDistance, 1);
     Serial.print(" speed=");
     Serial.println(closingSpeedCmS, 1);
+  }
+}
+
+void sendFrontDebugFrame(unsigned long nowMs, bool suspicious, bool fastBlind) {
+  if (nowMs - lastDebugSendMs < DEBUG_SEND_MS) return;
+  lastDebugSendMs = nowMs;
+
+  uint8_t flags = buildFrontDebugFlags(suspicious, fastBlind);
+
+  twai_message_t msg = {};
+  msg.identifier = FRONT_DEBUG_ID;
+  msg.extd = 0;
+  msg.rtr = 0;
+  msg.data_length_code = 8;
+
+  msg.data[0] = flags;
+  msg.data[1] = (uint8_t)approachCounter;
+  msg.data[2] = (uint8_t)warningCounter;
+  msg.data[3] = (uint8_t)blindReleaseCounter;
+  msg.data[4] = (uint8_t)invalidStreak;
+  msg.data[5] = 0;
+  msg.data[6] = 0;
+  msg.data[7] = frontDebugCounter++;
+
+  esp_err_t err = twai_transmit(&msg, 0);
+  if (err == ESP_OK) {
+    Serial.print("CAN DEBUG TX | flags=0x");
+    Serial.print(flags, HEX);
+    Serial.print(" approach=");
+    Serial.print(approachCounter);
+    Serial.print(" warning=");
+    Serial.print(warningCounter);
+    Serial.print(" blindRelease=");
+    Serial.print(blindReleaseCounter);
+    Serial.print(" invalid=");
+    Serial.println(invalidStreak);
   }
 }
 
@@ -512,7 +558,9 @@ void loop() {
   bool suspicious = isSuspiciousReading(smoothedDistance);
   bool fastBlind = shouldFastLatchBlindZone(rawDistance, smoothedDistance);
   updateFCWState(rawDistance, smoothedDistance, nowMs);
+
   sendFrontMainFrame(nowMs, rawDistance, smoothedDistance);
+  sendFrontDebugFrame(nowMs, suspicious, fastBlind);
 
   Serial.print("Raw: ");
   if (rawDistance < 0) Serial.print("Invalid");
