@@ -17,6 +17,8 @@ static const gpio_num_t CAN_RX_PIN = GPIO_NUM_16;
 
 const uint32_t FRONT_MAIN_ID  = 0x200;
 const uint32_t FRONT_DEBUG_ID = 0x201;
+const uint32_t REAR_MAIN_ID   = 0x300;
+const uint32_t REAR_DEBUG_ID  = 0x301;
 
 // ================= DATA STRUCTS =================
 struct LeanData {
@@ -55,6 +57,14 @@ struct RearData {
   float filteredDistanceCm = -1.0f;
   float rawDistanceCm = -1.0f;
   unsigned long lastUpdateMs = 0;
+
+  // Debug payload from 0x301
+  uint8_t debugFlags = 0;
+  uint8_t warningReleaseCounter = 0;
+  uint8_t fastWarningReleaseCounter = 0;
+  uint8_t invalidStreak = 0;
+  uint8_t debugCounter = 0;
+  unsigned long lastDebugUpdateMs = 0;
 };
 
 LeanData leanData;
@@ -143,8 +153,8 @@ float unpackSpeedCmS(int16_t v) {
 }
 
 // ================= MOCK DATA =================
-// Keep only Lean + Rear mocked for this version.
-// Front data will come from real CAN frames.
+// Keep only Lean mocked for this version.
+// Front + Rear data will come from real CAN frames.
 void updateMockData(unsigned long nowMs) {
   if (nowMs - lastMockUpdateMs < MOCK_UPDATE_MS) return;
   lastMockUpdateMs = nowMs;
@@ -167,18 +177,6 @@ void updateMockData(unsigned long nowMs) {
   else leanData.riskLevel = 0;
 
   leanData.lastUpdateMs = nowMs;
-
-  // Rear mock
-  rearData.online = true;
-  rearData.filteredDistanceCm = 90.0f + 55.0f * sinf(t * 0.9f + 1.5f);
-  rearData.rawDistanceCm = rearData.filteredDistanceCm + 2.0f * cosf(t * 2.1f);
-
-  if (rearData.filteredDistanceCm <= 30.0f) rearData.state = 3;
-  else if (rearData.filteredDistanceCm <= 50.0f) rearData.state = 2;
-  else if (rearData.filteredDistanceCm <= 120.0f) rearData.state = 1;
-  else rearData.state = 0;
-
-  rearData.lastUpdateMs = nowMs;
 }
 
 // ================= CAN / TWAI =================
@@ -232,13 +230,13 @@ void receiveCANFrames(unsigned long nowMs) {
       Serial.println(frontData.closingSpeedCmS, 1);
     }
     else if (message.identifier == FRONT_DEBUG_ID && message.data_length_code >= 8) {
-      frontData.debugFlags         = message.data[0];
-      frontData.approachCounter    = message.data[1];
-      frontData.warningCounter     = message.data[2];
-      frontData.blindReleaseCounter= message.data[3];
-      frontData.invalidStreak      = message.data[4];
-      frontData.debugCounter       = message.data[7];
-      frontData.lastDebugUpdateMs  = nowMs;
+      frontData.debugFlags          = message.data[0];
+      frontData.approachCounter     = message.data[1];
+      frontData.warningCounter      = message.data[2];
+      frontData.blindReleaseCounter = message.data[3];
+      frontData.invalidStreak       = message.data[4];
+      frontData.debugCounter        = message.data[7];
+      frontData.lastDebugUpdateMs   = nowMs;
 
       Serial.print("CAN Front Debug | flags=0x");
       Serial.print(frontData.debugFlags, HEX);
@@ -251,17 +249,52 @@ void receiveCANFrames(unsigned long nowMs) {
       Serial.print(" invalid=");
       Serial.println(frontData.invalidStreak);
     }
+    else if (message.identifier == REAR_MAIN_ID && message.data_length_code >= 8) {
+      rearData.state = message.data[0];
+
+      uint16_t filtered_x10 = packU16FromBytes(message.data[1], message.data[2]);
+      uint16_t raw_x10      = packU16FromBytes(message.data[3], message.data[4]);
+
+      rearData.filteredDistanceCm = unpackDistanceCm(filtered_x10);
+      rearData.rawDistanceCm      = unpackDistanceCm(raw_x10);
+      rearData.online             = true;
+      rearData.lastUpdateMs       = nowMs;
+
+      Serial.print("CAN Rear Main | state=");
+      Serial.print(rearData.state);
+      Serial.print(" filtered=");
+      Serial.print(rearData.filteredDistanceCm, 1);
+      Serial.print(" raw=");
+      Serial.println(rearData.rawDistanceCm, 1);
+    }
+    else if (message.identifier == REAR_DEBUG_ID && message.data_length_code >= 8) {
+      rearData.debugFlags                = message.data[0];
+      rearData.warningReleaseCounter     = message.data[1];
+      rearData.fastWarningReleaseCounter = message.data[2];
+      rearData.invalidStreak             = message.data[3];
+      rearData.debugCounter              = message.data[7];
+      rearData.lastDebugUpdateMs         = nowMs;
+
+      Serial.print("CAN Rear Debug | flags=0x");
+      Serial.print(rearData.debugFlags, HEX);
+      Serial.print(" release=");
+      Serial.print(rearData.warningReleaseCounter);
+      Serial.print(" fastRelease=");
+      Serial.print(rearData.fastWarningReleaseCounter);
+      Serial.print(" invalid=");
+      Serial.println(rearData.invalidStreak);
+    }
   }
 }
 
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(1100);
+  data.reserve(1300);
 
-  bool leanOffline = isOffline(leanData.lastUpdateMs, nowMs);
+  bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
-  bool rearOffline = isOffline(rearData.lastUpdateMs, nowMs);
+  bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
 
   data += "{";
 
@@ -301,7 +334,11 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"stateName\":\"" + String(rearStateName(rearData.state)) + "\",";
   data += "\"stateColor\":\"" + String(stateColorByLevel(rearData.state)) + "\",";
   data += "\"filteredDistanceCm\":" + String(rearData.filteredDistanceCm, 1) + ",";
-  data += "\"rawDistanceCm\":" + String(rearData.rawDistanceCm, 1);
+  data += "\"rawDistanceCm\":" + String(rearData.rawDistanceCm, 1) + ",";
+  data += "\"debugFlags\":" + String(rearData.debugFlags) + ",";
+  data += "\"warningReleaseCounter\":" + String(rearData.warningReleaseCounter) + ",";
+  data += "\"fastWarningReleaseCounter\":" + String(rearData.fastWarningReleaseCounter) + ",";
+  data += "\"invalidStreak\":" + String(rearData.invalidStreak);
   data += "}";
 
   data += "}";
@@ -890,8 +927,8 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  updateMockData(nowMs);      // lean + rear only
-  receiveCANFrames(nowMs);    // real front from CAN
+  updateMockData(nowMs);      // lean only
+  receiveCANFrames(nowMs);    // real front + rear from CAN
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
     lastBroadcastMs = nowMs;
