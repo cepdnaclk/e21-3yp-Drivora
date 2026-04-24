@@ -9,14 +9,14 @@ import '../widgets/car_3d_visualization.dart';
 import 'map_screen.dart';
 import '../widgets/advanced_road_visualization.dart';
 
-class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+class DashboardScreenEnhanced extends StatefulWidget {
+  const DashboardScreenEnhanced({Key? key}) : super(key: key);
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreenEnhanced> createState() => _DashboardScreenEnhancedState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
+class _DashboardScreenEnhancedState extends State<DashboardScreenEnhanced>
     with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _rotationController;

@@ -1,5 +1,5 @@
 name: drivora
-description: "Advanced Flutter Driver Assistant with WiFi Sensor Integration and 3D Car UI"
+description: "Drivora U-ADAS: Distributed Universal Advanced Driver Assistance System"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -11,16 +11,12 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.2
-  provider: ^6.0.0
-  connectivity_plus: ^5.0.0
-  permission_handler: ^11.4.0
-  shared_preferences: ^2.2.0
-  intl: ^0.19.0
-  fl_chart: ^0.65.0
+  provider: ^6.1.1
   glassmorphism: ^3.0.0
-  animations: ^2.0.7
-  flutter_svg: ^2.0.5
   google_fonts: ^6.1.0
+  http: ^1.1.0
+  google_maps_flutter: ^2.5.3
+  fl_chart: ^0.66.0
 
 dev_dependencies:
   flutter_test:
@@ -29,8 +25,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
   assets:
-    - assets/images/
-    - assets/animations/
-    - assets/models/
+    - assets/raw_sensor_data.json

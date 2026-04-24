@@ -2,190 +2,172 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
 import '../models/sensor_data.dart';
 
-class WiFiSensorService extends ChangeNotifier {
-  static const int DEFAULT_PORT = 5005;
-  
-  SensorData? _currentData;
-  bool _isConnected = false;
-  bool _isSimulating = false;
-  String _connectionStatus = 'Ready for connection';
-  final List<SensorData> _dataHistory = [];
-  final List<Alert> _alerts = [];
-  
-  StreamSubscription? _simulationSubscription;
-  final StreamController<SensorData> _dataController = StreamController<SensorData>.broadcast();
+enum DataSource { standby, simulation, rawData, liveWiFi }
 
-  SensorData? get currentData => _currentData;
+class WiFiSensorService extends ChangeNotifier {
+  DrivoraSensorData _currentData = DrivoraSensorData();
+  bool _isConnected = false;
+  DataSource _currentSource = DataSource.standby;
+  String _status = 'Systems Standby';
+  final List<SafetyAlert> _activeAlerts = [];
+  final List<DrivoraSensorData> _dataHistory = [];
+  
+  StreamSubscription? _dataSubscription;
+  Timer? _pollingTimer;
+
+  DrivoraSensorData get currentData => _currentData;
   bool get isConnected => _isConnected;
-  bool get isSimulating => _isSimulating;
-  String get connectionStatus => _connectionStatus;
-  List<SensorData> get dataHistory => _dataHistory;
-  List<Alert> get alerts => _alerts;
-  Stream<SensorData> get dataStream => _dataController.stream;
+  bool get isSimulating => _currentSource == DataSource.simulation;
+  DataSource get currentSource => _currentSource;
+  String get status => _status;
+  List<SafetyAlert> get activeAlerts => _activeAlerts;
+  List<DrivoraSensorData> get dataHistory => _dataHistory;
 
   Future<void> initialize() async {
-    try {
-      _connectionStatus = 'Initialized - tap "Start Simulation" or connect device';
-      _isConnected = false;
-      notifyListeners();
-    } catch (e) {
-      _connectionStatus = 'Initialization: $e';
-      notifyListeners();
-    }
-  }
-
-  void _checkForAlerts(SensorData data) {
-    // Speed alert
-    if (data.speed > 120) {
-      _addAlert(Alert(
-        title: 'High Speed Warning',
-        message: 'Current speed: ${data.speed.toStringAsFixed(1)} km/h',
-        type: AlertType.warning,
-      ));
-    }
-
-    // Battery alert
-    if (data.battery < 20) {
-      _addAlert(Alert(
-        title: 'Low Battery Alert',
-        message: 'Battery level: ${data.battery.toStringAsFixed(1)}%',
-        type: AlertType.danger,
-      ));
-    }
-
-    // Temperature alert
-    if (data.temperature > 100) {
-      _addAlert(Alert(
-        title: 'High Temperature',
-        message: 'Engine temp: ${data.temperature.toStringAsFixed(1)}°C',
-        type: AlertType.danger,
-      ));
-    }
-
-    // Low fuel alert
-    if (data.fuelLevel < 15) {
-      _addAlert(Alert(
-        title: 'Low Fuel Level',
-        message: 'Fuel: ${data.fuelLevel.toStringAsFixed(1)}%',
-        type: AlertType.warning,
-      ));
-    }
-  }
-
-  void _addAlert(Alert alert) {
-    _alerts.add(alert);
-    if (_alerts.length > 50) {
-      _alerts.removeAt(0);
-    }
+    _status = 'Drivora Core Initialized';
     notifyListeners();
   }
 
-  void simulateData() {
-    if (_isSimulating) {
-      debugPrint('Simulation already running');
-      return;
-    }
+  void stopAllStreams() {
+    _dataSubscription?.cancel();
+    _pollingTimer?.cancel();
+    _isConnected = false;
+    _currentSource = DataSource.standby;
+    _status = 'Safety Shield: STANDBY';
+    _activeAlerts.clear();
+    notifyListeners();
+  }
 
-    _isSimulating = true;
+  // --- 1. Realistic Simulation ---
+  void startSafetySimulation() {
+    stopAllStreams();
+    _currentSource = DataSource.simulation;
     _isConnected = true;
-    _connectionStatus = 'Simulation Mode Active';
-    notifyListeners();
-
-    _simulationSubscription?.cancel();
-    _simulationSubscription = Stream.periodic(
-      const Duration(milliseconds: 500),
+    _status = 'Safety Shield: SIMULATING';
+    
+    _dataSubscription = Stream.periodic(
+      const Duration(milliseconds: 100),
       (count) => count,
     ).listen((count) {
-      // Generate realistic variations
-      final random = math.Random();
-      final baseSpeed = 45.0 + (random.nextDouble() * 40);
-      final speedVariation = math.sin(count * 0.05) * 10;
-      
-      final sensorData = SensorData(
-        speed: (baseSpeed + speedVariation).clamp(0, 150).toDouble(),
-        battery: (80 + (random.nextDouble() * 15) - (count * 0.01)).clamp(10, 100).toDouble(),
-        temperature: (85 + (random.nextDouble() * 20)).clamp(60, 110).toDouble(),
-        rpm: (2000 + (random.nextDouble() * 3500)).clamp(0, 7000).toDouble(),
-        heading: (count * 2.5 % 360).toDouble(),
-        latitude: 6.9271 + (random.nextDouble() * 0.02 - 0.01),
-        longitude: 80.7789 + (random.nextDouble() * 0.02 - 0.01),
-        engineStatus: true,
-        leftSignal: count % 30 < 10,
-        rightSignal: count % 40 > 20,
-        brakeStatus: count % 50 > 40,
-        fuelLevel: (70 - (count * 0.002)).clamp(10, 100).toDouble(),
-        timestamp: DateTime.now(),
-      );
-      
-      _currentData = sensorData;
-      _dataHistory.add(sensorData);
-      
-      if (_dataHistory.length > 1000) {
-        _dataHistory.removeAt(0);
+      final double time = count * 0.1;
+      double ttc = 4.0 + math.sin(time * 0.4) * 3.0;
+      double lanePos = math.sin(time * 0.25);
+      _updateData(DrivoraSensorData(
+        speed: 80.0 + math.sin(time * 0.15) * 10.0,
+        ttc: ttc,
+        frontDistance: ttc * 10.0,
+        lanePosition: lanePos,
+        ldwActive: lanePos.abs() > 0.8,
+        lateralG: math.sin(time * 0.5) * 0.55,
+        tiltAngle: math.sin(time * 0.5) * 11.0,
+        brakeActive: ttc < 2.5,
+        leftSignal: lanePos < -0.65,
+        rightSignal: lanePos > 0.65,
+      ));
+    });
+  }
+
+  // --- 2. Raw Data Demo (From JSON) ---
+  Future<void> startRawDataDemo() async {
+    stopAllStreams();
+    _currentSource = DataSource.rawData;
+    _status = 'Safety Shield: DATA DEMO';
+    
+    try {
+      final String response = await rootBundle.loadString('assets/raw_sensor_data.json');
+      final List<dynamic> data = json.decode(response);
+      int index = 0;
+
+      _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        if (index >= data.length) index = 0;
+        final map = data[index];
+        _updateData(DrivoraSensorData(
+          ttc: (map['ttc'] ?? 10.0).toDouble(),
+          speed: (map['speed'] ?? 0.0).toDouble(),
+          lanePosition: (map['lanePosition'] ?? 0.0).toDouble(),
+          ldwActive: map['ldwActive'] ?? false,
+          lateralG: (map['lateralG'] ?? 0.0).toDouble(),
+          tiltAngle: (map['tiltAngle'] ?? 0.0).toDouble(),
+          brakeActive: map['brakeActive'] ?? false,
+          leftSignal: map['leftSignal'] ?? false,
+          rightSignal: map['rightSignal'] ?? false,
+          frontDistance: (map['frontDistance'] ?? 100.0).toDouble(),
+          blindSpotLeftDist: (map['blindSpotLeftDist'] ?? 15.0).toDouble(),
+          blindSpotRightDist: (map['blindSpotRightDist'] ?? 15.0).toDouble(),
+        ));
+        index++;
+      });
+      _isConnected = true;
+      notifyListeners();
+    } catch (e) {
+      _status = 'Error loading demo data';
+      notifyListeners();
+    }
+  }
+
+  // --- 3. Live WiFi Connection (Hardware) ---
+  void connectToLiveSensors(String ipAddress) {
+    stopAllStreams();
+    _currentSource = DataSource.liveWiFi;
+    _status = 'Connecting to Hub...';
+    notifyListeners();
+
+    _pollingTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+      try {
+        final response = await http.get(Uri.parse('http://$ipAddress/data')).timeout(const Duration(milliseconds: 500));
+        if (response.statusCode == 200) {
+          final map = json.decode(response.body);
+          _updateData(DrivoraSensorData(
+            speed: (map['sp'] ?? 0.0).toDouble(),
+            ttc: (map['ttc'] ?? 10.0).toDouble(),
+            lanePosition: (map['lp'] ?? 0.0).toDouble(),
+            ldwActive: map['ldw'] == 1,
+            lateralG: (map['lg'] ?? 0.0).toDouble(),
+            tiltAngle: (map['ta'] ?? 0.0).toDouble(),
+            brakeActive: map['br'] == 1,
+            unitAOnline: map['uA'] == 1,
+            unitBOnline: map['uB'] == 1,
+            unitCOnline: map['uC'] == 1,
+            unitDOnline: map['uD'] == 1,
+          ));
+          _status = 'Live Data: ACTIVE';
+          _isConnected = true;
+        }
+      } catch (e) {
+        _status = 'Hardware Link Lost';
+        _isConnected = false;
       }
-      
-      _dataController.add(sensorData);
-      _checkForAlerts(sensorData);
       notifyListeners();
     });
   }
 
-  Future<void> stopSimulation() async {
-    _simulationSubscription?.cancel();
-    _isSimulating = false;
-    _isConnected = false;
-    _connectionStatus = 'Simulation stopped';
+  void _updateData(DrivoraSensorData data) {
+    _currentData = data;
+    _dataHistory.add(_currentData);
+    if (_dataHistory.length > 500) _dataHistory.removeAt(0);
+    _processSafetyLogic(_currentData);
     notifyListeners();
   }
 
-  Future<void> connectToDevice(String ipAddress) async {
-    try {
-      _connectionStatus = 'Connecting to $ipAddress...';
-      notifyListeners();
-      
-      // Simulate connection for demo
-      await Future.delayed(const Duration(seconds: 2));
-      _connectionStatus = 'Connected to $ipAddress';
-      _isConnected = true;
-      notifyListeners();
-      
-      debugPrint('Connected to device at $ipAddress');
-    } catch (e) {
-      _connectionStatus = 'Connection failed: $e';
-      notifyListeners();
+  void _processSafetyLogic(DrivoraSensorData data) {
+    _activeAlerts.clear();
+    if (data.ttc < 2.2) {
+      _activeAlerts.add(SafetyAlert(title: 'BRAKE NOW', message: 'Collision Imminent', severity: AlertSeverity.critical, unitSource: 'Unit A'));
     }
-  }
-
-  Future<void> disconnect() async {
-    try {
-      _simulationSubscription?.cancel();
-      _isConnected = false;
-      _isSimulating = false;
-      _connectionStatus = 'Disconnected';
-      _currentData = null;
-      notifyListeners();
-    } catch (e) {
-      _connectionStatus = 'Error disconnecting: $e';
-      notifyListeners();
+    if (data.ldwActive) {
+      _activeAlerts.add(SafetyAlert(title: 'LANE DRIFT', message: 'Unintended Departure', severity: AlertSeverity.danger, unitSource: 'Unit D'));
     }
-  }
-
-  List<Alert> getRecentAlerts({int limit = 5}) {
-    return _alerts.reversed.take(limit).toList();
+    if (data.tiltAngle.abs() > 15.0) {
+      _activeAlerts.add(SafetyAlert(title: 'ROLLOVER RISK', message: 'Stability Compromised', severity: AlertSeverity.warning, unitSource: 'Unit C'));
+    }
   }
 
   void clearAlerts() {
-    _alerts.clear();
+    _activeAlerts.clear();
     notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _simulationSubscription?.cancel();
-    _dataController.close();
-    disconnect();
-    super.dispose();
   }
 }
