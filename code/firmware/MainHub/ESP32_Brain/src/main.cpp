@@ -48,7 +48,7 @@ RearData rearData;
 unsigned long lastBroadcastMs = 0;
 unsigned long lastMockUpdateMs = 0;
 
-const unsigned long UI_BROADCAST_MS = 80;
+const unsigned long UI_BROADCAST_MS = 50;
 const unsigned long MOCK_UPDATE_MS  = 50;
 const unsigned long STALE_MS        = 300;
 const unsigned long OFFLINE_MS      = 1000;
@@ -109,8 +109,6 @@ bool isOffline(unsigned long lastMs, unsigned long nowMs) {
 }
 
 // ================= MOCK DATA =================
-// Version 0.1 / 0.2 uses mock data only.
-// Next version will replace this with CAN receive.
 void updateMockData(unsigned long nowMs) {
   if (nowMs - lastMockUpdateMs < MOCK_UPDATE_MS) return;
   lastMockUpdateMs = nowMs;
@@ -229,119 +227,156 @@ const char webpage[] PROGMEM = R"rawliteral(
     --text:#f2f4f8;
     --muted:#b6bcc8;
     --border:#262b35;
-    --good:#1db954;
-    --warn:#ffb020;
-    --danger:#ff3b30;
   }
   *{box-sizing:border-box}
-  body{
+  html, body{
     margin:0;
     background:var(--bg);
     color:var(--text);
     font-family:Arial,Helvetica,sans-serif;
-    padding:12px;
+  }
+  body{
+    padding:10px;
   }
   .wrap{
     max-width:1400px;
     margin:0 auto;
   }
   .topTitle{
-    font-size:20px;
+    font-size:18px;
     font-weight:700;
-    margin-bottom:12px;
+    margin-bottom:8px;
   }
   .statusRow{
     display:flex;
-    gap:8px;
+    gap:6px;
     flex-wrap:wrap;
-    margin-bottom:12px;
+    margin-bottom:10px;
     align-items:center;
   }
   .badge{
     display:inline-block;
-    padding:6px 10px;
+    padding:5px 8px;
     border-radius:999px;
     background:#2b2f38;
-    font-size:12px;
+    font-size:11px;
   }
   button{
-    padding:12px 14px;
+    padding:10px 12px;
     border:0;
-    border-radius:12px;
+    border-radius:10px;
     background:#2b2f38;
     color:white;
-    font-size:14px;
+    font-size:13px;
   }
 
   .cards{
     display:flex;
     flex-direction:column;
-    gap:12px;
+    gap:10px;
   }
 
   .panel{
     background:var(--card);
     border:1px solid var(--border);
-    border-radius:18px;
-    padding:12px;
+    border-radius:16px;
+    padding:10px;
     min-width:0;
   }
 
+  .sensorPanel{
+    display:flex;
+    flex-direction:column;
+  }
+
+  .sensorPanel .stateBox{
+    flex:1 1 auto;
+  }
+
+  .sensorPanel .grid{
+    margin-top:auto;
+  }
+
+  .panelHead{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    margin-bottom:8px;
+  }
+
   .panelTitle{
-    font-size:16px;
+    font-size:15px;
     font-weight:700;
-    margin-bottom:10px;
+    min-width:0;
   }
 
   .stateBox{
     width:100%;
-    border-radius:18px;
-    min-height:82px;
+    border-radius:14px;
+    min-height:72px;
     display:flex;
     align-items:center;
     justify-content:center;
     text-align:center;
-    font-size:24px;
+    font-size:22px;
     font-weight:800;
     color:white;
-    margin-bottom:12px;
+    margin-bottom:10px;
     transition:background-color 120ms linear;
   }
 
   .grid{
     display:grid;
     grid-template-columns:1fr 1fr;
-    gap:10px;
+    gap:8px;
   }
 
   .cell{
     background:#11151b;
     border:1px solid #232933;
-    border-radius:14px;
-    padding:10px;
+    border-radius:12px;
+    padding:8px;
     min-width:0;
+  }
+
+  .cell.full{
+    grid-column:1 / -1;
   }
 
   .label{
     color:var(--muted);
-    font-size:12px;
-    margin-bottom:6px;
+    font-size:11px;
+    margin-bottom:4px;
   }
 
   .value{
-    font-size:20px;
+    font-size:18px;
     font-weight:700;
     word-break:break-word;
+    line-height:1.15;
+  }
+
+  #frontPanel .grid{
+    grid-template-columns:1fr 1fr;
+  }
+
+  /* Lean values in one row in both portrait and landscape */
+  #leanPanel .grid{
+    grid-template-columns:1fr 1fr 1fr;
+  }
+  #leanPanel .cell.confidenceCell{
+    grid-column:auto;
   }
 
   #leanVisual {
     position: relative;
     width: 100%;
-    height: 280px;
+    height: 250px;
     background: #000;
     overflow: hidden;
-    border-radius: 18px;
-    margin-bottom: 12px;
+    border-radius: 16px;
+    margin-bottom: 10px;
   }
   #leanField {
     position: absolute;
@@ -391,35 +426,96 @@ const char webpage[] PROGMEM = R"rawliteral(
     box-shadow: 0 0 12px rgba(64, 128, 255, 0.75);
   }
 
-  /* Landscape phone/tablet layout: Front | Lean | Rear */
   @media (orientation: landscape) and (max-width: 1100px) {
+    body{
+      padding:8px;
+    }
+    .topTitle{
+      font-size:16px;
+      margin-bottom:6px;
+    }
+    .statusRow{
+      gap:5px;
+      margin-bottom:8px;
+    }
+    button{
+      padding:8px 10px;
+      font-size:12px;
+    }
+
     .cards{
       flex-direction:row;
       align-items:stretch;
+      gap:8px;
     }
     .panel{
       flex:1 1 0;
+      padding:8px;
     }
     #frontPanel{ order:1; }
     #leanPanel{ order:2; }
     #rearPanel{ order:3; }
 
+    .panelHead{
+      margin-bottom:6px;
+      gap:6px;
+    }
+    .panelTitle{
+      font-size:13px;
+    }
+    .badge{
+      padding:4px 7px;
+      font-size:10px;
+    }
     .stateBox{
-      min-height:72px;
-      font-size:20px;
+      min-height:52px;
+      font-size:16px;
+      margin-bottom:8px;
+      border-radius:12px;
+    }
+    #frontPanel .stateBox,
+    #rearPanel .stateBox{
+      min-height:120px;
     }
     #leanVisual{
-      height:200px;
-    }
-    .value{
-      font-size:17px;
+      height:164px;
+      margin-bottom:8px;
+      border-radius:12px;
     }
     .grid{
       grid-template-columns:1fr;
+      gap:6px;
+    }
+
+    /* Front values stay in one row */
+    #frontPanel .grid{
+      grid-template-columns:1fr 1fr;
+      gap:6px;
+    }
+
+    /* Lean values stay in one row */
+    #leanPanel .grid{
+      grid-template-columns:1fr 1fr 1fr;
+      gap:6px;
+    }
+    #leanPanel .cell.confidenceCell{
+      grid-column:auto;
+    }
+
+    .cell{
+      padding:6px 7px;
+      border-radius:10px;
+    }
+    .label{
+      font-size:10px;
+      margin-bottom:2px;
+    }
+    .value{
+      font-size:14px;
+      line-height:1.05;
     }
   }
 
-  /* Larger screens can also stay in a row */
   @media (min-width: 1101px) {
     .cards{
       flex-direction:row;
@@ -440,26 +536,27 @@ const char webpage[] PROGMEM = R"rawliteral(
 
   <div class="statusRow">
     <span class="badge">Brain AP: ADASBrain</span>
-    <span class="badge" id="leanBadge">Lean: Offline</span>
-    <span class="badge" id="frontBadge">Front: Offline</span>
-    <span class="badge" id="rearBadge">Rear: Offline</span>
     <button id="audioBtn" onclick="enableAudio()">Enable Sound</button>
   </div>
 
   <div class="cards">
-    <div class="panel" id="frontPanel">
-      <div class="panelTitle">Front Collision Warning</div>
+    <div class="panel sensorPanel" id="frontPanel">
+      <div class="panelHead">
+        <div class="panelTitle">Front Collision Warning</div>
+        <span class="badge" id="frontBadge">Offline</span>
+      </div>
       <div id="frontStateBox" class="stateBox" style="background:#1db954;">CLEAR</div>
       <div class="grid">
         <div class="cell"><div class="label">Distance</div><div id="frontDist" class="value">--</div></div>
         <div class="cell"><div class="label">Speed</div><div id="frontSpeed" class="value">--</div></div>
-        <div class="cell"><div class="label">Raw Distance</div><div id="frontRaw" class="value">--</div></div>
-        <div class="cell"><div class="label">Status</div><div id="frontOnline" class="value">Offline</div></div>
       </div>
     </div>
 
     <div class="panel" id="leanPanel">
-      <div class="panelTitle">Lean Monitor</div>
+      <div class="panelHead">
+        <div class="panelTitle">Lean Monitor</div>
+        <span class="badge" id="leanBadge">Offline</span>
+      </div>
       <div id="leanVisual">
         <div id="leanField">
           <div id="c1" class="circle"></div>
@@ -476,19 +573,18 @@ const char webpage[] PROGMEM = R"rawliteral(
       <div class="grid">
         <div class="cell"><div class="label">Roll</div><div id="leanRoll" class="value">0.00°</div></div>
         <div class="cell"><div class="label">Pitch</div><div id="leanPitch" class="value">0.00°</div></div>
-        <div class="cell"><div class="label">Confidence</div><div id="leanConf" class="value">1.00</div></div>
-        <div class="cell"><div class="label">Status</div><div id="leanOnline" class="value">Offline</div></div>
+        <div class="cell confidenceCell"><div class="label">Conf</div><div id="leanConf" class="value">1.00</div></div>
       </div>
     </div>
 
-    <div class="panel" id="rearPanel">
-      <div class="panelTitle">Rear Blindspot</div>
+    <div class="panel sensorPanel" id="rearPanel">
+      <div class="panelHead">
+        <div class="panelTitle">Rear Blindspot</div>
+        <span class="badge" id="rearBadge">Offline</span>
+      </div>
       <div id="rearStateBox" class="stateBox" style="background:#1db954;">CLEAR</div>
       <div class="grid">
-        <div class="cell"><div class="label">Distance</div><div id="rearDist" class="value">--</div></div>
-        <div class="cell"><div class="label">Raw Distance</div><div id="rearRaw" class="value">--</div></div>
-        <div class="cell"><div class="label">Status</div><div id="rearOnline" class="value">Offline</div></div>
-        <div class="cell"><div class="label">Audio</div><div class="value">Brain UI</div></div>
+        <div class="cell full"><div class="label">Distance</div><div id="rearDist" class="value">--</div></div>
       </div>
     </div>
   </div>
@@ -574,13 +670,18 @@ function fmtSpeed(v){
   return (v >= 0 ? "+" : "") + v.toFixed(1) + " cm/s";
 }
 
+function statusText(obj){
+  if (!obj.online) return "Offline";
+  if (obj.stale) return "Stale";
+  return "Online";
+}
+
 ws.onmessage = (evt) => {
   const d = JSON.parse(evt.data);
 
   // Lean
   const lean = d.lean;
-  document.getElementById("leanBadge").innerText = "Lean: " + (lean.online ? (lean.stale ? "Stale" : "Online") : "Offline");
-  document.getElementById("leanOnline").innerText = lean.online ? (lean.stale ? "Stale" : "Online") : "Offline";
+  document.getElementById("leanBadge").innerText = statusText(lean);
   document.getElementById("leanStateBox").innerText = lean.riskName;
   document.getElementById("leanStateBox").style.backgroundColor = lean.riskLevel === 2 ? "#ff3b30" : (lean.riskLevel === 1 ? "#ffb020" : "#1db954");
   document.getElementById("leanRoll").innerText = lean.roll.toFixed(2) + "°";
@@ -602,22 +703,18 @@ ws.onmessage = (evt) => {
 
   // Front
   const front = d.front;
-  document.getElementById("frontBadge").innerText = "Front: " + (front.online ? (front.stale ? "Stale" : "Online") : "Offline");
-  document.getElementById("frontOnline").innerText = front.online ? (front.stale ? "Stale" : "Online") : "Offline";
+  document.getElementById("frontBadge").innerText = statusText(front);
   document.getElementById("frontStateBox").innerText = front.stateName;
   document.getElementById("frontStateBox").style.backgroundColor = front.stateColor;
   document.getElementById("frontDist").innerText = fmtCm(front.filteredDistanceCm);
-  document.getElementById("frontRaw").innerText = fmtCm(front.rawDistanceCm);
   document.getElementById("frontSpeed").innerText = fmtSpeed(front.closingSpeedCmS);
 
   // Rear
   const rear = d.rear;
-  document.getElementById("rearBadge").innerText = "Rear: " + (rear.online ? (rear.stale ? "Stale" : "Online") : "Offline");
-  document.getElementById("rearOnline").innerText = rear.online ? (rear.stale ? "Stale" : "Online") : "Offline";
+  document.getElementById("rearBadge").innerText = statusText(rear);
   document.getElementById("rearStateBox").innerText = rear.stateName;
   document.getElementById("rearStateBox").style.backgroundColor = rear.stateColor;
   document.getElementById("rearDist").innerText = fmtCm(rear.filteredDistanceCm);
-  document.getElementById("rearRaw").innerText = fmtCm(rear.rawDistanceCm);
 
   // Brain-generated beeps
   const now = Date.now();
@@ -698,7 +795,6 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  // Version 0.1 / 0.2: mock data only
   updateMockData(nowMs);
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
