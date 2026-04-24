@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
-#include "LaneClassifier.h" // Our custom logic module
 
 // AI-Thinker ESP32-CAM Pin Definitions
 #define PWDN_GPIO_NUM     32
@@ -26,10 +25,9 @@
 const char* ssid = "SHAMI-D 1904";
 const char* password = "19041904";
 
-LaneClassifier classifier;
 httpd_handle_t stream_httpd = NULL;
 
-// The Hybrid HTTP Stream Handler
+// The core MJPEG streaming logic
 esp_err_t stream_handler(httpd_req_t *req) {
     camera_fb_t * fb = NULL;
     esp_err_t res = ESP_OK;
@@ -39,6 +37,7 @@ esp_err_t stream_handler(httpd_req_t *req) {
     static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
     res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
+    if(res != ESP_OK){ return res; }
 
     while(true){
         fb = esp_camera_fb_get();
@@ -46,32 +45,15 @@ esp_err_t stream_handler(httpd_req_t *req) {
             Serial.println("Camera capture failed");
             res = ESP_FAIL;
         } else {
-            // 1. RUN THE BARE-METAL MATH (Raw Grayscale Array)
-            String result = classifier.processFrame(fb->buf, fb->width, fb->height);
-            Serial.println(result); // Print classification to VS Code terminal
-
-            // 2. CONVERT GRAYSCALE TO JPEG FOR THE BROWSER
-            uint8_t * out_buf = NULL;
-            size_t out_len = 0;
-            // Compress the raw buffer into a JPEG (Quality 31)
-            bool jpeg_converted = frame2jpg(fb, 31, &out_buf, &out_len); 
-
-            esp_camera_fb_return(fb); // Free the original raw buffer immediately
-
-            // 3. SEND THE JPEG OVER WI-FI
-            if(jpeg_converted){
-                size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, out_len);
-                res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-                if(res == ESP_OK){
-                    res = httpd_resp_send_chunk(req, (const char *)out_buf, out_len);
-                }
-                if(res == ESP_OK){
-                    res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-                }
-                free(out_buf); // Free the JPEG memory to prevent crashing
-            } else {
-                res = ESP_FAIL;
+            size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, fb->len);
+            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+            if(res == ESP_OK){
+                res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
             }
+            if(res == ESP_OK){
+                res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+            }
+            esp_camera_fb_return(fb);
         }
         if(res != ESP_OK){ break; }
     }
@@ -94,24 +76,32 @@ void startCameraServer(){
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nBooting Hybrid Vision System...");
+  Serial.println("\nInitializing Camera...");
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM; config.pin_d1 = Y3_GPIO_NUM;
-  config.pin_d2 = Y4_GPIO_NUM; config.pin_d3 = Y5_GPIO_NUM;
-  config.pin_d4 = Y6_GPIO_NUM; config.pin_d5 = Y7_GPIO_NUM;
-  config.pin_d6 = Y8_GPIO_NUM; config.pin_d7 = Y9_GPIO_NUM;
-  config.pin_xclk = XCLK_GPIO_NUM; config.pin_pclk = PCLK_GPIO_NUM;
-  config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM; config.pin_sccb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   
-  // MUST remain Grayscale for the algorithm!
-  config.pixel_format = PIXFORMAT_GRAYSCALE; 
-  config.frame_size = FRAMESIZE_QQVGA; // 160x120
+  // Changed to JPEG for web browser viewing
+  config.pixel_format = PIXFORMAT_JPEG; 
+  config.frame_size = FRAMESIZE_QVGA; 
   config.jpeg_quality = 12;
   config.fb_count = 1;
 
@@ -120,7 +110,7 @@ void setup() {
     return;
   }
 
-  // Connect to Windows Mobile Hotspot (Must be 2.4 GHz)
+  // Connect to Wi-Fi
   Serial.print("Connecting to Wi-Fi");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -129,6 +119,7 @@ void setup() {
   }
   Serial.println("\nWi-Fi connected.");
   
+  // Start the web server
   startCameraServer();
   
   Serial.print("SUCCESS! Open this IP in your browser: http://");
@@ -136,6 +127,7 @@ void setup() {
 }
 
 void loop() {
-  // HTTP Server runs automatically via FreeRTOS
+  // The HTTP server runs asynchronously in the background via FreeRTOS.
+  // We can leave the main loop completely empty.
   delay(10000); 
 }
