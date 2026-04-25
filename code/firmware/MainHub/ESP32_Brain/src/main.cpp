@@ -2,6 +2,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <math.h>
+#include "driver/twai.h"
 
 // ================= WIFI / WEB =================
 const char* ssid = "ADASBrain";
@@ -9,6 +10,17 @@ const char* password = "12345678";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
+
+// ================= CAN / TWAI =================
+static const gpio_num_t CAN_TX_PIN = GPIO_NUM_17;
+static const gpio_num_t CAN_RX_PIN = GPIO_NUM_16;
+
+const uint32_t LEAN_MAIN_ID   = 0x100;
+const uint32_t LEAN_DEBUG_ID  = 0x101;
+const uint32_t FRONT_MAIN_ID  = 0x200;
+const uint32_t FRONT_DEBUG_ID = 0x201;
+const uint32_t REAR_MAIN_ID   = 0x300;
+const uint32_t REAR_DEBUG_ID  = 0x301;
 
 // ================= DATA STRUCTS =================
 struct LeanData {
@@ -21,6 +33,13 @@ struct LeanData {
   float criticalRollDeg = 30.0f;
   float criticalPitchDeg = 20.0f;
   unsigned long lastUpdateMs = 0;
+
+  // Debug payload from 0x101
+  uint8_t vehicleType = 0;
+  uint8_t loadCondition = 0;
+  uint8_t debugFlags2 = 0;
+  uint8_t debugCounter = 0;
+  unsigned long lastDebugUpdateMs = 0;
 };
 
 struct FrontData {
@@ -30,6 +49,15 @@ struct FrontData {
   float rawDistanceCm = -1.0f;
   float closingSpeedCmS = 0.0f;
   unsigned long lastUpdateMs = 0;
+
+  // Debug payload from 0x201
+  uint8_t debugFlags = 0;
+  uint8_t approachCounter = 0;
+  uint8_t warningCounter = 0;
+  uint8_t blindReleaseCounter = 0;
+  uint8_t invalidStreak = 0;
+  uint8_t debugCounter = 0;
+  unsigned long lastDebugUpdateMs = 0;
 };
 
 struct RearData {
@@ -38,6 +66,14 @@ struct RearData {
   float filteredDistanceCm = -1.0f;
   float rawDistanceCm = -1.0f;
   unsigned long lastUpdateMs = 0;
+
+  // Debug payload from 0x301
+  uint8_t debugFlags = 0;
+  uint8_t warningReleaseCounter = 0;
+  uint8_t fastWarningReleaseCounter = 0;
+  uint8_t invalidStreak = 0;
+  uint8_t debugCounter = 0;
+  unsigned long lastDebugUpdateMs = 0;
 };
 
 LeanData leanData;
@@ -46,10 +82,8 @@ RearData rearData;
 
 // ================= TIMING =================
 unsigned long lastBroadcastMs = 0;
-unsigned long lastMockUpdateMs = 0;
 
 const unsigned long UI_BROADCAST_MS = 50;
-const unsigned long MOCK_UPDATE_MS  = 50;
 const unsigned long STALE_MS        = 300;
 const unsigned long OFFLINE_MS      = 1000;
 
@@ -108,69 +142,192 @@ bool isOffline(unsigned long lastMs, unsigned long nowMs) {
   return (nowMs - lastMs) > OFFLINE_MS;
 }
 
-// ================= MOCK DATA =================
-void updateMockData(unsigned long nowMs) {
-  if (nowMs - lastMockUpdateMs < MOCK_UPDATE_MS) return;
-  lastMockUpdateMs = nowMs;
+uint16_t packU16FromBytes(uint8_t lo, uint8_t hi) {
+  return (uint16_t)lo | ((uint16_t)hi << 8);
+}
 
-  float t = nowMs / 1000.0f;
+int16_t packS16FromBytes(uint8_t lo, uint8_t hi) {
+  return (int16_t)((uint16_t)lo | ((uint16_t)hi << 8));
+}
 
-  // Lean mock
-  leanData.online = true;
-  leanData.calibrated = true;
-  leanData.rollDeg = 12.0f * sinf(t * 1.2f);
-  leanData.pitchDeg = 8.0f * cosf(t * 1.0f);
-  leanData.confidence = 0.90f + 0.08f * sinf(t * 0.7f);
+float unpackDistanceCm(uint16_t v) {
+  if (v == 0xFFFF) return -1.0f;
+  return v / 10.0f;
+}
 
-  float nRoll = fabs(leanData.rollDeg) / leanData.criticalRollDeg;
-  float nPitch = fabs(leanData.pitchDeg) / leanData.criticalPitchDeg;
-  float severity = fmaxf(nRoll, nPitch);
+float unpackSpeedCmS(int16_t v) {
+  return v / 10.0f;
+}
 
-  if (severity >= 1.0f) leanData.riskLevel = 2;
-  else if (severity >= 0.70f) leanData.riskLevel = 1;
-  else leanData.riskLevel = 0;
+float unpackAngleDegX100(int16_t v) {
+  return v / 100.0f;
+}
 
-  leanData.lastUpdateMs = nowMs;
+float unpackUnsignedAngleDegX100(uint16_t v) {
+  return v / 100.0f;
+}
 
-  // Front mock
-  frontData.online = true;
-  frontData.filteredDistanceCm = 140.0f + 70.0f * sinf(t * 0.8f);
-  frontData.rawDistanceCm = frontData.filteredDistanceCm + 2.0f * sinf(t * 2.3f);
-  frontData.closingSpeedCmS = 25.0f * cosf(t * 0.8f);
+// ================= CAN / TWAI =================
+bool initCAN() {
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
+  twai_timing_config_t  t_config = TWAI_TIMING_CONFIG_500KBITS();
+  twai_filter_config_t  f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-  if (frontData.filteredDistanceCm <= 80.0f && frontData.closingSpeedCmS > 15.0f) {
-    frontData.state = 3;
-  } else if (frontData.filteredDistanceCm <= 180.0f && frontData.closingSpeedCmS > 8.0f) {
-    frontData.state = 2;
-  } else if (frontData.filteredDistanceCm <= 180.0f) {
-    frontData.state = 1;
-  } else {
-    frontData.state = 0;
+  esp_err_t err = twai_driver_install(&g_config, &t_config, &f_config);
+  if (err != ESP_OK) {
+    Serial.printf("TWAI install failed: %d\n", err);
+    return false;
   }
 
-  frontData.lastUpdateMs = nowMs;
+  err = twai_start();
+  if (err != ESP_OK) {
+    Serial.printf("TWAI start failed: %d\n", err);
+    return false;
+  }
 
-  // Rear mock
-  rearData.online = true;
-  rearData.filteredDistanceCm = 90.0f + 55.0f * sinf(t * 0.9f + 1.5f);
-  rearData.rawDistanceCm = rearData.filteredDistanceCm + 2.0f * cosf(t * 2.1f);
+  Serial.println("TWAI started on brain");
+  return true;
+}
 
-  if (rearData.filteredDistanceCm <= 30.0f) rearData.state = 3;
-  else if (rearData.filteredDistanceCm <= 50.0f) rearData.state = 2;
-  else if (rearData.filteredDistanceCm <= 120.0f) rearData.state = 1;
-  else rearData.state = 0;
+void receiveCANFrames(unsigned long nowMs) {
+  twai_message_t message;
 
-  rearData.lastUpdateMs = nowMs;
+  while (twai_receive(&message, 0) == ESP_OK) {
+    if (message.extd || message.rtr) continue;
+
+    if (message.identifier == LEAN_MAIN_ID && message.data_length_code >= 8) {
+      leanData.riskLevel = message.data[0];
+
+      int16_t roll_x100  = packS16FromBytes(message.data[1], message.data[2]);
+      int16_t pitch_x100 = packS16FromBytes(message.data[3], message.data[4]);
+
+      leanData.rollDeg = unpackAngleDegX100(roll_x100);
+      leanData.pitchDeg = unpackAngleDegX100(pitch_x100);
+      leanData.confidence = ((float)message.data[5]) / 100.0f;
+      leanData.calibrated = (message.data[6] & (1 << 0)) != 0;
+      leanData.online = true;
+      leanData.lastUpdateMs = nowMs;
+
+      Serial.print("CAN Lean Main | risk=");
+      Serial.print(leanData.riskLevel);
+      Serial.print(" roll=");
+      Serial.print(leanData.rollDeg, 2);
+      Serial.print(" pitch=");
+      Serial.print(leanData.pitchDeg, 2);
+      Serial.print(" conf=");
+      Serial.print(leanData.confidence, 2);
+      Serial.print(" calibrated=");
+      Serial.println(leanData.calibrated ? "YES" : "NO");
+    }
+    else if (message.identifier == LEAN_DEBUG_ID && message.data_length_code >= 8) {
+      uint16_t criticalRoll_x100  = packU16FromBytes(message.data[0], message.data[1]);
+      uint16_t criticalPitch_x100 = packU16FromBytes(message.data[2], message.data[3]);
+
+      leanData.criticalRollDeg = unpackUnsignedAngleDegX100(criticalRoll_x100);
+      leanData.criticalPitchDeg = unpackUnsignedAngleDegX100(criticalPitch_x100);
+      leanData.vehicleType = message.data[4];
+      leanData.loadCondition = message.data[5];
+      leanData.debugFlags2 = message.data[6];
+      leanData.debugCounter = message.data[7];
+      leanData.lastDebugUpdateMs = nowMs;
+
+      Serial.print("CAN Lean Debug | criticalRoll=");
+      Serial.print(leanData.criticalRollDeg, 2);
+      Serial.print(" criticalPitch=");
+      Serial.print(leanData.criticalPitchDeg, 2);
+      Serial.print(" vehicleType=");
+      Serial.print(leanData.vehicleType);
+      Serial.print(" load=");
+      Serial.println(leanData.loadCondition);
+    }
+    else if (message.identifier == FRONT_MAIN_ID && message.data_length_code >= 8) {
+      frontData.state = message.data[0];
+
+      uint16_t filtered_x10 = packU16FromBytes(message.data[1], message.data[2]);
+      int16_t  speed_x10    = packS16FromBytes(message.data[3], message.data[4]);
+      uint16_t raw_x10      = packU16FromBytes(message.data[5], message.data[6]);
+
+      frontData.filteredDistanceCm = unpackDistanceCm(filtered_x10);
+      frontData.closingSpeedCmS    = unpackSpeedCmS(speed_x10);
+      frontData.rawDistanceCm      = unpackDistanceCm(raw_x10);
+      frontData.online             = true;
+      frontData.lastUpdateMs       = nowMs;
+
+      Serial.print("CAN Front Main | state=");
+      Serial.print(frontData.state);
+      Serial.print(" filtered=");
+      Serial.print(frontData.filteredDistanceCm, 1);
+      Serial.print(" raw=");
+      Serial.print(frontData.rawDistanceCm, 1);
+      Serial.print(" speed=");
+      Serial.println(frontData.closingSpeedCmS, 1);
+    }
+    else if (message.identifier == FRONT_DEBUG_ID && message.data_length_code >= 8) {
+      frontData.debugFlags          = message.data[0];
+      frontData.approachCounter     = message.data[1];
+      frontData.warningCounter      = message.data[2];
+      frontData.blindReleaseCounter = message.data[3];
+      frontData.invalidStreak       = message.data[4];
+      frontData.debugCounter        = message.data[7];
+      frontData.lastDebugUpdateMs   = nowMs;
+
+      Serial.print("CAN Front Debug | flags=0x");
+      Serial.print(frontData.debugFlags, HEX);
+      Serial.print(" approach=");
+      Serial.print(frontData.approachCounter);
+      Serial.print(" warning=");
+      Serial.print(frontData.warningCounter);
+      Serial.print(" blindRelease=");
+      Serial.print(frontData.blindReleaseCounter);
+      Serial.print(" invalid=");
+      Serial.println(frontData.invalidStreak);
+    }
+    else if (message.identifier == REAR_MAIN_ID && message.data_length_code >= 8) {
+      rearData.state = message.data[0];
+
+      uint16_t filtered_x10 = packU16FromBytes(message.data[1], message.data[2]);
+      uint16_t raw_x10      = packU16FromBytes(message.data[3], message.data[4]);
+
+      rearData.filteredDistanceCm = unpackDistanceCm(filtered_x10);
+      rearData.rawDistanceCm      = unpackDistanceCm(raw_x10);
+      rearData.online             = true;
+      rearData.lastUpdateMs       = nowMs;
+
+      Serial.print("CAN Rear Main | state=");
+      Serial.print(rearData.state);
+      Serial.print(" filtered=");
+      Serial.print(rearData.filteredDistanceCm, 1);
+      Serial.print(" raw=");
+      Serial.println(rearData.rawDistanceCm, 1);
+    }
+    else if (message.identifier == REAR_DEBUG_ID && message.data_length_code >= 8) {
+      rearData.debugFlags                = message.data[0];
+      rearData.warningReleaseCounter     = message.data[1];
+      rearData.fastWarningReleaseCounter = message.data[2];
+      rearData.invalidStreak             = message.data[3];
+      rearData.debugCounter              = message.data[7];
+      rearData.lastDebugUpdateMs         = nowMs;
+
+      Serial.print("CAN Rear Debug | flags=0x");
+      Serial.print(rearData.debugFlags, HEX);
+      Serial.print(" release=");
+      Serial.print(rearData.warningReleaseCounter);
+      Serial.print(" fastRelease=");
+      Serial.print(rearData.fastWarningReleaseCounter);
+      Serial.print(" invalid=");
+      Serial.println(rearData.invalidStreak);
+    }
+  }
 }
 
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(900);
+  data.reserve(1500);
 
-  bool leanOffline = isOffline(leanData.lastUpdateMs, nowMs);
+  bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
-  bool rearOffline = isOffline(rearData.lastUpdateMs, nowMs);
+  bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
 
   data += "{";
 
@@ -184,7 +341,9 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"pitch\":" + String(leanData.pitchDeg, 2) + ",";
   data += "\"confidence\":" + String(leanData.confidence, 2) + ",";
   data += "\"criticalRollDeg\":" + String(leanData.criticalRollDeg, 2) + ",";
-  data += "\"criticalPitchDeg\":" + String(leanData.criticalPitchDeg, 2);
+  data += "\"criticalPitchDeg\":" + String(leanData.criticalPitchDeg, 2) + ",";
+  data += "\"vehicleType\":" + String(leanData.vehicleType) + ",";
+  data += "\"loadCondition\":" + String(leanData.loadCondition);
   data += "},";
 
   data += "\"front\":{";
@@ -195,7 +354,12 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"stateColor\":\"" + String(stateColorByLevel(frontData.state)) + "\",";
   data += "\"filteredDistanceCm\":" + String(frontData.filteredDistanceCm, 1) + ",";
   data += "\"rawDistanceCm\":" + String(frontData.rawDistanceCm, 1) + ",";
-  data += "\"closingSpeedCmS\":" + String(frontData.closingSpeedCmS, 1);
+  data += "\"closingSpeedCmS\":" + String(frontData.closingSpeedCmS, 1) + ",";
+  data += "\"debugFlags\":" + String(frontData.debugFlags) + ",";
+  data += "\"approachCounter\":" + String(frontData.approachCounter) + ",";
+  data += "\"warningCounter\":" + String(frontData.warningCounter) + ",";
+  data += "\"blindReleaseCounter\":" + String(frontData.blindReleaseCounter) + ",";
+  data += "\"invalidStreak\":" + String(frontData.invalidStreak);
   data += "},";
 
   data += "\"rear\":{";
@@ -205,7 +369,11 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"stateName\":\"" + String(rearStateName(rearData.state)) + "\",";
   data += "\"stateColor\":\"" + String(stateColorByLevel(rearData.state)) + "\",";
   data += "\"filteredDistanceCm\":" + String(rearData.filteredDistanceCm, 1) + ",";
-  data += "\"rawDistanceCm\":" + String(rearData.rawDistanceCm, 1);
+  data += "\"rawDistanceCm\":" + String(rearData.rawDistanceCm, 1) + ",";
+  data += "\"debugFlags\":" + String(rearData.debugFlags) + ",";
+  data += "\"warningReleaseCounter\":" + String(rearData.warningReleaseCounter) + ",";
+  data += "\"fastWarningReleaseCounter\":" + String(rearData.fastWarningReleaseCounter) + ",";
+  data += "\"invalidStreak\":" + String(rearData.invalidStreak);
   data += "}";
 
   data += "}";
@@ -361,7 +529,6 @@ const char webpage[] PROGMEM = R"rawliteral(
     grid-template-columns:1fr 1fr;
   }
 
-  /* Lean values in one row in both portrait and landscape */
   #leanPanel .grid{
     grid-template-columns:1fr 1fr 1fr;
   }
@@ -487,13 +654,11 @@ const char webpage[] PROGMEM = R"rawliteral(
       gap:6px;
     }
 
-    /* Front values stay in one row */
     #frontPanel .grid{
       grid-template-columns:1fr 1fr;
       gap:6px;
     }
 
-    /* Lean values stay in one row */
     #leanPanel .grid{
       grid-template-columns:1fr 1fr 1fr;
       gap:6px;
@@ -598,6 +763,12 @@ let audioEnabled = false;
 let lastFrontBeepMs = 0;
 let lastRearBeepMs = 0;
 
+let leanDotCurrentX = 0;
+let leanDotCurrentY = 0;
+let leanDotTargetX = 0;
+let leanDotTargetY = 0;
+let leanDotInitialized = false;
+
 function enableAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -662,6 +833,26 @@ function softAxisPosition(valueDeg, criticalDeg, radiusPx) {
   return sign * magRatio * radiusPx;
 }
 
+function animateLeanDot() {
+  if (!leanDotInitialized) {
+    requestAnimationFrame(animateLeanDot);
+    return;
+  }
+
+  const leanDot = document.getElementById("leanDot");
+  const SMOOTH = 0.35;
+
+  leanDotCurrentX += (leanDotTargetX - leanDotCurrentX) * SMOOTH;
+  leanDotCurrentY += (leanDotTargetY - leanDotCurrentY) * SMOOTH;
+
+  leanDot.style.left = leanDotCurrentX + "px";
+  leanDot.style.top = leanDotCurrentY + "px";
+
+  requestAnimationFrame(animateLeanDot);
+}
+
+requestAnimationFrame(animateLeanDot);
+
 function fmtCm(v){
   if (v < 0) return "Invalid";
   return v.toFixed(1) + " cm";
@@ -697,9 +888,14 @@ ws.onmessage = (evt) => {
   const px = centerX + softAxisPosition(lean.roll, lean.criticalRollDeg, radius);
   const py = centerY + softAxisPosition(lean.pitch, lean.criticalPitchDeg, radius);
 
-  const leanDot = document.getElementById("leanDot");
-  leanDot.style.left = px + "px";
-  leanDot.style.top = py + "px";
+  leanDotTargetX = px;
+  leanDotTargetY = py;
+
+  if (!leanDotInitialized) {
+    leanDotCurrentX = px;
+    leanDotCurrentY = py;
+    leanDotInitialized = true;
+  }
 
   // Front
   const front = d.front;
@@ -785,6 +981,8 @@ void setup() {
   webSocket.begin();
   webSocket.onEvent(onWebSocketEvent);
 
+  initCAN();
+
   Serial.println("ADAS Brain UI skeleton ready");
 }
 
@@ -795,7 +993,7 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  updateMockData(nowMs);
+  receiveCANFrames(nowMs);    // real lean + front + rear from CAN
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
     lastBroadcastMs = nowMs;

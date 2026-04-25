@@ -93,8 +93,8 @@ Drivora provides a comprehensive and affordable safety modernization path for le
 
 ## Links
 
-- [Project Repository](https://github.com/cepdnaclk/e21-3yp-Drivora){:target="_blank"}
-- [Project Page](https://cepdnaclk.github.io/e21-3yp-Drivora/){:target="_blank"}
+- [Project Repository](https://github.com/cepdnaclk/e21-3yp-Drivora)
+- [Project Page](https://cepdnaclk.github.io/e21-3yp-Drivora/)
 - [Department of Computer Engineering](http://www.ce.pdn.ac.lk/)
 - [Faculty of Engineering, University of Peradeniya](https://eng.pdn.ac.lk/)
 

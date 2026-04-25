@@ -1,14 +1,21 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <WebSocketsServer.h>
+#include "driver/twai.h"
 
-// ================= WIFI / WEB =================
-const char* ssid = "FCWMonitor";
-const char* password = "12345678";
+// ================= CAN / TWAI =================
+static const gpio_num_t CAN_TX_PIN = GPIO_NUM_6;
+static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 
-WebServer server(80);
-WebSocketsServer webSocket(81);
+const uint32_t FRONT_MAIN_ID  = 0x200;
+const uint32_t FRONT_DEBUG_ID = 0x201;
+
+unsigned long lastCanSendMs = 0;
+const unsigned long CAN_SEND_MS = 50;
+
+unsigned long lastDebugSendMs = 0;
+const unsigned long DEBUG_SEND_MS = 200;
+
+uint8_t frontCanCounter = 0;
+uint8_t frontDebugCounter = 0;
 
 // ================= ULTRASONIC PINS =================
 #define TRIGPIN 3
@@ -89,7 +96,7 @@ enum FCWState {
 
 FCWState currentState = CLEAR;
 
-// ================= TIMING / EXTRA TEST DATA =================
+// ================= TIMING =================
 unsigned long lastLoopMs = 0;
 
 // ================= HELPERS =================
@@ -103,27 +110,121 @@ const char* stateName(FCWState s) {
   }
 }
 
-const char* stateColorHex(FCWState s) {
-  switch (s) {
-    case CLEAR: return "#1db954";
-    case OBJECT_AHEAD: return "#f5c542";
-    case APPROACHING: return "#ff8c42";
-    case WARNING: return "#ff3b30";
-    default: return "#1db954";
+uint16_t encodeDistanceX10(float distCm) {
+  if (distCm < 0.0f) return 0xFFFF;
+  int v = (int)roundf(distCm * 10.0f);
+  if (v < 0) v = 0;
+  if (v > 65534) v = 65534;
+  return (uint16_t)v;
+}
+
+int16_t encodeSpeedX10(float speedCmS) {
+  int v = (int)roundf(speedCmS * 10.0f);
+  if (v < -32768) v = -32768;
+  if (v > 32767) v = 32767;
+  return (int16_t)v;
+}
+
+bool initCAN() {
+  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
+  twai_timing_config_t  t_config = TWAI_TIMING_CONFIG_500KBITS();
+  twai_filter_config_t  f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+  esp_err_t err = twai_driver_install(&g_config, &t_config, &f_config);
+  if (err != ESP_OK) {
+    Serial.printf("TWAI install failed: %d\n", err);
+    return false;
+  }
+
+  err = twai_start();
+  if (err != ESP_OK) {
+    Serial.printf("TWAI start failed: %d\n", err);
+    return false;
+  }
+
+  Serial.println("TWAI started on front node");
+  return true;
+}
+
+uint8_t buildFrontDebugFlags(bool suspicious, bool fastBlind) {
+  uint8_t flags = 0;
+  if (blindZoneLatched) flags |= (1 << 0);
+  if (suspicious)       flags |= (1 << 1);
+  if (fastBlind)        flags |= (1 << 2);
+  if (filteredDistance < 0.0f) flags |= (1 << 3);
+  return flags;
+}
+
+void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDistance) {
+  if (nowMs - lastCanSendMs < CAN_SEND_MS) return;
+  lastCanSendMs = nowMs;
+
+  uint16_t filtered_x10 = encodeDistanceX10(smoothedDistance);
+  int16_t  speed_x10    = encodeSpeedX10(closingSpeedCmS);
+  uint16_t raw_x10      = encodeDistanceX10(rawDistance);
+
+  twai_message_t msg = {};
+  msg.identifier = FRONT_MAIN_ID;
+  msg.extd = 0;
+  msg.rtr = 0;
+  msg.data_length_code = 8;
+
+  msg.data[0] = (uint8_t)currentState;
+  msg.data[1] = (uint8_t)(filtered_x10 & 0xFF);
+  msg.data[2] = (uint8_t)((filtered_x10 >> 8) & 0xFF);
+  msg.data[3] = (uint8_t)(speed_x10 & 0xFF);
+  msg.data[4] = (uint8_t)((speed_x10 >> 8) & 0xFF);
+  msg.data[5] = (uint8_t)(raw_x10 & 0xFF);
+  msg.data[6] = (uint8_t)((raw_x10 >> 8) & 0xFF);
+  msg.data[7] = frontCanCounter++;
+
+  esp_err_t err = twai_transmit(&msg, 0);
+  if (err == ESP_OK) {
+    Serial.print("CAN MAIN TX | state=");
+    Serial.print((int)currentState);
+    Serial.print(" filtered=");
+    Serial.print(smoothedDistance, 1);
+    Serial.print(" raw=");
+    Serial.print(rawDistance, 1);
+    Serial.print(" speed=");
+    Serial.println(closingSpeedCmS, 1);
   }
 }
 
-String payloadToString(uint8_t* payload, size_t length) {
-  String s;
-  s.reserve(length);
-  for (size_t i = 0; i < length; i++) s += (char)payload[i];
-  return s;
-}
+void sendFrontDebugFrame(unsigned long nowMs, bool suspicious, bool fastBlind) {
+  if (nowMs - lastDebugSendMs < DEBUG_SEND_MS) return;
+  lastDebugSendMs = nowMs;
 
-float clampf(float x, float lo, float hi) {
-  if (x < lo) return lo;
-  if (x > hi) return hi;
-  return x;
+  uint8_t flags = buildFrontDebugFlags(suspicious, fastBlind);
+
+  twai_message_t msg = {};
+  msg.identifier = FRONT_DEBUG_ID;
+  msg.extd = 0;
+  msg.rtr = 0;
+  msg.data_length_code = 8;
+
+  msg.data[0] = flags;
+  msg.data[1] = (uint8_t)approachCounter;
+  msg.data[2] = (uint8_t)warningCounter;
+  msg.data[3] = (uint8_t)blindReleaseCounter;
+  msg.data[4] = (uint8_t)invalidStreak;
+  msg.data[5] = 0;
+  msg.data[6] = 0;
+  msg.data[7] = frontDebugCounter++;
+
+  esp_err_t err = twai_transmit(&msg, 0);
+  if (err == ESP_OK) {
+    Serial.print("CAN DEBUG TX | flags=0x");
+    Serial.print(flags, HEX);
+    Serial.print(" approach=");
+    Serial.print(approachCounter);
+    Serial.print(" warning=");
+    Serial.print(warningCounter);
+    Serial.print(" blindRelease=");
+    Serial.print(blindReleaseCounter);
+    Serial.print(" invalid=");
+    Serial.println(invalidStreak);
+  }
 }
 
 void resetSensorState() {
@@ -413,309 +514,6 @@ void updateFCWState(float rawDist, float dist, unsigned long nowMs) {
   prevFilteredDistance = -1.0f;
 }
 
-// ================= WEB COMMANDS =================
-void handleCommand(const String& msg) {
-  if (msg == "PING") return;
-}
-
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
-  if (type == WStype_TEXT) {
-    String msg = payloadToString(payload, length);
-    handleCommand(msg);
-  }
-}
-
-// ================= WEB UI =================
-const char webpage[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>FCW Test Monitor</title>
-<style>
-  :root{
-    --bg:#0f1115;
-    --card:#171a21;
-    --text:#f2f4f8;
-    --muted:#b6bcc8;
-    --border:#262b35;
-    --state:#1db954;
-  }
-  *{box-sizing:border-box}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family:Arial,Helvetica,sans-serif;
-    padding:14px;
-  }
-  .wrap{
-    max-width:720px;
-    margin:0 auto;
-  }
-  .title{
-    font-size:18px;
-    font-weight:700;
-    margin-bottom:10px;
-  }
-  .audioRow{
-    margin-bottom:10px;
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-  }
-  .audioBtn{
-    padding:12px 16px;
-    border:0;
-    border-radius:12px;
-    background:#2b2f38;
-    color:white;
-    font-size:15px;
-  }
-  .stateBox{
-    width:100%;
-    aspect-ratio:1/1;
-    max-height:62vh;
-    border-radius:22px;
-    background:var(--state);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    text-align:center;
-    padding:18px;
-    transition: background-color 120ms linear, box-shadow 120ms linear;
-    box-shadow:0 0 28px rgba(0,0,0,0.22);
-  }
-  .stateText{
-    font-size:clamp(28px, 7vw, 58px);
-    font-weight:800;
-    letter-spacing:0.5px;
-    line-height:1.05;
-    color:white;
-    word-break:break-word;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:10px;
-    margin-top:12px;
-  }
-  .card{
-    background:var(--card);
-    border:1px solid var(--border);
-    border-radius:16px;
-    padding:12px;
-  }
-  .label{
-    color:var(--muted);
-    font-size:12px;
-    margin-bottom:6px;
-  }
-  .value{
-    font-size:24px;
-    font-weight:700;
-  }
-  .value.small{
-    font-size:18px;
-  }
-  .full{
-    grid-column:1 / -1;
-  }
-  .barWrap{
-    width:100%;
-    height:10px;
-    background:#262b35;
-    border-radius:999px;
-    overflow:hidden;
-    margin-top:8px;
-  }
-  .bar{
-    height:100%;
-    width:0%;
-    background:#8ab4ff;
-    transition: width 80ms linear;
-  }
-  .footerNote{
-    margin-top:10px;
-    color:var(--muted);
-    font-size:12px;
-    text-align:center;
-  }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="title">Forward Collision Warning Test</div>
-
-  <div class="audioRow">
-    <button id="audioBtn" class="audioBtn" onclick="enableAudio()">Enable Beep Sound</button>
-  </div>
-
-  <div id="stateBox" class="stateBox">
-    <div id="stateText" class="stateText">CLEAR</div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <div class="label">Filtered Distance</div>
-      <div id="filteredDistance" class="value">--</div>
-    </div>
-
-    <div class="card">
-      <div class="label">Raw Distance</div>
-      <div id="rawDistance" class="value">--</div>
-    </div>
-
-    <div class="card">
-      <div class="label">Closing Speed</div>
-      <div id="closingSpeed" class="value">0.0 cm/s</div>
-    </div>
-
-    <div class="card">
-      <div class="label">Trusted Range</div>
-      <div id="trustedRange" class="value small">25 - 250 cm</div>
-    </div>
-
-    <div class="card full">
-      <div class="label">Distance in Warning Window</div>
-      <div id="distancePercentText" class="value small">0%</div>
-      <div class="barWrap"><div id="distanceBar" class="bar"></div></div>
-    </div>
-
-    <div class="card full">
-      <div class="label">Diagnostics</div>
-      <div id="diag" class="value small">Waiting for data...</div>
-    </div>
-  </div>
-
-  <div class="footerNote">Connect phone to FCWMonitor Wi-Fi and open 192.168.4.1</div>
-</div>
-
-<script>
-const ws = new WebSocket("ws://" + location.hostname + ":81");
-
-const stateBox = document.getElementById("stateBox");
-const stateText = document.getElementById("stateText");
-const rawDistance = document.getElementById("rawDistance");
-const filteredDistance = document.getElementById("filteredDistance");
-const closingSpeed = document.getElementById("closingSpeed");
-const trustedRange = document.getElementById("trustedRange");
-const distanceBar = document.getElementById("distanceBar");
-const distancePercentText = document.getElementById("distancePercentText");
-const diag = document.getElementById("diag");
-
-let audioCtx = null;
-let audioEnabled = false;
-let lastBeepMs = 0;
-
-async function enableAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-
-  try {
-    if (audioCtx.state === "suspended") {
-      await audioCtx.resume();
-    }
-
-    audioEnabled = true;
-    document.getElementById("audioBtn").innerText = "Beep Sound Enabled";
-    playBeep(1050, 100, 0.10);
-  } catch (e) {
-    document.getElementById("audioBtn").innerText = "Tap Again to Enable Sound";
-  }
-}
-
-function playBeep(freq = 900, durationMs = 80, volume = 0.09) {
-  if (!audioEnabled || !audioCtx) return;
-
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.type = "sine";
-  osc.frequency.value = freq;
-  gain.gain.value = volume;
-
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-
-  const now = audioCtx.currentTime;
-  osc.start(now);
-  osc.stop(now + durationMs / 1000);
-
-  gain.gain.setValueAtTime(volume, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
-}
-
-document.addEventListener("touchstart", () => {
-  if (!audioEnabled) enableAudio();
-}, { passive: true, once: false });
-
-document.addEventListener("click", () => {
-  if (!audioEnabled) enableAudio();
-}, { once: false });
-
-function fmtCm(v){
-  if (v < 0) return "Invalid";
-  return v.toFixed(1) + " cm";
-}
-
-function clamp(x, lo, hi){
-  return Math.max(lo, Math.min(hi, x));
-}
-
-ws.onmessage = (evt) => {
-  const d = JSON.parse(evt.data);
-
-  stateText.textContent = d.stateName;
-  stateBox.style.backgroundColor = d.stateColor;
-
-  rawDistance.textContent = fmtCm(d.rawDistance);
-  filteredDistance.textContent = fmtCm(d.filteredDistance);
-
-  const sp = d.closingSpeedCmS;
-  closingSpeed.textContent = (sp >= 0 ? "+" : "") + sp.toFixed(1) + " cm/s";
-
-  trustedRange.textContent = d.minValidCm.toFixed(0) + " - " + d.maxValidCm.toFixed(0) + " cm";
-
-  let pct = 0;
-  if (d.filteredDistance > 0) {
-    const span = d.maxValidCm - d.minValidCm;
-    pct = ((d.maxValidCm - d.filteredDistance) / span) * 100.0;
-    pct = clamp(pct, 0, 100);
-  }
-  distanceBar.style.width = pct.toFixed(1) + "%";
-  distancePercentText.textContent = pct.toFixed(0) + "%";
-
-  diag.textContent =
-    "approachCounter: " + d.approachCounter +
-    " | warningCounter: " + d.warningCounter +
-    " | blindLatched: " + (d.blindZoneLatched ? "YES" : "NO") +
-    " | suspicious: " + (d.suspiciousReading ? "YES" : "NO") +
-    " | fastBlind: " + (d.fastBlindTriggered ? "YES" : "NO") +
-    " | invalidStreak: " + d.invalidStreak +
-    " | loop: " + d.loopMs.toFixed(0) + " ms";
-
-  const now = Date.now();
-  if (audioEnabled) {
-    if (d.state === 2) {
-      if (now - lastBeepMs > 700) {
-        playBeep(850, 70, 0.09);
-        lastBeepMs = now;
-      }
-    } else if (d.state === 3) {
-      if (now - lastBeepMs > 250) {
-        playBeep(1250, 90, 0.11);
-        lastBeepMs = now;
-      }
-    }
-  }
-};
-</script>
-</body>
-</html>
-)rawliteral";
-
 // ================= SETUP =================
 void setup() {
   Serial.begin(9600);
@@ -726,31 +524,16 @@ void setup() {
   digitalWrite(TRIGPIN, LOW);
   delay(1000);
 
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid, password);
-  WiFi.setSleep(false);
-
-  server.on("/", []() {
-    server.send_P(200, "text/html", webpage);
-  });
-  server.begin();
-
-  webSocket.begin();
-  webSocket.onEvent(onWebSocketEvent);
+  initCAN();
 
   lastLoopMs = millis();
   lastValidDistanceMs = millis();
 
-  Serial.println("JSN-SR04T FCW Prototype Started");
-  Serial.print("AP IP: ");
-  Serial.println(WiFi.softAPIP());
+  Serial.println("JSN-SR04T FCW CAN Node Started");
 }
 
 // ================= LOOP =================
 void loop() {
-  server.handleClient();
-  webSocket.loop();
-
   unsigned long nowMs = millis();
   float loopMs = (float)(nowMs - lastLoopMs);
   lastLoopMs = nowMs;
@@ -776,6 +559,9 @@ void loop() {
   bool fastBlind = shouldFastLatchBlindZone(rawDistance, smoothedDistance);
   updateFCWState(rawDistance, smoothedDistance, nowMs);
 
+  sendFrontMainFrame(nowMs, rawDistance, smoothedDistance);
+  sendFrontDebugFrame(nowMs, suspicious, fastBlind);
+
   Serial.print("Raw: ");
   if (rawDistance < 0) Serial.print("Invalid");
   else Serial.print(rawDistance, 1);
@@ -795,33 +581,7 @@ void loop() {
   Serial.print(" | InvalidStreak: ");
   Serial.print(invalidStreak);
   Serial.print(" | State: ");
-  Serial.println(stateName(currentState));
-
-  String data;
-  data.reserve(540);
-  data += "{";
-  data += "\"rawDistance\":" + String(rawDistance, 1) + ",";
-  data += "\"filteredDistance\":" + String(smoothedDistance, 1) + ",";
-  data += "\"closingSpeedCmS\":" + String(closingSpeedCmS, 1) + ",";
-  data += "\"state\":" + String((int)currentState) + ",";
-  data += "\"stateName\":\"" + String(stateName(currentState)) + "\",";
-  data += "\"stateColor\":\"" + String(stateColorHex(currentState)) + "\",";
-  data += "\"minValidCm\":" + String(MIN_VALID_CM, 1) + ",";
-  data += "\"maxValidCm\":" + String(MAX_VALID_CM, 1) + ",";
-  data += "\"objectZoneCm\":" + String(OBJECT_ZONE_CM, 1) + ",";
-  data += "\"warningZoneCm\":" + String(WARNING_ZONE_CM, 1) + ",";
-  data += "\"veryCloseZoneCm\":" + String(VERY_CLOSE_ZONE_CM, 1) + ",";
-  data += "\"blindEntryTriggerCm\":" + String(BLIND_ENTRY_TRIGGER_CM, 1) + ",";
-  data += "\"approachCounter\":" + String(approachCounter) + ",";
-  data += "\"warningCounter\":" + String(warningCounter) + ",";
-  data += "\"blindZoneLatched\":" + String(blindZoneLatched ? 1 : 0) + ",";
-  data += "\"suspiciousReading\":" + String(suspicious ? 1 : 0) + ",";
-  data += "\"fastBlindTriggered\":" + String(fastBlind ? 1 : 0) + ",";
-  data += "\"invalidStreak\":" + String(invalidStreak) + ",";
-  data += "\"loopMs\":" + String(loopMs, 0);
-  data += "}";
-
-  webSocket.broadcastTXT(data);
-
-  delay(20);
+  Serial.print(stateName(currentState));
+  Serial.print(" | Loop: ");
+  Serial.println(loopMs, 0);
 }
