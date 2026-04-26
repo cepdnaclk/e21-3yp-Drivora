@@ -136,6 +136,18 @@ void setup() {
 }
 
 void loop() {
-  // HTTP Server runs automatically via FreeRTOS
-  delay(10000); 
+  camera_fb_t * fb = esp_camera_fb_get();
+  if (!fb) return;
+
+  // Pass the raw byte array to our classifier
+  String result = classifier.processFrame(fb->buf, fb->width, fb->height);
+  
+  // Only print if the result is not empty
+  if (result.length() > 0) {
+      Serial.println(result);
+  }
+
+  esp_camera_fb_return(fb);
+  
+  delay(100); 
 }
