@@ -50,7 +50,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyB_mg5pLecgzixdYQEMPWaTabizJzuhfak',
+    apiKey: String.fromEnvironment('FIREBASE_WEB_API_KEY'),
     appId: '1:714352938417:web:3a13d585b82d6292438190',
     messagingSenderId: '714352938417',
     projectId: 'drivora-27ad4',
@@ -60,7 +60,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyASnCcim2NMPcMZTiKPL4hKHEwrihb8bxQ',
+    apiKey: String.fromEnvironment('FIREBASE_ANDROID_API_KEY'),
     appId: '1:714352938417:android:615bd31ece96ef2e438190',
     messagingSenderId: '714352938417',
     projectId: 'drivora-27ad4',

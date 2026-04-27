@@ -1,0 +1,1 @@
+flutter run --dart-define=FIREBASE_WEB_API_KEY=YOUR_WEB_KEY --dart-define=FIREBASE_ANDROID_API_KEY=YOUR_ANDROID_KEY
