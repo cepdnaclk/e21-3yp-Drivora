@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include <WiFi.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include <WiFi.h>
 
 // ============================================================
 // AI-Thinker ESP32-CAM Pin Definitions
@@ -24,12 +24,12 @@
 #define PCLK_GPIO_NUM     22
 
 // ============================================================
-// Wi-Fi
+// Preview AP
 // ============================================================
-const char* ssid = "Thakshila's iPhone";
-const char* password = "comeflywithme";
+const char* previewSsid = "LanePreview";
+const char* previewPassword = "12345678";
 
-httpd_handle_t stream_httpd = NULL;
+httpd_handle_t preview_httpd = NULL;
 
 // ============================================================
 // Thin bottom ROI
@@ -57,24 +57,23 @@ httpd_handle_t stream_httpd = NULL;
 #define DASH_GAP_HOLD_FRAMES 5
 #define ROW_AGREE_PX 14
 
-// Center crossing zone
 #define CENTER_ZONE_HALF_WIDTH 12
-
-// Re-arm margin so repeated alerts stop after crossing
 #define ALERT_RELEASE_MARGIN 4
-
-// Rolling decision window
 #define DECISION_WINDOW_FRAMES 10
 #define DECISION_TRIGGER_COUNT 2
-
-// Direction logic
 #define MOTION_TRIGGER_PX 1
 #define INWARD_SCORE_MAX 4
 
 #define PRINT_INTERVAL_MS 250
 #define CLASSIFY_INTERVAL_MS 60
-#define STREAM_FRAME_DELAY_MS 100
 #define ALERT_HOLD_MS 400
+#define STREAM_FRAME_DELAY_MS 90
+#define UART_SEND_INTERVAL_MS 80
+
+// ============================================================
+// Mode control
+// ============================================================
+volatile bool calibrationMode = false;
 
 struct Blob {
   int cx;
@@ -198,9 +197,6 @@ public:
     int centerLeftBound  = fc - CENTER_ZONE_HALF_WIDTH;
     int centerRightBound = fc + CENTER_ZONE_HALF_WIDTH;
 
-    // --------------------------------------------------------
-    // Re-arm locks after line moves away from center zone
-    // --------------------------------------------------------
     if (leftAlertLock) {
       if (smL != -1 && smL < (centerLeftBound - ALERT_RELEASE_MARGIN)) {
         leftAlertLock = false;
@@ -213,18 +209,15 @@ public:
       }
     }
 
-    // --------------------------------------------------------
-    // Direction scoring
-    // --------------------------------------------------------
     int leftDelta = 0;
     int rightDelta = 0;
 
     if (smL != -1 && prevSmL != -1) {
-      leftDelta = smL - prevSmL;   // positive = moving right/inward
+      leftDelta = smL - prevSmL;
     }
 
     if (smR != -1 && prevSmR != -1) {
-      rightDelta = smR - prevSmR;  // negative = moving left/inward
+      rightDelta = smR - prevSmR;
     }
 
     if (leftDelta >= MOTION_TRIGGER_PX) {
@@ -242,7 +235,6 @@ public:
     bool leftDepartureNow = false;
     bool rightDepartureNow = false;
 
-    // Left line crossing toward center means vehicle drifting left
     if (!leftAlertLock &&
         smL != -1 &&
         smL >= centerLeftBound &&
@@ -250,7 +242,6 @@ public:
       leftDepartureNow = true;
     }
 
-    // Right line crossing toward center means vehicle drifting right
     if (!rightAlertLock &&
         smR != -1 &&
         smR <= centerRightBound &&
@@ -258,7 +249,6 @@ public:
       rightDepartureNow = true;
     }
 
-    // If both trigger together, choose the stronger / more plausible one
     if (leftDepartureNow && rightDepartureNow) {
       int leftDistToCenter = abs(fc - smL);
       int rightDistToCenter = abs(smR - fc);
@@ -308,13 +298,6 @@ public:
     return heldAlertOrSafe(nowMs);
   }
 
-  int getLastSmoothedL() const { return lastSmoothedL; }
-  int getLastSmoothedR() const { return lastSmoothedR; }
-  int getPixelThreshold() const { return lastPixelThreshold; }
-  int getCenterX() const { return centerX; }
-  int getCenterLeftBound() const { return centerX - CENTER_ZONE_HALF_WIDTH; }
-  int getCenterRightBound() const { return centerX + CENTER_ZONE_HALF_WIDTH; }
-
 private:
   int leftHist[HISTORY_SIZE];
   int rightHist[HISTORY_SIZE];
@@ -345,7 +328,7 @@ private:
   int rightEvidenceHist[DECISION_WINDOW_FRAMES];
   int evidenceIdx = 0;
 
-  int heldAlert = 0; // 0 SAFE, 1 LEFT, 2 RIGHT
+  int heldAlert = 0;
   unsigned long heldAlertUntilMs = 0;
 
   void resetAll() {
@@ -364,7 +347,6 @@ private:
 
     lastL = -1;
     lastR = -1;
-
     lastGoodL = -1;
     lastGoodR = -1;
     missCountL = 0;
@@ -505,11 +487,14 @@ private:
 
 LaneDetector detector;
 String lastPrinted = "";
+String currentLaneState = "SAFE";
+String lastLaneSent = "";
 unsigned long lastPrintMs = 0;
 unsigned long lastClassifyMs = 0;
+unsigned long lastUartSendMs = 0;
 
 // ============================================================
-// Build contrast-stretched ROI
+// ROI builder
 // ============================================================
 void buildContrastROI(const uint8_t* src, int srcW, uint8_t* dst) {
   int minV = 255;
@@ -544,60 +529,190 @@ void buildContrastROI(const uint8_t* src, int srcW, uint8_t* dst) {
 }
 
 // ============================================================
-// Draw markers on grayscale ROI
+// UART output
 // ============================================================
-void drawVerticalLineGray(uint8_t* img, int width, int height, int x, uint8_t v) {
-  if (x < 0 || x >= width) return;
-  for (int y = 0; y < height; y++) {
-    img[y * width + x] = v;
-  }
-}
+void sendLaneStateToBrain(const String& result, bool forceSend = false) {
+  if (calibrationMode) return;
 
-void drawMarkersOnROIGray(uint8_t* img) {
-  const int centerX = detector.getCenterX();
-  int leftGuide  = ROI_W / 3;
-  int rightGuide = (ROI_W * 2) / 3;
+  String out = "";
+  if (result == "SAFE") out = "0";
+  else if (result == "LEFT_DEPARTURE") out = "1";
+  else if (result == "RIGHT_DEPARTURE") out = "2";
+  else return;
 
-  drawVerticalLineGray(img, ROI_W, ROI_H, leftGuide, 170);
-  drawVerticalLineGray(img, ROI_W, ROI_H, centerX, 255);
-  drawVerticalLineGray(img, ROI_W, ROI_H, rightGuide, 170);
+  unsigned long now = millis();
+  bool dueKeepAlive = (now - lastUartSendMs) >= UART_SEND_INTERVAL_MS;
 
-  drawVerticalLineGray(img, ROI_W, ROI_H, detector.getCenterLeftBound(), 120);
-  drawVerticalLineGray(img, ROI_W, ROI_H, detector.getCenterRightBound(), 120);
-
-  if (detector.getLastSmoothedL() >= 0) {
-    drawVerticalLineGray(img, ROI_W, ROI_H, detector.getLastSmoothedL(), 220);
-  }
-  if (detector.getLastSmoothedR() >= 0) {
-    drawVerticalLineGray(img, ROI_W, ROI_H, detector.getLastSmoothedR(), 220);
+  if (forceSend || out != lastLaneSent || dueKeepAlive) {
+    Serial.println(out);
+    lastLaneSent = out;
+    lastUartSendMs = now;
   }
 }
 
 // ============================================================
-// Stream handler - ROI only with markers
+// Web UI
 // ============================================================
+static const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lane Calibration</title>
+<style>
+  body{
+    margin:0;
+    background:#111;
+    color:#fff;
+    font-family:Arial,sans-serif;
+    text-align:center;
+  }
+  .wrap{
+    padding:14px;
+    max-width:700px;
+    margin:0 auto;
+  }
+  h3{
+    margin-top:8px;
+  }
+  button{
+    padding:12px 16px;
+    border:0;
+    border-radius:12px;
+    background:#2b2f38;
+    color:white;
+    font-size:15px;
+    margin:6px;
+  }
+  img{
+    width:100%;
+    max-width:640px;
+    height:auto;
+    border-radius:12px;
+    border:1px solid #333;
+    background:#000;
+    margin-top:10px;
+  }
+  .note{
+    color:#bbb;
+    font-size:14px;
+    margin-top:10px;
+    line-height:1.5;
+  }
+  .status{
+    margin-top:8px;
+    font-size:15px;
+    color:#ffd166;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h3>Lane Calibration Panel</h3>
+    <div>
+      <button onclick="startCal()">Start Calibration Stream</button>
+      <button onclick="stopCal()">Stop Calibration Stream</button>
+    </div>
+    <div id="status" class="status">Loading...</div>
+    <img id="preview" style="display:none;" src="">
+    <div class="note">
+      In calibration mode, preview stream runs and UART to brain is paused.<br>
+      In run mode, preview stops and lane data transmission to brain resumes.
+    </div>
+  </div>
+
+<script>
+async function refreshStatus(){
+  const res = await fetch('/status?_=' + Date.now());
+  const d = await res.json();
+
+  const status = document.getElementById('status');
+  const img = document.getElementById('preview');
+
+  if (d.calibrationMode) {
+    status.innerText = 'Mode: CALIBRATION';
+    if (img.style.display === 'none') {
+      img.src = '/stream?_=' + Date.now();
+      img.style.display = 'block';
+    }
+  } else {
+    status.innerText = 'Mode: RUN';
+    img.style.display = 'none';
+    img.src = '';
+  }
+}
+
+async function startCal(){
+  const img = document.getElementById('preview');
+  img.style.display = 'none';
+  img.src = '';
+  await fetch('/start?_=' + Date.now());
+  setTimeout(refreshStatus, 200);
+}
+
+async function stopCal(){
+  const img = document.getElementById('preview');
+  img.style.display = 'none';
+  img.src = '';
+  await fetch('/stop?_=' + Date.now());
+  setTimeout(refreshStatus, 250);
+}
+
+setInterval(refreshStatus, 1000);
+refreshStatus();
+</script>
+</body>
+</html>
+)rawliteral";
+
+esp_err_t index_handler(httpd_req_t *req) {
+  return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t start_handler(httpd_req_t *req) {
+  calibrationMode = true;
+  return httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t stop_handler(httpd_req_t *req) {
+  calibrationMode = false;
+  lastUartSendMs = 0;
+  sendLaneStateToBrain(currentLaneState, true);
+  return httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t status_handler(httpd_req_t *req) {
+  String json = "{";
+  json += "\"calibrationMode\":" + String(calibrationMode ? 1 : 0);
+  json += "}";
+  httpd_resp_set_type(req, "application/json");
+  return httpd_resp_send(req, json.c_str(), json.length());
+}
+
 esp_err_t stream_handler(httpd_req_t *req) {
-  camera_fb_t * fb = NULL;
+  if (!calibrationMode) {
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, "Calibration stream is off", HTTPD_RESP_USE_STRLEN);
+  }
+
+  camera_fb_t *fb = NULL;
   esp_err_t res = ESP_OK;
   char part_buf[64];
-
-  static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=123456789000000000000987654321";
-  static const char* _STREAM_BOUNDARY = "\r\n--123456789000000000000987654321\r\n";
-  static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
-
   static uint8_t roiGray[ROI_W * ROI_H];
+
+  static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=frame";
+  static const char* _STREAM_BOUNDARY = "\r\n--frame\r\n";
+  static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
   if (res != ESP_OK) return res;
 
-  while (true) {
+  while (calibrationMode) {
     fb = esp_camera_fb_get();
     if (!fb) {
-      Serial.println("Stream capture failed");
       res = ESP_FAIL;
     } else {
       buildContrastROI(fb->buf, fb->width, roiGray);
-      drawMarkersOnROIGray(roiGray);
 
       camera_fb_t roiFb;
       roiFb.width = ROI_W;
@@ -610,26 +725,23 @@ esp_err_t stream_handler(httpd_req_t *req) {
 
       uint8_t *out_buf = NULL;
       size_t out_len = 0;
+      bool converted = frame2jpg(&roiFb, 35, &out_buf, &out_len);
 
-      bool jpeg_converted = frame2jpg(&roiFb, 35, &out_buf, &out_len);
+      if (converted) {
+        size_t hlen = snprintf(part_buf, sizeof(part_buf), _STREAM_PART, out_len);
+        res = httpd_resp_send_chunk(req, part_buf, hlen);
+        if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char *)out_buf, out_len);
+        if (res == ESP_OK) res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+      } else {
+        res = ESP_FAIL;
+      }
+
       esp_camera_fb_return(fb);
       fb = NULL;
 
-      if (jpeg_converted) {
-        size_t hlen = snprintf(part_buf, sizeof(part_buf), _STREAM_PART, out_len);
-
-        res = httpd_resp_send_chunk(req, part_buf, hlen);
-        if (res == ESP_OK) {
-          res = httpd_resp_send_chunk(req, (const char *)out_buf, out_len);
-        }
-        if (res == ESP_OK) {
-          res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-        }
-
+      if (out_buf) {
         free(out_buf);
-      } else {
-        Serial.println("ROI JPEG conversion failed");
-        res = ESP_FAIL;
+        out_buf = NULL;
       }
     }
 
@@ -640,19 +752,51 @@ esp_err_t stream_handler(httpd_req_t *req) {
   return res;
 }
 
-void startCameraServer() {
+void startPreviewServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
 
   httpd_uri_t index_uri = {
     .uri      = "/",
     .method   = HTTP_GET,
+    .handler  = index_handler,
+    .user_ctx = NULL
+  };
+
+  httpd_uri_t stream_uri = {
+    .uri      = "/stream",
+    .method   = HTTP_GET,
     .handler  = stream_handler,
     .user_ctx = NULL
   };
 
-  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
-    httpd_register_uri_handler(stream_httpd, &index_uri);
+  httpd_uri_t start_uri = {
+    .uri      = "/start",
+    .method   = HTTP_GET,
+    .handler  = start_handler,
+    .user_ctx = NULL
+  };
+
+  httpd_uri_t stop_uri = {
+    .uri      = "/stop",
+    .method   = HTTP_GET,
+    .handler  = stop_handler,
+    .user_ctx = NULL
+  };
+
+  httpd_uri_t status_uri = {
+    .uri      = "/status",
+    .method   = HTTP_GET,
+    .handler  = status_handler,
+    .user_ctx = NULL
+  };
+
+  if (httpd_start(&preview_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(preview_httpd, &index_uri);
+    httpd_register_uri_handler(preview_httpd, &stream_uri);
+    httpd_register_uri_handler(preview_httpd, &start_uri);
+    httpd_register_uri_handler(preview_httpd, &stop_uri);
+    httpd_register_uri_handler(preview_httpd, &status_uri);
   }
 }
 
@@ -662,7 +806,7 @@ void startCameraServer() {
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\nBooting Lane Departure Test with Direction-Sensitive Center-Zone Decision...");
+  Serial.println("\nBooting Lane Departure UART Unit...");
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -717,31 +861,34 @@ void setup() {
     s->set_hmirror(s, 0);
   }
 
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(previewSsid, previewPassword);
   WiFi.setSleep(false);
+  startPreviewServer();
 
-  Serial.print("Connecting to Wi-Fi");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWi-Fi connected.");
+  Serial.println("Lane Departure unit started.");
+  Serial.println("Run mode active by default.");
+  Serial.println("Direct UART output to brain active.");
+  Serial.print("Preview AP IP: ");
+  Serial.println(WiFi.softAPIP());
+  Serial.println("Open http://192.168.4.1 after connecting to LanePreview");
 
-  startCameraServer();
-
-  Serial.print("Open ROI live feed at: http://");
-  Serial.println(WiFi.localIP());
-  Serial.println("Direction-sensitive center-zone logic active.");
+  sendLaneStateToBrain("SAFE", true);
 }
 
 // ============================================================
-// Loop - classify ROI only
+// Loop
 // ============================================================
 void loop() {
+  if (calibrationMode) {
+    delay(10);
+    return;
+  }
+
   unsigned long now = millis();
 
   if (now - lastClassifyMs < CLASSIFY_INTERVAL_MS) {
+    sendLaneStateToBrain(currentLaneState);
     delay(5);
     return;
   }
@@ -749,6 +896,7 @@ void loop() {
 
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
+    sendLaneStateToBrain(currentLaneState);
     delay(10);
     return;
   }
@@ -757,14 +905,19 @@ void loop() {
   buildContrastROI(fb->buf, fb->width, roiBuf);
 
   String result = detector.processFrame(roiBuf, ROI_W, ROI_H, now);
+  currentLaneState = result;
 
   esp_camera_fb_return(fb);
 
   if (result.length() > 0) {
+    sendLaneStateToBrain(result);
+
     if (result != lastPrinted || (now - lastPrintMs) >= PRINT_INTERVAL_MS) {
       Serial.println(result);
       lastPrinted = result;
       lastPrintMs = now;
     }
+  } else {
+    sendLaneStateToBrain(currentLaneState);
   }
 }
