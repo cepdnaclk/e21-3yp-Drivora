@@ -22,6 +22,11 @@ const uint32_t FRONT_DEBUG_ID = 0x201;
 const uint32_t REAR_MAIN_ID   = 0x300;
 const uint32_t REAR_DEBUG_ID  = 0x301;
 
+// ================= LANE UART =================
+static const int LANE_RX_PIN = 21;
+static const int LANE_TX_PIN = 22;   // reserved for future use
+String laneRxBuffer = "";
+
 // ================= DATA STRUCTS =================
 struct LeanData {
   bool online = false;
@@ -76,9 +81,16 @@ struct RearData {
   unsigned long lastDebugUpdateMs = 0;
 };
 
+struct LaneData {
+  bool online = false;
+  uint8_t state = 0;              // 0 SAFE, 1 LEFT_DEPARTURE, 2 RIGHT_DEPARTURE
+  unsigned long lastUpdateMs = 0;
+};
+
 LeanData leanData;
 FrontData frontData;
 RearData rearData;
+LaneData laneData;
 
 // ================= TIMING =================
 unsigned long lastBroadcastMs = 0;
@@ -117,12 +129,30 @@ const char* rearStateName(uint8_t state) {
   }
 }
 
+const char* laneStateName(uint8_t state) {
+  switch (state) {
+    case 0: return "SAFE";
+    case 1: return "LEFT_DEPARTURE";
+    case 2: return "RIGHT_DEPARTURE";
+    default: return "SAFE";
+  }
+}
+
 const char* stateColorByLevel(uint8_t level) {
   switch (level) {
     case 0: return "#1db954";
     case 1: return "#ffb020";
     case 2: return "#ff7230";
     case 3: return "#ff3b30";
+    default: return "#1db954";
+  }
+}
+
+const char* laneStateColor(uint8_t state) {
+  switch (state) {
+    case 0: return "#1db954";
+    case 1: return "#ffb020";
+    case 2: return "#ffb020";
     default: return "#1db954";
   }
 }
@@ -165,6 +195,12 @@ float unpackAngleDegX100(int16_t v) {
 
 float unpackUnsignedAngleDegX100(uint16_t v) {
   return v / 100.0f;
+}
+
+String trimLine(const String& s) {
+  String out = s;
+  out.trim();
+  return out;
 }
 
 // ================= CAN / TWAI =================
@@ -320,14 +356,64 @@ void receiveCANFrames(unsigned long nowMs) {
   }
 }
 
+// ================= LANE UART RECEIVE =================
+void applyLaneStateLine(const String& line, unsigned long nowMs) {
+  String msg = trimLine(line);
+
+  Serial.print("RAW LANE LINE: [");
+  Serial.print(msg);
+  Serial.println("]");
+
+  if (msg.length() == 0) return;
+
+  int newState = -1;
+
+  if (msg == "0" || msg.endsWith(":0") || msg == "LDW:SAFE" || msg == "SAFE") {
+    newState = 0;
+  } else if (msg == "1" || msg.endsWith(":1") || msg == "LDW:LEFT" || msg == "LEFT_DEPARTURE") {
+    newState = 1;
+  } else if (msg == "2" || msg.endsWith(":2") || msg == "LDW:RIGHT" || msg == "RIGHT_DEPARTURE") {
+    newState = 2;
+  } else {
+    return;
+  }
+
+  laneData.state = (uint8_t)newState;
+  laneData.online = true;
+  laneData.lastUpdateMs = nowMs;
+
+  Serial.print("LANE UART | state=");
+  Serial.println(laneStateName(laneData.state));
+}
+
+void receiveLaneUART(unsigned long nowMs) {
+  while (Serial2.available()) {
+    char c = (char)Serial2.read();
+
+    if (c == '\r') continue;
+
+    if (c == '\n') {
+      applyLaneStateLine(laneRxBuffer, nowMs);
+      laneRxBuffer = "";
+    } else {
+      if (laneRxBuffer.length() < 60) {
+        laneRxBuffer += c;
+      } else {
+        laneRxBuffer = "";
+      }
+    }
+  }
+}
+
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(1500);
+  data.reserve(1800);
 
   bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
   bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
+  bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
 
   data += "{";
 
@@ -374,6 +460,14 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"warningReleaseCounter\":" + String(rearData.warningReleaseCounter) + ",";
   data += "\"fastWarningReleaseCounter\":" + String(rearData.fastWarningReleaseCounter) + ",";
   data += "\"invalidStreak\":" + String(rearData.invalidStreak);
+  data += "},";
+
+  data += "\"lane\":{";
+  data += "\"online\":" + String(laneOffline ? 0 : 1) + ",";
+  data += "\"stale\":" + String(isStale(laneData.lastUpdateMs, nowMs) ? 1 : 0) + ",";
+  data += "\"state\":" + String(laneData.state) + ",";
+  data += "\"stateName\":\"" + String(laneStateName(laneData.state)) + "\",";
+  data += "\"stateColor\":\"" + String(laneStateColor(laneData.state)) + "\"";
   data += "}";
 
   data += "}";
@@ -407,7 +501,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     padding:10px;
   }
   .wrap{
-    max-width:1400px;
+    max-width:1600px;
     margin:0 auto;
   }
   .topTitle{
@@ -593,7 +687,53 @@ const char webpage[] PROGMEM = R"rawliteral(
     box-shadow: 0 0 12px rgba(64, 128, 255, 0.75);
   }
 
-  @media (orientation: landscape) and (max-width: 1100px) {
+  #laneVisual {
+    width: 100%;
+    height: 220px;
+    background: #0b0d12;
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid #232933;
+  }
+
+  #laneRoadCenter {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    width: 70%;
+    height: 100%;
+  }
+
+  .laneMark {
+    position: absolute;
+    top: 8%;
+    width: 8px;
+    height: 84%;
+    border-radius: 999px;
+    background: #9aa3b2;
+    opacity: 0.95;
+    transition: background-color 120ms linear, box-shadow 120ms linear;
+  }
+
+  #laneLeftMark {
+    left: 30%;
+    transform: translateX(-50%) rotate(8deg);
+  }
+
+  #laneRightMark {
+    left: 70%;
+    transform: translateX(-50%) rotate(-8deg);
+  }
+
+  .laneAlert {
+    background: #ffb020 !important;
+    box-shadow: 0 0 18px rgba(255,176,32,0.65);
+  }
+
+  @media (orientation: landscape) and (max-width: 1400px) {
     body{
       padding:8px;
     }
@@ -614,14 +754,12 @@ const char webpage[] PROGMEM = R"rawliteral(
       flex-direction:row;
       align-items:stretch;
       gap:8px;
+      flex-wrap:wrap;
     }
     .panel{
-      flex:1 1 0;
+      flex:1 1 calc(50% - 8px);
       padding:8px;
     }
-    #frontPanel{ order:1; }
-    #leanPanel{ order:2; }
-    #rearPanel{ order:3; }
 
     .panelHead{
       margin-bottom:6px;
@@ -645,6 +783,11 @@ const char webpage[] PROGMEM = R"rawliteral(
       min-height:120px;
     }
     #leanVisual{
+      height:164px;
+      margin-bottom:8px;
+      border-radius:12px;
+    }
+    #laneVisual{
       height:164px;
       margin-bottom:8px;
       border-radius:12px;
@@ -681,17 +824,15 @@ const char webpage[] PROGMEM = R"rawliteral(
     }
   }
 
-  @media (min-width: 1101px) {
+  @media (min-width: 1401px) {
     .cards{
       flex-direction:row;
       align-items:stretch;
+      flex-wrap:wrap;
     }
     .panel{
-      flex:1 1 0;
+      flex:1 1 calc(25% - 10px);
     }
-    #frontPanel{ order:1; }
-    #leanPanel{ order:2; }
-    #rearPanel{ order:3; }
   }
 </style>
 </head>
@@ -752,6 +893,20 @@ const char webpage[] PROGMEM = R"rawliteral(
         <div class="cell full"><div class="label">Distance</div><div id="rearDist" class="value">--</div></div>
       </div>
     </div>
+
+    <div class="panel sensorPanel" id="lanePanel">
+      <div class="panelHead">
+        <div class="panelTitle">Lane Departure Warning</div>
+        <span class="badge" id="laneBadge">Offline</span>
+      </div>
+      <div id="laneVisual">
+        <div id="laneRoadCenter">
+          <div id="laneLeftMark" class="laneMark"></div>
+          <div id="laneRightMark" class="laneMark"></div>
+        </div>
+      </div>
+      <div id="laneStateBox" class="stateBox" style="background:#1db954;">SAFE</div>
+    </div>
   </div>
 </div>
 
@@ -762,6 +917,7 @@ let audioCtx = null;
 let audioEnabled = false;
 let lastFrontBeepMs = 0;
 let lastRearBeepMs = 0;
+let lastLaneBeepMs = 0;
 
 let leanDotCurrentX = 0;
 let leanDotCurrentY = 0;
@@ -912,6 +1068,24 @@ ws.onmessage = (evt) => {
   document.getElementById("rearStateBox").style.backgroundColor = rear.stateColor;
   document.getElementById("rearDist").innerText = fmtCm(rear.filteredDistanceCm);
 
+  // Lane
+  const lane = d.lane;
+  document.getElementById("laneBadge").innerText = statusText(lane);
+  document.getElementById("laneStateBox").innerText = lane.stateName;
+  document.getElementById("laneStateBox").style.backgroundColor = lane.stateColor;
+
+  const leftMark = document.getElementById("laneLeftMark");
+  const rightMark = document.getElementById("laneRightMark");
+
+  leftMark.classList.remove("laneAlert");
+  rightMark.classList.remove("laneAlert");
+
+  if (lane.state === 1) {
+    leftMark.classList.add("laneAlert");
+  } else if (lane.state === 2) {
+    rightMark.classList.add("laneAlert");
+  }
+
   // Brain-generated beeps
   const now = Date.now();
 
@@ -944,6 +1118,13 @@ ws.onmessage = (evt) => {
         lastRearBeepMs = now;
       }
     }
+
+    if (lane.state === 1 || lane.state === 2) {
+      if (now - lastLaneBeepMs > 220) {
+        playBeep(1100, 80, 0.08);
+        lastLaneBeepMs = now;
+      }
+    }
   }
 };
 </script>
@@ -963,6 +1144,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t lengt
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  Serial2.begin(115200, SERIAL_8N1, LANE_RX_PIN, LANE_TX_PIN);
 
   WiFi.mode(WIFI_AP);
   bool apOk = WiFi.softAP(ssid, password);
@@ -993,7 +1176,8 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  receiveCANFrames(nowMs);    // real lean + front + rear from CAN
+  receiveCANFrames(nowMs);
+  receiveLaneUART(nowMs);
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
     lastBroadcastMs = nowMs;
