@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include "driver/twai.h"
+#include "esp_task_wdt.h"
+#include "esp_idf_version.h"
 
 // ================= CAN / TWAI =================
 static const gpio_num_t CAN_TX_PIN = GPIO_NUM_6;
@@ -16,6 +18,9 @@ const unsigned long DEBUG_SEND_MS = 200;
 
 uint8_t frontCanCounter = 0;
 uint8_t frontDebugCounter = 0;
+
+// ================= WATCHDOG =================
+const uint32_t WDT_TIMEOUT_S = 5;
 
 // ================= ULTRASONIC PINS =================
 #define TRIGPIN_1 3
@@ -122,6 +127,25 @@ const char* stateName(FCWState s) {
     case WARNING: return "WARNING";
     default: return "CLEAR";
   }
+}
+
+void initWatchdog() {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = WDT_TIMEOUT_S * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&twdt_config);
+#else
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+  Serial.println("Watchdog started");
+}
+
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
 }
 
 uint16_t encodeDistanceX10(float distCm) {
@@ -304,6 +328,7 @@ float readQualityDistanceCm(int trigPin, int echoPin) {
 
     delay(5);
     yield();
+    feedWatchdog();
   }
 
   if (validCount == 0) return -1.0f;
@@ -571,6 +596,7 @@ void setup() {
   delay(1000);
 
   initCAN();
+  initWatchdog();
 
   lastLoopMs = millis();
   sensor1.lastValidDistanceMs = millis();
@@ -581,6 +607,8 @@ void setup() {
 
 // ================= LOOP =================
 void loop() {
+  feedWatchdog();
+
   unsigned long nowMs = millis();
 
   // -------- Sensor 1 --------
@@ -605,6 +633,7 @@ void loop() {
   updateFCWState(sensor1, rawDistance1, smoothedDistance1, nowMs);
 
   delay(SENSOR_GAP_MS);
+  feedWatchdog();
 
   // -------- Sensor 2 --------
   nowMs = millis();
@@ -690,4 +719,6 @@ void loop() {
   Serial.print(stateName(fusedState));
   Serial.print(" | Loop: ");
   Serial.println(loopMs, 0);
+
+  feedWatchdog();
 }
