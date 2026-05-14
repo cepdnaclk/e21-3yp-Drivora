@@ -21,6 +21,7 @@ const uint32_t FRONT_MAIN_ID  = 0x200;
 const uint32_t FRONT_DEBUG_ID = 0x201;
 const uint32_t REAR_MAIN_ID   = 0x300;
 const uint32_t REAR_DEBUG_ID  = 0x301;
+const uint32_t REAR_DIST_ID   = 0x302;
 
 // ================= LANE UART =================
 static const int LANE_RX_PIN = 21;
@@ -67,16 +68,35 @@ struct FrontData {
 
 struct RearData {
   bool online = false;
-  uint8_t state = 0;              // 0 CLEAR, 1 OBJECT_DETECTED, 2 CAUTION, 3 WARNING
-  float filteredDistanceCm = -1.0f;
-  float rawDistanceCm = -1.0f;
+
+  // Main payload from 0x300
+  uint8_t leftState = 0;
+  uint8_t centerState = 0;
+  uint8_t rightState = 0;
+  uint8_t leftFlags = 0;
+  uint8_t centerFlags = 0;
+  uint8_t rightFlags = 0;
+  uint8_t overallState = 0;
+  uint8_t mainCounter = 0;
+
+  // Distance payload from 0x302
+  float leftFilteredDistanceCm = -1.0f;
+  float centerFilteredDistanceCm = -1.0f;
+  float rightFilteredDistanceCm = -1.0f;
+  uint8_t nearestSensor = 0;      // 0 none, 1 left, 2 center, 3 right
+  uint8_t distCounter = 0;
+
   unsigned long lastUpdateMs = 0;
+  unsigned long lastDistUpdateMs = 0;
 
   // Debug payload from 0x301
-  uint8_t debugFlags = 0;
-  uint8_t warningReleaseCounter = 0;
-  uint8_t fastWarningReleaseCounter = 0;
-  uint8_t invalidStreak = 0;
+  uint8_t leftWarningReleaseCounter = 0;
+  uint8_t centerWarningReleaseCounter = 0;
+  uint8_t rightWarningReleaseCounter = 0;
+  uint8_t leftFastWarningReleaseCounter = 0;
+  uint8_t centerFastWarningReleaseCounter = 0;
+  uint8_t rightFastWarningReleaseCounter = 0;
+  uint8_t maxInvalidStreak = 0;
   uint8_t debugCounter = 0;
   unsigned long lastDebugUpdateMs = 0;
 };
@@ -319,39 +339,75 @@ void receiveCANFrames(unsigned long nowMs) {
       Serial.println(frontData.invalidStreak);
     }
     else if (message.identifier == REAR_MAIN_ID && message.data_length_code >= 8) {
-      rearData.state = message.data[0];
+      rearData.leftState    = message.data[0];
+      rearData.centerState  = message.data[1];
+      rearData.rightState   = message.data[2];
+      rearData.leftFlags    = message.data[3];
+      rearData.centerFlags  = message.data[4];
+      rearData.rightFlags   = message.data[5];
+      rearData.overallState = message.data[6];
+      rearData.mainCounter  = message.data[7];
 
-      uint16_t filtered_x10 = packU16FromBytes(message.data[1], message.data[2]);
-      uint16_t raw_x10      = packU16FromBytes(message.data[3], message.data[4]);
+      rearData.online       = true;
+      rearData.lastUpdateMs = nowMs;
 
-      rearData.filteredDistanceCm = unpackDistanceCm(filtered_x10);
-      rearData.rawDistanceCm      = unpackDistanceCm(raw_x10);
-      rearData.online             = true;
-      rearData.lastUpdateMs       = nowMs;
-
-      Serial.print("CAN Rear Main | state=");
-      Serial.print(rearData.state);
-      Serial.print(" filtered=");
-      Serial.print(rearData.filteredDistanceCm, 1);
-      Serial.print(" raw=");
-      Serial.println(rearData.rawDistanceCm, 1);
+      Serial.print("CAN Rear Main | L=");
+      Serial.print(rearData.leftState);
+      Serial.print(" C=");
+      Serial.print(rearData.centerState);
+      Serial.print(" R=");
+      Serial.print(rearData.rightState);
+      Serial.print(" overall=");
+      Serial.println(rearData.overallState);
     }
     else if (message.identifier == REAR_DEBUG_ID && message.data_length_code >= 8) {
-      rearData.debugFlags                = message.data[0];
-      rearData.warningReleaseCounter     = message.data[1];
-      rearData.fastWarningReleaseCounter = message.data[2];
-      rearData.invalidStreak             = message.data[3];
-      rearData.debugCounter              = message.data[7];
-      rearData.lastDebugUpdateMs         = nowMs;
+      rearData.leftWarningReleaseCounter        = message.data[0];
+      rearData.centerWarningReleaseCounter      = message.data[1];
+      rearData.rightWarningReleaseCounter       = message.data[2];
+      rearData.leftFastWarningReleaseCounter    = message.data[3];
+      rearData.centerFastWarningReleaseCounter  = message.data[4];
+      rearData.rightFastWarningReleaseCounter   = message.data[5];
+      rearData.maxInvalidStreak                 = message.data[6];
+      rearData.debugCounter                     = message.data[7];
+      rearData.lastDebugUpdateMs                = nowMs;
 
-      Serial.print("CAN Rear Debug | flags=0x");
-      Serial.print(rearData.debugFlags, HEX);
-      Serial.print(" release=");
-      Serial.print(rearData.warningReleaseCounter);
-      Serial.print(" fastRelease=");
-      Serial.print(rearData.fastWarningReleaseCounter);
-      Serial.print(" invalid=");
-      Serial.println(rearData.invalidStreak);
+      Serial.print("CAN Rear Debug | rel(L/C/R)=");
+      Serial.print(rearData.leftWarningReleaseCounter);
+      Serial.print("/");
+      Serial.print(rearData.centerWarningReleaseCounter);
+      Serial.print("/");
+      Serial.print(rearData.rightWarningReleaseCounter);
+      Serial.print(" fast(L/C/R)=");
+      Serial.print(rearData.leftFastWarningReleaseCounter);
+      Serial.print("/");
+      Serial.print(rearData.centerFastWarningReleaseCounter);
+      Serial.print("/");
+      Serial.print(rearData.rightFastWarningReleaseCounter);
+      Serial.print(" invalidMax=");
+      Serial.println(rearData.maxInvalidStreak);
+    }
+    else if (message.identifier == REAR_DIST_ID && message.data_length_code >= 8) {
+      uint16_t left_x10   = packU16FromBytes(message.data[0], message.data[1]);
+      uint16_t center_x10 = packU16FromBytes(message.data[2], message.data[3]);
+      uint16_t right_x10  = packU16FromBytes(message.data[4], message.data[5]);
+
+      rearData.leftFilteredDistanceCm   = unpackDistanceCm(left_x10);
+      rearData.centerFilteredDistanceCm = unpackDistanceCm(center_x10);
+      rearData.rightFilteredDistanceCm  = unpackDistanceCm(right_x10);
+      rearData.nearestSensor            = message.data[6];
+      rearData.distCounter              = message.data[7];
+      rearData.lastDistUpdateMs         = nowMs;
+
+      if (!rearData.online) rearData.online = true;
+
+      Serial.print("CAN Rear Dist | L=");
+      Serial.print(rearData.leftFilteredDistanceCm, 1);
+      Serial.print(" C=");
+      Serial.print(rearData.centerFilteredDistanceCm, 1);
+      Serial.print(" R=");
+      Serial.print(rearData.rightFilteredDistanceCm, 1);
+      Serial.print(" nearest=");
+      Serial.println(rearData.nearestSensor);
     }
   }
 }
@@ -408,7 +464,7 @@ void receiveLaneUART(unsigned long nowMs) {
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(1800);
+  data.reserve(2200);
 
   bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
@@ -451,15 +507,32 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"rear\":{";
   data += "\"online\":" + String(rearOffline ? 0 : 1) + ",";
   data += "\"stale\":" + String(isStale(rearData.lastUpdateMs, nowMs) ? 1 : 0) + ",";
-  data += "\"state\":" + String(rearData.state) + ",";
-  data += "\"stateName\":\"" + String(rearStateName(rearData.state)) + "\",";
-  data += "\"stateColor\":\"" + String(stateColorByLevel(rearData.state)) + "\",";
-  data += "\"filteredDistanceCm\":" + String(rearData.filteredDistanceCm, 1) + ",";
-  data += "\"rawDistanceCm\":" + String(rearData.rawDistanceCm, 1) + ",";
-  data += "\"debugFlags\":" + String(rearData.debugFlags) + ",";
-  data += "\"warningReleaseCounter\":" + String(rearData.warningReleaseCounter) + ",";
-  data += "\"fastWarningReleaseCounter\":" + String(rearData.fastWarningReleaseCounter) + ",";
-  data += "\"invalidStreak\":" + String(rearData.invalidStreak);
+  data += "\"leftState\":" + String(rearData.leftState) + ",";
+  data += "\"leftStateName\":\"" + String(rearStateName(rearData.leftState)) + "\",";
+  data += "\"leftStateColor\":\"" + String(stateColorByLevel(rearData.leftState)) + "\",";
+  data += "\"centerState\":" + String(rearData.centerState) + ",";
+  data += "\"centerStateName\":\"" + String(rearStateName(rearData.centerState)) + "\",";
+  data += "\"centerStateColor\":\"" + String(stateColorByLevel(rearData.centerState)) + "\",";
+  data += "\"rightState\":" + String(rearData.rightState) + ",";
+  data += "\"rightStateName\":\"" + String(rearStateName(rearData.rightState)) + "\",";
+  data += "\"rightStateColor\":\"" + String(stateColorByLevel(rearData.rightState)) + "\",";
+  data += "\"overallState\":" + String(rearData.overallState) + ",";
+  data += "\"overallStateName\":\"" + String(rearStateName(rearData.overallState)) + "\",";
+  data += "\"overallStateColor\":\"" + String(stateColorByLevel(rearData.overallState)) + "\",";
+  data += "\"leftFilteredDistanceCm\":" + String(rearData.leftFilteredDistanceCm, 1) + ",";
+  data += "\"centerFilteredDistanceCm\":" + String(rearData.centerFilteredDistanceCm, 1) + ",";
+  data += "\"rightFilteredDistanceCm\":" + String(rearData.rightFilteredDistanceCm, 1) + ",";
+  data += "\"leftFlags\":" + String(rearData.leftFlags) + ",";
+  data += "\"centerFlags\":" + String(rearData.centerFlags) + ",";
+  data += "\"rightFlags\":" + String(rearData.rightFlags) + ",";
+  data += "\"nearestSensor\":" + String(rearData.nearestSensor) + ",";
+  data += "\"leftWarningReleaseCounter\":" + String(rearData.leftWarningReleaseCounter) + ",";
+  data += "\"centerWarningReleaseCounter\":" + String(rearData.centerWarningReleaseCounter) + ",";
+  data += "\"rightWarningReleaseCounter\":" + String(rearData.rightWarningReleaseCounter) + ",";
+  data += "\"leftFastWarningReleaseCounter\":" + String(rearData.leftFastWarningReleaseCounter) + ",";
+  data += "\"centerFastWarningReleaseCounter\":" + String(rearData.centerFastWarningReleaseCounter) + ",";
+  data += "\"rightFastWarningReleaseCounter\":" + String(rearData.rightFastWarningReleaseCounter) + ",";
+  data += "\"maxInvalidStreak\":" + String(rearData.maxInvalidStreak);
   data += "},";
 
   data += "\"lane\":{";
@@ -630,6 +703,26 @@ const char webpage[] PROGMEM = R"rawliteral(
     grid-column:auto;
   }
 
+  #rearPanel .grid{
+    grid-template-columns:1fr 1fr 1fr;
+  }
+
+  .rearMiniState{
+    width:100%;
+    border-radius:10px;
+    min-height:40px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:11px;
+    font-weight:800;
+    color:white;
+    margin-bottom:6px;
+    transition:background-color 120ms linear;
+    padding:4px;
+  }
+
   #leanVisual {
     position: relative;
     width: 100%;
@@ -782,6 +875,12 @@ const char webpage[] PROGMEM = R"rawliteral(
     #rearPanel .stateBox{
       min-height:120px;
     }
+    .rearMiniState{
+      min-height:32px;
+      font-size:10px;
+      margin-bottom:4px;
+      border-radius:8px;
+    }
     #leanVisual{
       height:164px;
       margin-bottom:8px;
@@ -808,6 +907,11 @@ const char webpage[] PROGMEM = R"rawliteral(
     }
     #leanPanel .cell.confidenceCell{
       grid-column:auto;
+    }
+
+    #rearPanel .grid{
+      grid-template-columns:1fr 1fr 1fr;
+      gap:6px;
     }
 
     .cell{
@@ -890,7 +994,21 @@ const char webpage[] PROGMEM = R"rawliteral(
       </div>
       <div id="rearStateBox" class="stateBox" style="background:#1db954;">CLEAR</div>
       <div class="grid">
-        <div class="cell full"><div class="label">Distance</div><div id="rearDist" class="value">--</div></div>
+        <div class="cell">
+          <div class="label">Left</div>
+          <div id="rearLeftStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
+          <div id="rearLeftDist" class="value">--</div>
+        </div>
+        <div class="cell">
+          <div class="label">Center</div>
+          <div id="rearCenterStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
+          <div id="rearCenterDist" class="value">--</div>
+        </div>
+        <div class="cell">
+          <div class="label">Right</div>
+          <div id="rearRightStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
+          <div id="rearRightDist" class="value">--</div>
+        </div>
       </div>
     </div>
 
@@ -1023,6 +1141,13 @@ function statusText(obj){
   return "Online";
 }
 
+function nearestSensorText(v) {
+  if (v === 1) return "Left";
+  if (v === 2) return "Center";
+  if (v === 3) return "Right";
+  return "None";
+}
+
 ws.onmessage = (evt) => {
   const d = JSON.parse(evt.data);
 
@@ -1064,9 +1189,20 @@ ws.onmessage = (evt) => {
   // Rear
   const rear = d.rear;
   document.getElementById("rearBadge").innerText = statusText(rear);
-  document.getElementById("rearStateBox").innerText = rear.stateName;
-  document.getElementById("rearStateBox").style.backgroundColor = rear.stateColor;
-  document.getElementById("rearDist").innerText = fmtCm(rear.filteredDistanceCm);
+  document.getElementById("rearStateBox").innerText = rear.overallStateName;
+  document.getElementById("rearStateBox").style.backgroundColor = rear.overallStateColor;
+
+  document.getElementById("rearLeftStateBox").innerText = rear.leftStateName;
+  document.getElementById("rearLeftStateBox").style.backgroundColor = rear.leftStateColor;
+  document.getElementById("rearLeftDist").innerText = fmtCm(rear.leftFilteredDistanceCm);
+
+  document.getElementById("rearCenterStateBox").innerText = rear.centerStateName;
+  document.getElementById("rearCenterStateBox").style.backgroundColor = rear.centerStateColor;
+  document.getElementById("rearCenterDist").innerText = fmtCm(rear.centerFilteredDistanceCm);
+
+  document.getElementById("rearRightStateBox").innerText = rear.rightStateName;
+  document.getElementById("rearRightStateBox").style.backgroundColor = rear.rightStateColor;
+  document.getElementById("rearRightDist").innerText = fmtCm(rear.rightFilteredDistanceCm);
 
   // Lane
   const lane = d.lane;
@@ -1102,17 +1238,17 @@ ws.onmessage = (evt) => {
       }
     }
 
-    if (rear.state === 1) {
+    if (rear.overallState === 1) {
       if (now - lastRearBeepMs > 900) {
         playBeep(820, 70, 0.06);
         lastRearBeepMs = now;
       }
-    } else if (rear.state === 2) {
+    } else if (rear.overallState === 2) {
       if (now - lastRearBeepMs > 450) {
         playBeep(980, 80, 0.07);
         lastRearBeepMs = now;
       }
-    } else if (rear.state === 3) {
+    } else if (rear.overallState === 3) {
       if (now - lastRearBeepMs > 180) {
         playBeep(1250, 90, 0.09);
         lastRearBeepMs = now;

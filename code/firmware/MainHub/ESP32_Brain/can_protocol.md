@@ -19,6 +19,10 @@ Each sensor node sends:
 - **Main frame** → real-time UI data
 - **Debug frame** → diagnostics / logging / future cloud upload data
 
+In the updated rear unit, an additional frame is used for the 3-sensor rear distance array:
+
+- **Distance frame** → rear left / center / right processed distances
+
 ---
 
 ## 2. CAN ID Map
@@ -34,6 +38,7 @@ Each sensor node sends:
 ### Rear Node
 - `0x300` → Rear main
 - `0x301` → Rear debug
+- `0x302` → Rear distance
 
 ---
 
@@ -159,21 +164,40 @@ Used for:
 
 ## 6. Rear Node Frames
 
+The rear node now uses a **3-sensor ultrasonic array**:
+
+- rear left sensor
+- rear center sensor
+- rear right sensor
+
+The rear logic processes each channel independently and sends them separately over CAN.
+
+Rear state enum:
+
+- `0 = CLEAR`
+- `1 = OBJECT_DETECTED`
+- `2 = CAUTION`
+- `3 = WARNING`
+
+---
+
 ## 6.1 Rear Main Frame (`0x300`)
 Used for:
 - rear UI state
-- color
-- beep
-- distance
+- side-specific color / warning logic
+- left / center / right state awareness
+- overall rear state
 
 ### Payload
 | Byte | Field | Type | Description |
 |---|---|---|---|
-| 0 | state | uint8 | 0=CLEAR, 1=OBJECT_DETECTED, 2=CAUTION, 3=WARNING |
-| 1-2 | filteredDistance_x10 | uint16 | filtered distance in cm ×10 |
-| 3-4 | rawDistance_x10 | uint16 | raw distance in cm ×10, `0xFFFF` if invalid |
-| 5 | flags | uint8 | rear flags |
-| 6 | reserved | uint8 | reserved |
+| 0 | leftState | uint8 | 0=CLEAR, 1=OBJECT_DETECTED, 2=CAUTION, 3=WARNING |
+| 1 | centerState | uint8 | 0=CLEAR, 1=OBJECT_DETECTED, 2=CAUTION, 3=WARNING |
+| 2 | rightState | uint8 | 0=CLEAR, 1=OBJECT_DETECTED, 2=CAUTION, 3=WARNING |
+| 3 | leftFlags | uint8 | rear flags for left sensor |
+| 4 | centerFlags | uint8 | rear flags for center sensor |
+| 5 | rightFlags | uint8 | rear flags for right sensor |
+| 6 | overallState | uint8 | max of left/center/right state |
 | 7 | counter | uint8 | rolling counter |
 
 ### Rear Flags Byte
@@ -199,12 +223,30 @@ Used for:
 ### Payload
 | Byte | Field | Type | Description |
 |---|---|---|---|
-| 0 | warningReleaseCounter | uint8 | warning release counter |
-| 1 | fastWarningReleaseCounter | uint8 | fast release counter |
-| 2 | invalidStreak | uint8 | invalid streak counter |
-| 3 | reserved | uint8 | reserved |
-| 4-5 | lastValidDistance_x10 | uint16 | last valid distance in cm ×10, `0xFFFF` if invalid |
-| 6 | reserved2 | uint8 | reserved |
+| 0 | leftWarningReleaseCounter | uint8 | left warning release counter |
+| 1 | centerWarningReleaseCounter | uint8 | center warning release counter |
+| 2 | rightWarningReleaseCounter | uint8 | right warning release counter |
+| 3 | leftFastWarningReleaseCounter | uint8 | left fast release counter |
+| 4 | centerFastWarningReleaseCounter | uint8 | center fast release counter |
+| 5 | rightFastWarningReleaseCounter | uint8 | right fast release counter |
+| 6 | maxInvalidStreak | uint8 | maximum invalid streak among 3 sensors |
+| 7 | counter | uint8 | rolling counter |
+
+---
+
+## 6.3 Rear Distance Frame (`0x302`)
+Used for:
+- rear left / center / right processed distance display
+- identifying the nearest active rear sensor
+- future rear visualizer logic in brain UI
+
+### Payload
+| Byte | Field | Type | Description |
+|---|---|---|---|
+| 0-1 | leftFilteredDistance_x10 | uint16 | left filtered distance in cm ×10, `0xFFFF` if invalid |
+| 2-3 | centerFilteredDistance_x10 | uint16 | center filtered distance in cm ×10, `0xFFFF` if invalid |
+| 4-5 | rightFilteredDistance_x10 | uint16 | right filtered distance in cm ×10, `0xFFFF` if invalid |
+| 6 | nearestSensor | uint8 | 0=none, 1=left, 2=center, 3=right |
 | 7 | counter | uint8 | rolling counter |
 
 ---
@@ -216,6 +258,7 @@ Send every **50 ms**
 - Lean main
 - Front main
 - Rear main
+- Rear distance
 
 ### Debug Frames
 Send every **200 ms**
@@ -232,6 +275,10 @@ The brain uses the latest received main frame from each node.
 ### Suggested logic
 - **Stale** if no main frame for `300 ms`
 - **Offline** if no main frame for `1000 ms`
+
+For the rear node:
+- `0x300` should be treated as the primary real-time rear status frame
+- `0x302` should normally arrive alongside it for rear distance rendering
 
 ---
 
@@ -256,8 +303,10 @@ Display:
 
 ## Rear UI
 Display:
-- state with color
-- distance
+- left / center / right rear states
+- left / center / right distances
+- overall rear state
+- nearest active sensor / side
 - beep
 - online/offline status
 
@@ -283,3 +332,4 @@ This helps with:
 - Only processed values should be sent, not raw sensor streams.
 - The brain web UI will generate the beeps based on received states.
 - Sensor nodes should remain responsible for local sensing and local decision-making.
+- Rear ultrasonic sensors must be triggered **sequentially**, not simultaneously, to avoid cross-talk between sensors.
