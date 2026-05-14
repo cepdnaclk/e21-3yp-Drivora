@@ -4,6 +4,8 @@
 #include <MPU6050.h>
 #include <math.h>
 #include "driver/twai.h"
+#include "esp_task_wdt.h"
+#include "esp_idf_version.h"
 
 // ================= I2C PINS =================
 static const int I2C_SDA = 8;
@@ -24,6 +26,9 @@ const unsigned long DEBUG_SEND_MS = 200;
 
 uint8_t leanCanCounter = 0;
 uint8_t leanDebugCounter = 0;
+
+// ================= WATCHDOG =================
+const uint32_t WDT_TIMEOUT_S = 5;
 
 // ================= MPU =================
 MPU6050 mpu;
@@ -86,6 +91,25 @@ static inline float clampf(float x, float lo, float hi) {
   if (x < lo) return lo;
   if (x > hi) return hi;
   return x;
+}
+
+void initWatchdog() {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = WDT_TIMEOUT_S * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&twdt_config);
+#else
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+  Serial.println("Watchdog started");
+}
+
+inline void feedWatchdog() {
+  esp_task_wdt_reset();
 }
 
 const char* vehicleTypeName(int v) {
@@ -159,6 +183,7 @@ void calibrate() {
     gz += f;
 
     delay(2);
+    feedWatchdog();
   }
 
   axBias = ax / 1200.0f;
@@ -207,6 +232,7 @@ void calibrate() {
     rollSum  += r;
 
     delay(2);
+    feedWatchdog();
   }
 
   calibPitchRef = pitchSum / 800.0;
@@ -377,6 +403,7 @@ void setup() {
   }
 
   initCAN();
+  initWatchdog();
   computeVehicle();
   calibrate();
 
@@ -388,6 +415,8 @@ void setup() {
 
 // ================= LOOP =================
 void loop() {
+  feedWatchdog();
+
   int16_t axR, ayR, azR, gxR, gyR, gzR;
   mpu.getMotion6(&axR, &ayR, &azR, &gxR, &gyR, &gzR);
 
@@ -508,5 +537,6 @@ void loop() {
   Serial.print(" | Calibrated: ");
   Serial.println(calibrated ? "YES" : "NO");
 
+  feedWatchdog();
   delay(10);
 }
