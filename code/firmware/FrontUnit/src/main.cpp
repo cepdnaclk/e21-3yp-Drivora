@@ -18,8 +18,13 @@ uint8_t frontCanCounter = 0;
 uint8_t frontDebugCounter = 0;
 
 // ================= ULTRASONIC PINS =================
-#define TRIGPIN 3
-#define ECHOPIN 4
+#define TRIGPIN_1 3
+#define ECHOPIN_1 4
+
+#define TRIGPIN_2 5
+#define ECHOPIN_2 2
+
+const unsigned long SENSOR_GAP_MS = 6;
 
 // ================= DISTANCE SETTINGS =================
 const float MIN_VALID_CM = 23.0f;
@@ -51,39 +56,22 @@ const int sampleSize = 2;
 float readings[sampleSize];
 
 // ================= FILTERING =================
-float filteredDistance = -1.0f;
-float prevFilteredDistance = -1.0f;
 const float distanceFilterAlpha = 0.55f;
 
 // ================= SPEED / TREND =================
-float closingSpeedCmS = 0.0f;    // positive = getting closer
-float lastValidDistance = -1.0f;
-unsigned long lastValidDistanceMs = 0;
-
 const float APPROACH_SPEED_CM_S = 8.0f;
 const float WARNING_SPEED_CM_S  = 20.0f;
+const float SPEED_DEADBAND_CM_S = 2.0f;
 
 // ================= STATE MEMORY =================
-int approachCounter = 0;
-int warningCounter = 0;
 const int APPROACH_CONFIRM_COUNT = 1;
 const int WARNING_CONFIRM_COUNT  = 1;
 
-unsigned long blindHoldUntilMs = 0;
-unsigned long lastValidSeenMs = 0;
 const unsigned long BLIND_HOLD_MS   = 1200;
 const unsigned long INVALID_HOLD_MS = 650;
 
-// Blind-zone latch logic
-bool blindZoneLatched = false;
-float blindLatchDistance = -1.0f;
-unsigned long blindLatchSetMs = 0;
-int blindReleaseCounter = 0;
-
 // ================= SENSOR / RECOVERY =================
-int invalidStreak = 0;
 const int INVALID_STREAK_RESET_THRESHOLD = 20;
-unsigned long lastRecoveryMs = 0;
 const unsigned long RECOVERY_COOLDOWN_MS = 1500;
 
 // ================= OUTPUT STATE =================
@@ -94,7 +82,33 @@ enum FCWState {
   WARNING = 3
 };
 
-FCWState currentState = CLEAR;
+struct SensorChannel {
+  float filteredDistance = -1.0f;
+  float prevFilteredDistance = -1.0f;
+
+  float closingSpeedCmS = 0.0f;
+  float lastValidDistance = -1.0f;
+  unsigned long lastValidDistanceMs = 0;
+
+  int approachCounter = 0;
+  int warningCounter = 0;
+
+  unsigned long blindHoldUntilMs = 0;
+  unsigned long lastValidSeenMs = 0;
+
+  bool blindZoneLatched = false;
+  float blindLatchDistance = -1.0f;
+  unsigned long blindLatchSetMs = 0;
+  int blindReleaseCounter = 0;
+
+  int invalidStreak = 0;
+  unsigned long lastRecoveryMs = 0;
+
+  FCWState currentState = CLEAR;
+};
+
+SensorChannel sensor1;
+SensorChannel sensor2;
 
 // ================= TIMING =================
 unsigned long lastLoopMs = 0;
@@ -125,6 +139,15 @@ int16_t encodeSpeedX10(float speedCmS) {
   return (int16_t)v;
 }
 
+float minValid2(float a, float b) {
+  bool va = (a >= 0.0f);
+  bool vb = (b >= 0.0f);
+  if (va && vb) return min(a, b);
+  if (va) return a;
+  if (vb) return b;
+  return -1.0f;
+}
+
 bool initCAN() {
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
   twai_timing_config_t  t_config = TWAI_TIMING_CONFIG_500KBITS();
@@ -146,21 +169,28 @@ bool initCAN() {
   return true;
 }
 
-uint8_t buildFrontDebugFlags(bool suspicious, bool fastBlind) {
+uint8_t buildFrontDebugFlags(
+  const SensorChannel& s1,
+  const SensorChannel& s2,
+  bool suspicious1,
+  bool suspicious2,
+  bool fastBlind1,
+  bool fastBlind2
+) {
   uint8_t flags = 0;
-  if (blindZoneLatched) flags |= (1 << 0);
-  if (suspicious)       flags |= (1 << 1);
-  if (fastBlind)        flags |= (1 << 2);
-  if (filteredDistance < 0.0f) flags |= (1 << 3);
+  if (s1.blindZoneLatched || s2.blindZoneLatched) flags |= (1 << 0);
+  if (suspicious1 || suspicious2)                flags |= (1 << 1);
+  if (fastBlind1 || fastBlind2)                  flags |= (1 << 2);
+  if (s1.filteredDistance < 0.0f && s2.filteredDistance < 0.0f) flags |= (1 << 3);
   return flags;
 }
 
-void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDistance) {
+void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDistance, float fusedSpeed, FCWState fusedState) {
   if (nowMs - lastCanSendMs < CAN_SEND_MS) return;
   lastCanSendMs = nowMs;
 
   uint16_t filtered_x10 = encodeDistanceX10(smoothedDistance);
-  int16_t  speed_x10    = encodeSpeedX10(closingSpeedCmS);
+  int16_t  speed_x10    = encodeSpeedX10(fusedSpeed);
   uint16_t raw_x10      = encodeDistanceX10(rawDistance);
 
   twai_message_t msg = {};
@@ -169,7 +199,7 @@ void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDi
   msg.rtr = 0;
   msg.data_length_code = 8;
 
-  msg.data[0] = (uint8_t)currentState;
+  msg.data[0] = (uint8_t)fusedState;
   msg.data[1] = (uint8_t)(filtered_x10 & 0xFF);
   msg.data[2] = (uint8_t)((filtered_x10 >> 8) & 0xFF);
   msg.data[3] = (uint8_t)(speed_x10 & 0xFF);
@@ -181,21 +211,29 @@ void sendFrontMainFrame(unsigned long nowMs, float rawDistance, float smoothedDi
   esp_err_t err = twai_transmit(&msg, 0);
   if (err == ESP_OK) {
     Serial.print("CAN MAIN TX | state=");
-    Serial.print((int)currentState);
+    Serial.print((int)fusedState);
     Serial.print(" filtered=");
     Serial.print(smoothedDistance, 1);
     Serial.print(" raw=");
     Serial.print(rawDistance, 1);
     Serial.print(" speed=");
-    Serial.println(closingSpeedCmS, 1);
+    Serial.println(fusedSpeed, 1);
   }
 }
 
-void sendFrontDebugFrame(unsigned long nowMs, bool suspicious, bool fastBlind) {
+void sendFrontDebugFrame(
+  unsigned long nowMs,
+  const SensorChannel& s1,
+  const SensorChannel& s2,
+  bool suspicious1,
+  bool suspicious2,
+  bool fastBlind1,
+  bool fastBlind2
+) {
   if (nowMs - lastDebugSendMs < DEBUG_SEND_MS) return;
   lastDebugSendMs = nowMs;
 
-  uint8_t flags = buildFrontDebugFlags(suspicious, fastBlind);
+  uint8_t flags = buildFrontDebugFlags(s1, s2, suspicious1, suspicious2, fastBlind1, fastBlind2);
 
   twai_message_t msg = {};
   msg.identifier = FRONT_DEBUG_ID;
@@ -204,10 +242,10 @@ void sendFrontDebugFrame(unsigned long nowMs, bool suspicious, bool fastBlind) {
   msg.data_length_code = 8;
 
   msg.data[0] = flags;
-  msg.data[1] = (uint8_t)approachCounter;
-  msg.data[2] = (uint8_t)warningCounter;
-  msg.data[3] = (uint8_t)blindReleaseCounter;
-  msg.data[4] = (uint8_t)invalidStreak;
+  msg.data[1] = (uint8_t)max(s1.approachCounter, s2.approachCounter);
+  msg.data[2] = (uint8_t)max(s1.warningCounter, s2.warningCounter);
+  msg.data[3] = (uint8_t)max(s1.blindReleaseCounter, s2.blindReleaseCounter);
+  msg.data[4] = (uint8_t)max(s1.invalidStreak, s2.invalidStreak);
   msg.data[5] = 0;
   msg.data[6] = 0;
   msg.data[7] = frontDebugCounter++;
@@ -217,54 +255,54 @@ void sendFrontDebugFrame(unsigned long nowMs, bool suspicious, bool fastBlind) {
     Serial.print("CAN DEBUG TX | flags=0x");
     Serial.print(flags, HEX);
     Serial.print(" approach=");
-    Serial.print(approachCounter);
+    Serial.print(max(s1.approachCounter, s2.approachCounter));
     Serial.print(" warning=");
-    Serial.print(warningCounter);
+    Serial.print(max(s1.warningCounter, s2.warningCounter));
     Serial.print(" blindRelease=");
-    Serial.print(blindReleaseCounter);
+    Serial.print(max(s1.blindReleaseCounter, s2.blindReleaseCounter));
     Serial.print(" invalid=");
-    Serial.println(invalidStreak);
+    Serial.println(max(s1.invalidStreak, s2.invalidStreak));
   }
 }
 
-void resetSensorState() {
-  filteredDistance = -1.0f;
-  prevFilteredDistance = -1.0f;
-  closingSpeedCmS = 0.0f;
-  lastValidDistance = -1.0f;
-  lastValidDistanceMs = millis();
+void resetSensorState(SensorChannel& s, int trigPin) {
+  s.filteredDistance = -1.0f;
+  s.prevFilteredDistance = -1.0f;
+  s.closingSpeedCmS = 0.0f;
+  s.lastValidDistance = -1.0f;
+  s.lastValidDistanceMs = millis();
 
-  approachCounter = 0;
-  warningCounter = 0;
+  s.approachCounter = 0;
+  s.warningCounter = 0;
 
-  blindZoneLatched = false;
-  blindLatchDistance = -1.0f;
-  blindLatchSetMs = 0;
-  blindReleaseCounter = 0;
-  blindHoldUntilMs = 0;
+  s.blindZoneLatched = false;
+  s.blindLatchDistance = -1.0f;
+  s.blindLatchSetMs = 0;
+  s.blindReleaseCounter = 0;
+  s.blindHoldUntilMs = 0;
 
-  digitalWrite(TRIGPIN, LOW);
+  digitalWrite(trigPin, LOW);
 }
 
 // ================= READ DISTANCE =================
-float readQualityDistanceCm() {
+float readQualityDistanceCm(int trigPin, int echoPin) {
   int validCount = 0;
 
   for (int i = 0; i < sampleSize; i++) {
-    digitalWrite(TRIGPIN, LOW);
+    digitalWrite(trigPin, LOW);
     delayMicroseconds(5);
-    digitalWrite(TRIGPIN, HIGH);
+    digitalWrite(trigPin, HIGH);
     delayMicroseconds(20);
-    digitalWrite(TRIGPIN, LOW);
+    digitalWrite(trigPin, LOW);
 
-    long duration = pulseIn(ECHOPIN, HIGH, 25000);
+    long duration = pulseIn(echoPin, HIGH, 18000);
 
     if (duration > 0) {
       readings[validCount] = duration / 58.2f;
       validCount++;
     }
 
-    delay(15);
+    delay(5);
     yield();
   }
 
@@ -290,80 +328,84 @@ float readQualityDistanceCm() {
 }
 
 // ================= FILTER =================
-float updateFilteredDistance(float rawDistance) {
+float updateFilteredDistance(SensorChannel& s, float rawDistance) {
   if (rawDistance < 0) {
-    filteredDistance = -1.0f;
+    s.filteredDistance = -1.0f;
     return -1.0f;
   }
 
-  if (filteredDistance < 0) {
-    filteredDistance = rawDistance;
+  if (s.filteredDistance < 0) {
+    s.filteredDistance = rawDistance;
   } else {
-    filteredDistance =
+    s.filteredDistance =
       distanceFilterAlpha * rawDistance +
-      (1.0f - distanceFilterAlpha) * filteredDistance;
+      (1.0f - distanceFilterAlpha) * s.filteredDistance;
   }
 
-  return filteredDistance;
+  return s.filteredDistance;
 }
 
 // ================= SPEED ESTIMATION =================
-void updateClosingSpeed(float dist, unsigned long nowMs) {
+void updateClosingSpeed(SensorChannel& s, float dist, unsigned long nowMs) {
   if (dist < 0) {
-    closingSpeedCmS = 0.0f;
+    s.closingSpeedCmS = 0.0f;
     return;
   }
 
-  if (lastValidDistance < 0.0f) {
-    lastValidDistance = dist;
-    lastValidDistanceMs = nowMs;
-    closingSpeedCmS = 0.0f;
+  if (s.lastValidDistance < 0.0f) {
+    s.lastValidDistance = dist;
+    s.lastValidDistanceMs = nowMs;
+    s.closingSpeedCmS = 0.0f;
     return;
   }
 
-  float dt = (nowMs - lastValidDistanceMs) / 1000.0f;
+  float dt = (nowMs - s.lastValidDistanceMs) / 1000.0f;
   if (dt <= 0.0f) {
-    closingSpeedCmS = 0.0f;
+    s.closingSpeedCmS = 0.0f;
     return;
   }
 
-  float rawSpeed = (lastValidDistance - dist) / dt;
-  closingSpeedCmS = 0.65f * closingSpeedCmS + 0.35f * rawSpeed;
+  float rawSpeed = (s.lastValidDistance - dist) / dt;
+  s.closingSpeedCmS = 0.65f * s.closingSpeedCmS + 0.35f * rawSpeed;
 
-  lastValidDistance = dist;
-  lastValidDistanceMs = nowMs;
+  if (fabs(s.closingSpeedCmS) < SPEED_DEADBAND_CM_S) {
+    s.closingSpeedCmS = 0.0f;
+  }
+
+  s.lastValidDistance = dist;
+  s.lastValidDistanceMs = nowMs;
 }
 
-bool isSuspiciousReading(float dist) {
+bool isSuspiciousReading(const SensorChannel& s, float dist) {
   if (dist < 0.0f) return true;
-  if (!blindZoneLatched) return false;
-  if (blindLatchDistance < 0.0f) return false;
+  if (!s.blindZoneLatched) return false;
+  if (s.blindLatchDistance < 0.0f) return false;
 
-  if (fabs(dist - blindLatchDistance) > SUSPICIOUS_JUMP_CM && dist < BLIND_RELEASE_MIN_CM) {
+  if (fabs(dist - s.blindLatchDistance) > SUSPICIOUS_JUMP_CM && dist < BLIND_RELEASE_MIN_CM) {
     return true;
   }
 
-  if (dist <= BLIND_RELEASE_MIN_CM && closingSpeedCmS > -2.0f) {
+  if (dist <= BLIND_RELEASE_MIN_CM && s.closingSpeedCmS > -2.0f) {
     return true;
   }
 
   return false;
 }
 
-void latchBlindZone(unsigned long nowMs, float refDist) {
-  blindZoneLatched = true;
-  blindLatchSetMs = nowMs;
-  blindLatchDistance = refDist;
-  blindReleaseCounter = 0;
-  blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
+void latchBlindZone(SensorChannel& s, unsigned long nowMs, float refDist) {
+  s.blindZoneLatched = true;
+  s.blindLatchSetMs = nowMs;
+  s.blindLatchDistance = refDist;
+  s.blindReleaseCounter = 0;
+  s.blindHoldUntilMs = nowMs + BLIND_HOLD_MS;
 }
 
 // ================= FAST BLIND-ENTRY DETECTOR =================
-bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
-  if (blindZoneLatched) return false;
-  if (lastValidDistance < 0.0f) return false;
+bool shouldFastLatchBlindZone(const SensorChannel& s, float rawDist, float filteredDist) {
+  if (s.blindZoneLatched) return false;
+  if (s.lastValidDistance < 0.0f) return false;
 
-  bool wasClose = (lastValidDistance <= FAST_BLIND_ARM_CM);
+  bool wasClose = (s.lastValidDistance <= FAST_BLIND_ARM_CM);
   if (!wasClose) return false;
 
   bool invalidNow = (filteredDist < 0.0f);
@@ -371,7 +413,7 @@ bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
   bool suspiciousNow = false;
   if (rawDist > 0.0f) {
     bool erraticNearBlind = (rawDist <= BLIND_ENTRY_TRIGGER_CM);
-    bool suddenJumpTowardBlind = ((lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) && (rawDist <= VERY_CLOSE_ZONE_CM);
+    bool suddenJumpTowardBlind = ((s.lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) && (rawDist <= VERY_CLOSE_ZONE_CM);
     suspiciousNow = erraticNearBlind || suddenJumpTowardBlind;
   } else {
     suspiciousNow = true;
@@ -381,207 +423,271 @@ bool shouldFastLatchBlindZone(float rawDist, float filteredDist) {
 }
 
 // ================= SMART FCW LOGIC =================
-void updateFCWState(float rawDist, float dist, unsigned long nowMs) {
-  if (shouldFastLatchBlindZone(rawDist, dist)) {
-    latchBlindZone(nowMs, lastValidDistance);
-    currentState = WARNING;
+void updateFCWState(SensorChannel& s, float rawDist, float dist, unsigned long nowMs) {
+  if (shouldFastLatchBlindZone(s, rawDist, dist)) {
+    latchBlindZone(s, nowMs, s.lastValidDistance);
+    s.currentState = WARNING;
     return;
   }
 
   bool distValid = (dist >= 0.0f);
-  bool suspicious = isSuspiciousReading(dist);
+  bool suspicious = isSuspiciousReading(s, dist);
 
   if (distValid && !suspicious) {
-    lastValidSeenMs = nowMs;
+    s.lastValidSeenMs = nowMs;
 
-    bool approachingNow = (closingSpeedCmS >= APPROACH_SPEED_CM_S);
-    bool warningSpeedNow = (closingSpeedCmS >= WARNING_SPEED_CM_S);
+    bool approachingNow = (s.closingSpeedCmS >= APPROACH_SPEED_CM_S);
+    bool warningSpeedNow = (s.closingSpeedCmS >= WARNING_SPEED_CM_S);
 
     if (approachingNow) {
-      if (approachCounter < APPROACH_CONFIRM_COUNT) approachCounter++;
+      if (s.approachCounter < APPROACH_CONFIRM_COUNT) s.approachCounter++;
     } else {
-      if (approachCounter > 0) approachCounter--;
+      if (s.approachCounter > 0) s.approachCounter--;
     }
 
     if (warningSpeedNow) {
-      if (warningCounter < WARNING_CONFIRM_COUNT) warningCounter++;
+      if (s.warningCounter < WARNING_CONFIRM_COUNT) s.warningCounter++;
     } else {
-      if (warningCounter > 0) warningCounter--;
+      if (s.warningCounter > 0) s.warningCounter--;
     }
 
-    bool confirmedApproaching = (approachCounter >= APPROACH_CONFIRM_COUNT);
-    bool confirmedWarningSpeed = (warningCounter >= WARNING_CONFIRM_COUNT);
+    bool confirmedApproaching = (s.approachCounter >= APPROACH_CONFIRM_COUNT);
+    bool confirmedWarningSpeed = (s.warningCounter >= WARNING_CONFIRM_COUNT);
 
-    if (dist <= BLIND_ENTRY_TRIGGER_CM && closingSpeedCmS > 0.5f) {
-      latchBlindZone(nowMs, dist);
+    if (dist <= BLIND_ENTRY_TRIGGER_CM && s.closingSpeedCmS > 0.5f) {
+      latchBlindZone(s, nowMs, dist);
     }
 
-    if (blindZoneLatched) {
+    if (s.blindZoneLatched) {
       bool distanceRelease = (dist >= BLIND_RELEASE_MIN_CM);
-      bool movingAwayRelease = (closingSpeedCmS <= BLIND_RELEASE_MOVING_AWAY_CM_S &&
+      bool movingAwayRelease = (s.closingSpeedCmS <= BLIND_RELEASE_MOVING_AWAY_CM_S &&
                                 dist >= BLIND_RELEASE_MOVING_AWAY_MIN_CM);
 
       if (distanceRelease || movingAwayRelease) {
-        blindReleaseCounter++;
+        s.blindReleaseCounter++;
       } else {
-        blindReleaseCounter = 0;
+        s.blindReleaseCounter = 0;
       }
 
-      if (blindReleaseCounter >= BLIND_RELEASE_COUNT_REQ) {
-        blindZoneLatched = false;
-        blindReleaseCounter = 0;
-        blindLatchDistance = -1.0f;
+      if (s.blindReleaseCounter >= BLIND_RELEASE_COUNT_REQ) {
+        s.blindZoneLatched = false;
+        s.blindReleaseCounter = 0;
+        s.blindLatchDistance = -1.0f;
       } else {
-        currentState = WARNING;
+        s.currentState = WARNING;
         return;
       }
     }
 
     if (dist <= WARNING_ZONE_CM && confirmedWarningSpeed) {
-      currentState = WARNING;
+      s.currentState = WARNING;
       if (dist <= BLIND_ENTRY_TRIGGER_CM) {
-        latchBlindZone(nowMs, dist);
+        latchBlindZone(s, nowMs, dist);
       }
       return;
     }
 
     if (dist <= VERY_CLOSE_ZONE_CM) {
-      if (confirmedWarningSpeed || closingSpeedCmS >= (WARNING_SPEED_CM_S * 0.7f)) {
-        currentState = WARNING;
+      if (confirmedWarningSpeed || s.closingSpeedCmS >= (WARNING_SPEED_CM_S * 0.7f)) {
+        s.currentState = WARNING;
         if (dist <= BLIND_ENTRY_TRIGGER_CM) {
-          latchBlindZone(nowMs, dist);
+          latchBlindZone(s, nowMs, dist);
         }
         return;
       }
 
       if (confirmedApproaching) {
-        currentState = APPROACHING;
+        s.currentState = APPROACHING;
       } else {
-        currentState = OBJECT_AHEAD;
+        s.currentState = OBJECT_AHEAD;
       }
       return;
     }
 
     if (dist <= OBJECT_ZONE_CM && confirmedApproaching) {
-      currentState = APPROACHING;
+      s.currentState = APPROACHING;
       return;
     }
 
     if (dist <= OBJECT_ZONE_CM) {
-      currentState = OBJECT_AHEAD;
+      s.currentState = OBJECT_AHEAD;
       return;
     }
 
     if (dist >= CLEAR_DISTANCE_CM) {
-      currentState = CLEAR;
+      s.currentState = CLEAR;
     } else {
-      currentState = OBJECT_AHEAD;
+      s.currentState = OBJECT_AHEAD;
     }
 
     return;
   }
 
-  if (!blindZoneLatched && prevFilteredDistance > 0.0f &&
-      prevFilteredDistance <= BLIND_ENTRY_TRIGGER_CM &&
-      closingSpeedCmS > 0.5f) {
-    latchBlindZone(nowMs, prevFilteredDistance);
+  if (!s.blindZoneLatched && s.prevFilteredDistance > 0.0f &&
+      s.prevFilteredDistance <= BLIND_ENTRY_TRIGGER_CM &&
+      s.closingSpeedCmS > 0.5f) {
+    latchBlindZone(s, nowMs, s.prevFilteredDistance);
   }
 
-  if (blindZoneLatched) {
-    currentState = WARNING;
+  if (s.blindZoneLatched) {
+    s.currentState = WARNING;
     return;
   }
 
-  if (nowMs < blindHoldUntilMs) {
-    currentState = WARNING;
+  if (nowMs < s.blindHoldUntilMs) {
+    s.currentState = WARNING;
     return;
   }
 
-  if ((nowMs - lastValidSeenMs) <= INVALID_HOLD_MS) {
-    if (currentState == APPROACHING || currentState == WARNING) {
-      currentState = APPROACHING;
-    } else if (currentState == OBJECT_AHEAD) {
-      currentState = OBJECT_AHEAD;
+  if ((nowMs - s.lastValidSeenMs) <= INVALID_HOLD_MS) {
+    if (s.currentState == APPROACHING || s.currentState == WARNING) {
+      s.currentState = APPROACHING;
+    } else if (s.currentState == OBJECT_AHEAD) {
+      s.currentState = OBJECT_AHEAD;
     } else {
-      currentState = CLEAR;
+      s.currentState = CLEAR;
     }
     return;
   }
 
-  currentState = CLEAR;
-  approachCounter = 0;
-  warningCounter = 0;
-  prevFilteredDistance = -1.0f;
+  s.currentState = CLEAR;
+  s.approachCounter = 0;
+  s.warningCounter = 0;
+  s.prevFilteredDistance = -1.0f;
 }
 
 // ================= SETUP =================
 void setup() {
   Serial.begin(9600);
 
-  pinMode(TRIGPIN, OUTPUT);
-  pinMode(ECHOPIN, INPUT);
+  pinMode(TRIGPIN_1, OUTPUT);
+  pinMode(ECHOPIN_1, INPUT);
 
-  digitalWrite(TRIGPIN, LOW);
+  pinMode(TRIGPIN_2, OUTPUT);
+  pinMode(ECHOPIN_2, INPUT);
+
+  digitalWrite(TRIGPIN_1, LOW);
+  digitalWrite(TRIGPIN_2, LOW);
   delay(1000);
 
   initCAN();
 
   lastLoopMs = millis();
-  lastValidDistanceMs = millis();
+  sensor1.lastValidDistanceMs = millis();
+  sensor2.lastValidDistanceMs = millis();
 
-  Serial.println("JSN-SR04T FCW CAN Node Started");
+  Serial.println("Ultrasonic Array FCW CAN Node Started");
 }
 
 // ================= LOOP =================
 void loop() {
   unsigned long nowMs = millis();
+
+  // -------- Sensor 1 --------
+  float rawDistance1 = readQualityDistanceCm(TRIGPIN_1, ECHOPIN_1);
+  float smoothedDistance1 = updateFilteredDistance(sensor1, rawDistance1);
+
+  if (rawDistance1 < 0) sensor1.invalidStreak++;
+  else sensor1.invalidStreak = 0;
+
+  if (sensor1.invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
+      (nowMs - sensor1.lastRecoveryMs) > RECOVERY_COOLDOWN_MS &&
+      !sensor1.blindZoneLatched &&
+      sensor1.currentState != WARNING) {
+    resetSensorState(sensor1, TRIGPIN_1);
+    sensor1.lastRecoveryMs = nowMs;
+    sensor1.invalidStreak = 0;
+  }
+
+  updateClosingSpeed(sensor1, smoothedDistance1, nowMs);
+  bool suspicious1 = isSuspiciousReading(sensor1, smoothedDistance1);
+  bool fastBlind1 = shouldFastLatchBlindZone(sensor1, rawDistance1, smoothedDistance1);
+  updateFCWState(sensor1, rawDistance1, smoothedDistance1, nowMs);
+
+  delay(SENSOR_GAP_MS);
+
+  // -------- Sensor 2 --------
+  nowMs = millis();
+
+  float rawDistance2 = readQualityDistanceCm(TRIGPIN_2, ECHOPIN_2);
+  float smoothedDistance2 = updateFilteredDistance(sensor2, rawDistance2);
+
+  if (rawDistance2 < 0) sensor2.invalidStreak++;
+  else sensor2.invalidStreak = 0;
+
+  if (sensor2.invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
+      (nowMs - sensor2.lastRecoveryMs) > RECOVERY_COOLDOWN_MS &&
+      !sensor2.blindZoneLatched &&
+      sensor2.currentState != WARNING) {
+    resetSensorState(sensor2, TRIGPIN_2);
+    sensor2.lastRecoveryMs = nowMs;
+    sensor2.invalidStreak = 0;
+  }
+
+  updateClosingSpeed(sensor2, smoothedDistance2, nowMs);
+  bool suspicious2 = isSuspiciousReading(sensor2, smoothedDistance2);
+  bool fastBlind2 = shouldFastLatchBlindZone(sensor2, rawDistance2, smoothedDistance2);
+  updateFCWState(sensor2, rawDistance2, smoothedDistance2, nowMs);
+
+  // -------- Fusion --------
+  bool anyBlindWarning =
+    (sensor1.blindZoneLatched && sensor1.currentState == WARNING) ||
+    (sensor2.blindZoneLatched && sensor2.currentState == WARNING);
+
+  float fusedRawDistance;
+  float fusedFilteredDistance;
+
+  if (anyBlindWarning) {
+    fusedRawDistance = -1.0f;
+    fusedFilteredDistance = -1.0f;
+  } else {
+    fusedRawDistance = minValid2(rawDistance1, rawDistance2);
+    fusedFilteredDistance = minValid2(smoothedDistance1, smoothedDistance2);
+  }
+
+  float fusedSpeed = max(sensor1.closingSpeedCmS, sensor2.closingSpeedCmS);
+  FCWState fusedState = (FCWState)max((int)sensor1.currentState, (int)sensor2.currentState);
+
+  sendFrontMainFrame(nowMs, fusedRawDistance, fusedFilteredDistance, fusedSpeed, fusedState);
+  sendFrontDebugFrame(nowMs, sensor1, sensor2, suspicious1, suspicious2, fastBlind1, fastBlind2);
+
   float loopMs = (float)(nowMs - lastLoopMs);
   lastLoopMs = nowMs;
 
-  float rawDistance = readQualityDistanceCm();
-  float smoothedDistance = updateFilteredDistance(rawDistance);
+  Serial.print("S1 raw=");
+  if (rawDistance1 < 0) Serial.print("Invalid");
+  else Serial.print(rawDistance1, 1);
 
-  if (rawDistance < 0) {
-    invalidStreak++;
-  } else {
-    invalidStreak = 0;
-  }
+  Serial.print(" filt=");
+  if (smoothedDistance1 < 0) Serial.print("Invalid");
+  else Serial.print(smoothedDistance1, 1);
 
-  if (invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
-      (nowMs - lastRecoveryMs) > RECOVERY_COOLDOWN_MS) {
-    resetSensorState();
-    lastRecoveryMs = nowMs;
-    invalidStreak = 0;
-  }
+  Serial.print(" state=");
+  Serial.print(stateName(sensor1.currentState));
 
-  updateClosingSpeed(smoothedDistance, nowMs);
-  bool suspicious = isSuspiciousReading(smoothedDistance);
-  bool fastBlind = shouldFastLatchBlindZone(rawDistance, smoothedDistance);
-  updateFCWState(rawDistance, smoothedDistance, nowMs);
+  Serial.print(" | S2 raw=");
+  if (rawDistance2 < 0) Serial.print("Invalid");
+  else Serial.print(rawDistance2, 1);
 
-  sendFrontMainFrame(nowMs, rawDistance, smoothedDistance);
-  sendFrontDebugFrame(nowMs, suspicious, fastBlind);
+  Serial.print(" filt=");
+  if (smoothedDistance2 < 0) Serial.print("Invalid");
+  else Serial.print(smoothedDistance2, 1);
 
-  Serial.print("Raw: ");
-  if (rawDistance < 0) Serial.print("Invalid");
-  else Serial.print(rawDistance, 1);
+  Serial.print(" state=");
+  Serial.print(stateName(sensor2.currentState));
 
-  Serial.print(" cm | Filtered: ");
-  if (smoothedDistance < 0) Serial.print("Invalid");
-  else Serial.print(smoothedDistance, 1);
+  Serial.print(" | Fused raw=");
+  if (fusedRawDistance < 0) Serial.print("Invalid");
+  else Serial.print(fusedRawDistance, 1);
 
-  Serial.print(" cm | Speed: ");
-  Serial.print(closingSpeedCmS, 1);
-  Serial.print(" cm/s | BlindLatched: ");
-  Serial.print(blindZoneLatched ? "YES" : "NO");
-  Serial.print(" | Suspicious: ");
-  Serial.print(suspicious ? "YES" : "NO");
-  Serial.print(" | FastBlind: ");
-  Serial.print(fastBlind ? "YES" : "NO");
-  Serial.print(" | InvalidStreak: ");
-  Serial.print(invalidStreak);
-  Serial.print(" | State: ");
-  Serial.print(stateName(currentState));
+  Serial.print(" filt=");
+  if (fusedFilteredDistance < 0) Serial.print("Invalid");
+  else Serial.print(fusedFilteredDistance, 1);
+
+  Serial.print(" speed=");
+  Serial.print(fusedSpeed, 1);
+  Serial.print(" state=");
+  Serial.print(stateName(fusedState));
   Serial.print(" | Loop: ");
   Serial.println(loopMs, 0);
 }
