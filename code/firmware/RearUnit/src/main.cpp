@@ -7,19 +7,32 @@ static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 
 const uint32_t REAR_MAIN_ID  = 0x300;
 const uint32_t REAR_DEBUG_ID = 0x301;
+const uint32_t REAR_DIST_ID  = 0x302;
 
-unsigned long lastCanSendMs = 0;
-const unsigned long CAN_SEND_MS = 50;
+unsigned long lastMainSendMs = 0;
+const unsigned long MAIN_SEND_MS = 50;
+
+unsigned long lastDistSendMs = 0;
+const unsigned long DIST_SEND_MS = 50;
 
 unsigned long lastDebugSendMs = 0;
 const unsigned long DEBUG_SEND_MS = 200;
 
-uint8_t rearCanCounter = 0;
+uint8_t rearMainCounter  = 0;
+uint8_t rearDistCounter  = 0;
 uint8_t rearDebugCounter = 0;
 
 // ================= ULTRASONIC PINS =================
-#define TRIGPIN 3
-#define ECHOPIN 4
+#define TRIG_LEFT    5
+#define ECHO_LEFT    0
+
+#define TRIG_CENTER  3
+#define ECHO_CENTER  4
+
+#define TRIG_RIGHT   2
+#define ECHO_RIGHT   1
+
+const unsigned long SENSOR_GAP_MS = 3;
 
 // ================= DISTANCE SETTINGS =================
 const float MIN_VALID_CM = 23.0f;
@@ -54,23 +67,11 @@ const int sampleSize = 2;
 float readings[sampleSize];
 
 // ================= FILTERING =================
-float filteredDistance = -1.0f;
 const float distanceFilterAlpha = 0.55f;
 
 // ================= SENSOR / RECOVERY =================
-int invalidStreak = 0;
 const int INVALID_STREAK_RESET_THRESHOLD = 20;
-unsigned long lastRecoveryMs = 0;
 const unsigned long RECOVERY_COOLDOWN_MS = 1500;
-
-// ================= LATCH MEMORY =================
-bool warningLatched = false;
-int warningReleaseCounter = 0;
-int fastWarningReleaseCounter = 0;
-unsigned long lastValidSeenMs = 0;
-float lastValidDistance = -1.0f;
-unsigned long lastValidDistanceMs = 0;
-float lastLatchedCloseDistance = -1.0f;
 
 // ================= OUTPUT STATE =================
 enum RearState {
@@ -80,9 +81,36 @@ enum RearState {
   WARNING = 3
 };
 
-RearState currentState = CLEAR;
+struct SensorChannel {
+  int trigPin = -1;
+  int echoPin = -1;
 
-// ================= TIMING / EXTRA TEST DATA =================
+  float rawDistance = -1.0f;
+  float filteredDistance = -1.0f;
+
+  int invalidStreak = 0;
+  unsigned long lastRecoveryMs = 0;
+
+  bool warningLatched = false;
+  int warningReleaseCounter = 0;
+  int fastWarningReleaseCounter = 0;
+
+  unsigned long lastValidSeenMs = 0;
+  float lastValidDistance = -1.0f;
+  unsigned long lastValidDistanceMs = 0;
+  float lastLatchedCloseDistance = -1.0f;
+
+  bool suspiciousLatched = false;
+  bool fastWarningTriggered = false;
+
+  RearState currentState = CLEAR;
+};
+
+SensorChannel leftSensor;
+SensorChannel centerSensor;
+SensorChannel rightSensor;
+
+// ================= TIMING =================
 unsigned long lastLoopMs = 0;
 
 // ================= HELPERS =================
@@ -102,6 +130,41 @@ uint16_t encodeDistanceX10(float distCm) {
   if (v < 0) v = 0;
   if (v > 65534) v = 65534;
   return (uint16_t)v;
+}
+
+uint8_t buildRearFlags(const SensorChannel& s) {
+  uint8_t flags = 0;
+  if (s.warningLatched)       flags |= (1 << 0);
+  if (s.suspiciousLatched)    flags |= (1 << 1);
+  if (s.fastWarningTriggered) flags |= (1 << 2);
+  if (s.filteredDistance < 0) flags |= (1 << 3);
+  return flags;
+}
+
+RearState overallRearState() {
+  int m = max((int)leftSensor.currentState, max((int)centerSensor.currentState, (int)rightSensor.currentState));
+  return (RearState)m;
+}
+
+uint8_t nearestSensorIndex() {
+  float dl = leftSensor.filteredDistance;
+  float dc = centerSensor.filteredDistance;
+  float dr = rightSensor.filteredDistance;
+
+  bool vl = (dl >= 0.0f);
+  bool vc = (dc >= 0.0f);
+  bool vr = (dr >= 0.0f);
+
+  if (!vl && !vc && !vr) return 0;
+
+  float best = 1e9f;
+  uint8_t idx = 0;
+
+  if (vl && dl < best) { best = dl; idx = 1; }
+  if (vc && dc < best) { best = dc; idx = 2; }
+  if (vr && dr < best) { best = dr; idx = 3; }
+
+  return idx;
 }
 
 bool initCAN() {
@@ -125,21 +188,9 @@ bool initCAN() {
   return true;
 }
 
-uint8_t buildRearDebugFlags(bool suspiciousLatched, bool fastWarning) {
-  uint8_t flags = 0;
-  if (warningLatched) flags |= (1 << 0);
-  if (suspiciousLatched) flags |= (1 << 1);
-  if (fastWarning) flags |= (1 << 2);
-  if (filteredDistance < 0.0f) flags |= (1 << 3);
-  return flags;
-}
-
-void sendRearMainFrame(unsigned long nowMs, float rawDistance, float smoothedDistance) {
-  if (nowMs - lastCanSendMs < CAN_SEND_MS) return;
-  lastCanSendMs = nowMs;
-
-  uint16_t filtered_x10 = encodeDistanceX10(smoothedDistance);
-  uint16_t raw_x10      = encodeDistanceX10(rawDistance);
+void sendRearMainFrame(unsigned long nowMs) {
+  if (nowMs - lastMainSendMs < MAIN_SEND_MS) return;
+  lastMainSendMs = nowMs;
 
   twai_message_t msg = {};
   msg.identifier = REAR_MAIN_ID;
@@ -147,31 +198,49 @@ void sendRearMainFrame(unsigned long nowMs, float rawDistance, float smoothedDis
   msg.rtr = 0;
   msg.data_length_code = 8;
 
-  msg.data[0] = (uint8_t)currentState;
-  msg.data[1] = (uint8_t)(filtered_x10 & 0xFF);
-  msg.data[2] = (uint8_t)((filtered_x10 >> 8) & 0xFF);
-  msg.data[3] = (uint8_t)(raw_x10 & 0xFF);
-  msg.data[4] = (uint8_t)((raw_x10 >> 8) & 0xFF);
-  msg.data[5] = 0;
-  msg.data[6] = 0;
-  msg.data[7] = rearCanCounter++;
+  msg.data[0] = (uint8_t)leftSensor.currentState;
+  msg.data[1] = (uint8_t)centerSensor.currentState;
+  msg.data[2] = (uint8_t)rightSensor.currentState;
+  msg.data[3] = buildRearFlags(leftSensor);
+  msg.data[4] = buildRearFlags(centerSensor);
+  msg.data[5] = buildRearFlags(rightSensor);
+  msg.data[6] = (uint8_t)overallRearState();
+  msg.data[7] = rearMainCounter++;
 
-  esp_err_t err = twai_transmit(&msg, 0);
-  if (err == ESP_OK) {
-    Serial.print("CAN MAIN TX | state=");
-    Serial.print((int)currentState);
-    Serial.print(" filtered=");
-    Serial.print(smoothedDistance, 1);
-    Serial.print(" raw=");
-    Serial.println(rawDistance, 1);
-  }
+  twai_transmit(&msg, 0);
 }
 
-void sendRearDebugFrame(unsigned long nowMs, bool suspiciousLatched, bool fastWarning) {
+void sendRearDistanceFrame(unsigned long nowMs) {
+  if (nowMs - lastDistSendMs < DIST_SEND_MS) return;
+  lastDistSendMs = nowMs;
+
+  uint16_t left_x10   = encodeDistanceX10(leftSensor.filteredDistance);
+  uint16_t center_x10 = encodeDistanceX10(centerSensor.filteredDistance);
+  uint16_t right_x10  = encodeDistanceX10(rightSensor.filteredDistance);
+
+  twai_message_t msg = {};
+  msg.identifier = REAR_DIST_ID;
+  msg.extd = 0;
+  msg.rtr = 0;
+  msg.data_length_code = 8;
+
+  msg.data[0] = (uint8_t)(left_x10 & 0xFF);
+  msg.data[1] = (uint8_t)((left_x10 >> 8) & 0xFF);
+  msg.data[2] = (uint8_t)(center_x10 & 0xFF);
+  msg.data[3] = (uint8_t)((center_x10 >> 8) & 0xFF);
+  msg.data[4] = (uint8_t)(right_x10 & 0xFF);
+  msg.data[5] = (uint8_t)((right_x10 >> 8) & 0xFF);
+  msg.data[6] = nearestSensorIndex();
+  msg.data[7] = rearDistCounter++;
+
+  twai_transmit(&msg, 0);
+}
+
+void sendRearDebugFrame(unsigned long nowMs) {
   if (nowMs - lastDebugSendMs < DEBUG_SEND_MS) return;
   lastDebugSendMs = nowMs;
 
-  uint8_t flags = buildRearDebugFlags(suspiciousLatched, fastWarning);
+  uint8_t maxInvalid = max(leftSensor.invalidStreak, max(centerSensor.invalidStreak, rightSensor.invalidStreak));
 
   twai_message_t msg = {};
   msg.identifier = REAR_DEBUG_ID;
@@ -179,59 +248,53 @@ void sendRearDebugFrame(unsigned long nowMs, bool suspiciousLatched, bool fastWa
   msg.rtr = 0;
   msg.data_length_code = 8;
 
-  msg.data[0] = flags;
-  msg.data[1] = (uint8_t)warningReleaseCounter;
-  msg.data[2] = (uint8_t)fastWarningReleaseCounter;
-  msg.data[3] = (uint8_t)invalidStreak;
-  msg.data[4] = 0;
-  msg.data[5] = 0;
-  msg.data[6] = 0;
+  msg.data[0] = (uint8_t)leftSensor.warningReleaseCounter;
+  msg.data[1] = (uint8_t)centerSensor.warningReleaseCounter;
+  msg.data[2] = (uint8_t)rightSensor.warningReleaseCounter;
+  msg.data[3] = (uint8_t)leftSensor.fastWarningReleaseCounter;
+  msg.data[4] = (uint8_t)centerSensor.fastWarningReleaseCounter;
+  msg.data[5] = (uint8_t)rightSensor.fastWarningReleaseCounter;
+  msg.data[6] = maxInvalid;
   msg.data[7] = rearDebugCounter++;
 
-  esp_err_t err = twai_transmit(&msg, 0);
-  if (err == ESP_OK) {
-    Serial.print("CAN DEBUG TX | flags=0x");
-    Serial.print(flags, HEX);
-    Serial.print(" release=");
-    Serial.print(warningReleaseCounter);
-    Serial.print(" fastRelease=");
-    Serial.print(fastWarningReleaseCounter);
-    Serial.print(" invalid=");
-    Serial.println(invalidStreak);
-  }
+  twai_transmit(&msg, 0);
 }
 
-void resetSensorState() {
-  filteredDistance = -1.0f;
-  warningLatched = false;
-  warningReleaseCounter = 0;
-  fastWarningReleaseCounter = 0;
-  lastValidSeenMs = millis();
-  lastValidDistance = -1.0f;
-  lastValidDistanceMs = millis();
-  lastLatchedCloseDistance = -1.0f;
-  digitalWrite(TRIGPIN, LOW);
+void resetSensorState(SensorChannel& s) {
+  s.rawDistance = -1.0f;
+  s.filteredDistance = -1.0f;
+  s.invalidStreak = 0;
+  s.warningLatched = false;
+  s.warningReleaseCounter = 0;
+  s.fastWarningReleaseCounter = 0;
+  s.lastValidSeenMs = millis();
+  s.lastValidDistance = -1.0f;
+  s.lastValidDistanceMs = millis();
+  s.lastLatchedCloseDistance = -1.0f;
+  s.suspiciousLatched = false;
+  s.fastWarningTriggered = false;
+  digitalWrite(s.trigPin, LOW);
 }
 
 // ================= READ DISTANCE =================
-float readQualityDistanceCm() {
+float readQualityDistanceCm(int trigPin, int echoPin) {
   int validCount = 0;
 
   for (int i = 0; i < sampleSize; i++) {
-    digitalWrite(TRIGPIN, LOW);
+    digitalWrite(trigPin, LOW);
     delayMicroseconds(5);
-    digitalWrite(TRIGPIN, HIGH);
+    digitalWrite(trigPin, HIGH);
     delayMicroseconds(20);
-    digitalWrite(TRIGPIN, LOW);
+    digitalWrite(trigPin, LOW);
 
-    long duration = pulseIn(ECHOPIN, HIGH, 25000);
+    long duration = pulseIn(echoPin, HIGH, 15000);
 
     if (duration > 0) {
       readings[validCount] = duration / 58.2f;
       validCount++;
     }
 
-    delay(15);
+    delay(3);
     yield();
   }
 
@@ -257,39 +320,39 @@ float readQualityDistanceCm() {
 }
 
 // ================= FILTER =================
-float updateFilteredDistance(float rawDistance) {
+float updateFilteredDistance(SensorChannel& s, float rawDistance) {
   if (rawDistance < 0) {
-    filteredDistance = -1.0f;
+    s.filteredDistance = -1.0f;
     return -1.0f;
   }
 
-  if (filteredDistance < 0) {
-    filteredDistance = rawDistance;
+  if (s.filteredDistance < 0) {
+    s.filteredDistance = rawDistance;
   } else {
-    filteredDistance =
+    s.filteredDistance =
       distanceFilterAlpha * rawDistance +
-      (1.0f - distanceFilterAlpha) * filteredDistance;
+      (1.0f - distanceFilterAlpha) * s.filteredDistance;
   }
 
-  return filteredDistance;
+  return s.filteredDistance;
 }
 
 // ================= VALID DISTANCE MEMORY =================
-void updateLastValidDistance(float dist, unsigned long nowMs) {
+void updateLastValidDistance(SensorChannel& s, float dist, unsigned long nowMs) {
   if (dist < 0.0f) return;
-  lastValidDistance = dist;
-  lastValidDistanceMs = nowMs;
-  lastValidSeenMs = nowMs;
+  s.lastValidDistance = dist;
+  s.lastValidDistanceMs = nowMs;
+  s.lastValidSeenMs = nowMs;
 }
 
 // ================= CORE STABILITY HELPERS =================
-bool isRecentValidMemoryAvailable(unsigned long nowMs) {
-  if (lastValidDistance < 0.0f) return false;
-  return (nowMs - lastValidDistanceMs) <= RECENT_VALID_MEMORY_MS;
+bool isRecentValidMemoryAvailable(const SensorChannel& s, unsigned long nowMs) {
+  if (s.lastValidDistance < 0.0f) return false;
+  return (nowMs - s.lastValidDistanceMs) <= RECENT_VALID_MEMORY_MS;
 }
 
-bool isSuspiciousReadingWhileLatched(float rawDist, float dist, unsigned long nowMs) {
-  if (!warningLatched) return false;
+bool isSuspiciousReadingWhileLatched(const SensorChannel& s, float rawDist, float dist, unsigned long nowMs) {
+  if (!s.warningLatched) return false;
 
   if (dist < 0.0f) return true;
 
@@ -298,13 +361,13 @@ bool isSuspiciousReadingWhileLatched(float rawDist, float dist, unsigned long no
   bool nearBlindArea = (dist <= WARNING_LATCH_RELEASE_CM);
 
   bool jumpFromLatchedClose = false;
-  if (lastLatchedCloseDistance >= 0.0f) {
-    jumpFromLatchedClose = fabs(dist - lastLatchedCloseDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
+  if (s.lastLatchedCloseDistance >= 0.0f) {
+    jumpFromLatchedClose = fabs(dist - s.lastLatchedCloseDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
   }
 
   bool jumpFromRecentValid = false;
-  if (isRecentValidMemoryAvailable(nowMs) && lastValidDistance >= 0.0f) {
-    jumpFromRecentValid = fabs(dist - lastValidDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
+  if (isRecentValidMemoryAvailable(s, nowMs) && s.lastValidDistance >= 0.0f) {
+    jumpFromRecentValid = fabs(dist - s.lastValidDistance) >= RELEASE_SUSPICIOUS_JUMP_CM;
   }
 
   bool rawLooksBlindish = false;
@@ -316,12 +379,12 @@ bool isSuspiciousReadingWhileLatched(float rawDist, float dist, unsigned long no
 }
 
 // ================= FAST WARNING ENTRY DETECTOR =================
-bool shouldFastLatchWarning(float rawDist, float filteredDist, unsigned long nowMs) {
-  if (warningLatched) return false;
-  if (lastValidDistance < 0.0f) return false;
-  if ((nowMs - lastValidDistanceMs) > FAST_WARNING_MEMORY_MS) return false;
+bool shouldFastLatchWarning(const SensorChannel& s, float rawDist, float filteredDist, unsigned long nowMs) {
+  if (s.warningLatched) return false;
+  if (s.lastValidDistance < 0.0f) return false;
+  if ((nowMs - s.lastValidDistanceMs) > FAST_WARNING_MEMORY_MS) return false;
 
-  bool wasClose = (lastValidDistance <= FAST_WARNING_ARM_CM);
+  bool wasClose = (s.lastValidDistance <= FAST_WARNING_ARM_CM);
   if (!wasClose) return false;
 
   bool invalidNow = (filteredDist < 0.0f);
@@ -330,7 +393,7 @@ bool shouldFastLatchWarning(float rawDist, float filteredDist, unsigned long now
   if (rawDist > 0.0f) {
     bool erraticNearBlind = (rawDist <= WARNING_LATCH_ENTRY_CM);
     bool suddenJumpTowardBlind =
-      ((lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) &&
+      ((s.lastValidDistance - rawDist) >= FAST_ENTRY_JUMP_CM) &&
       (rawDist <= CAUTION_CM);
     suspiciousNow = erraticNearBlind || suddenJumpTowardBlind;
   } else {
@@ -341,172 +404,215 @@ bool shouldFastLatchWarning(float rawDist, float filteredDist, unsigned long now
 }
 
 // ================= REAR STATE LOGIC =================
-void updateRearState(float rawDist, float dist, unsigned long nowMs) {
-  if (shouldFastLatchWarning(rawDist, dist, nowMs)) {
-    warningLatched = true;
-    warningReleaseCounter = 0;
-    fastWarningReleaseCounter = 0;
-    lastLatchedCloseDistance = lastValidDistance;
-    currentState = WARNING;
+void updateRearState(SensorChannel& s, float rawDist, float dist, unsigned long nowMs) {
+  s.fastWarningTriggered = shouldFastLatchWarning(s, rawDist, dist, nowMs);
+  s.suspiciousLatched = false;
+
+  if (s.fastWarningTriggered) {
+    s.warningLatched = true;
+    s.warningReleaseCounter = 0;
+    s.fastWarningReleaseCounter = 0;
+    s.lastLatchedCloseDistance = s.lastValidDistance;
+    s.currentState = WARNING;
     return;
   }
 
   if (dist >= 0.0f) {
     if (dist <= WARNING_LATCH_ENTRY_CM) {
-      warningLatched = true;
-      warningReleaseCounter = 0;
-      fastWarningReleaseCounter = 0;
-      lastLatchedCloseDistance = dist;
+      s.warningLatched = true;
+      s.warningReleaseCounter = 0;
+      s.fastWarningReleaseCounter = 0;
+      s.lastLatchedCloseDistance = dist;
     }
 
-    if (warningLatched) {
-      bool suspiciousWhileLatched = isSuspiciousReadingWhileLatched(rawDist, dist, nowMs);
+    if (s.warningLatched) {
+      s.suspiciousLatched = isSuspiciousReadingWhileLatched(s, rawDist, dist, nowMs);
 
-      if (suspiciousWhileLatched) {
-        warningReleaseCounter = 0;
-        fastWarningReleaseCounter = 0;
-        currentState = WARNING;
+      if (s.suspiciousLatched) {
+        s.warningReleaseCounter = 0;
+        s.fastWarningReleaseCounter = 0;
+        s.currentState = WARNING;
         return;
       }
 
       if (dist >= FAST_WARNING_RELEASE_CM) {
-        fastWarningReleaseCounter++;
+        s.fastWarningReleaseCounter++;
       } else {
-        fastWarningReleaseCounter = 0;
+        s.fastWarningReleaseCounter = 0;
       }
 
-      if (fastWarningReleaseCounter >= FAST_WARNING_RELEASE_CONFIRM) {
-        warningLatched = false;
-        warningReleaseCounter = 0;
-        fastWarningReleaseCounter = 0;
-        lastLatchedCloseDistance = -1.0f;
+      if (s.fastWarningReleaseCounter >= FAST_WARNING_RELEASE_CONFIRM) {
+        s.warningLatched = false;
+        s.warningReleaseCounter = 0;
+        s.fastWarningReleaseCounter = 0;
+        s.lastLatchedCloseDistance = -1.0f;
       } else if (dist >= WARNING_LATCH_RELEASE_CM) {
-        warningReleaseCounter++;
+        s.warningReleaseCounter++;
       } else {
-        warningReleaseCounter = 0;
+        s.warningReleaseCounter = 0;
       }
 
-      if (warningLatched && warningReleaseCounter >= WARNING_LATCH_RELEASE_CONFIRM) {
-        warningLatched = false;
-        warningReleaseCounter = 0;
-        fastWarningReleaseCounter = 0;
-        lastLatchedCloseDistance = -1.0f;
-      } else if (warningLatched) {
-        currentState = WARNING;
+      if (s.warningLatched && s.warningReleaseCounter >= WARNING_LATCH_RELEASE_CONFIRM) {
+        s.warningLatched = false;
+        s.warningReleaseCounter = 0;
+        s.fastWarningReleaseCounter = 0;
+        s.lastLatchedCloseDistance = -1.0f;
+      } else if (s.warningLatched) {
+        s.currentState = WARNING;
         return;
       }
     }
 
     if (dist <= WARNING_CM) {
-      currentState = WARNING;
+      s.currentState = WARNING;
     } else if (dist <= CAUTION_CM) {
-      currentState = CAUTION;
-    } else if (currentState == CAUTION && dist <= CAUTION_EXIT_CM) {
-      currentState = CAUTION;
+      s.currentState = CAUTION;
+    } else if (s.currentState == CAUTION && dist <= CAUTION_EXIT_CM) {
+      s.currentState = CAUTION;
     } else if (dist <= OBJECT_DETECTED_CM) {
-      currentState = OBJECT_DETECTED;
-    } else if (currentState == OBJECT_DETECTED && dist <= OBJECT_DETECTED_EXIT_CM) {
-      currentState = OBJECT_DETECTED;
+      s.currentState = OBJECT_DETECTED;
+    } else if (s.currentState == OBJECT_DETECTED && dist <= OBJECT_DETECTED_EXIT_CM) {
+      s.currentState = OBJECT_DETECTED;
     } else {
-      currentState = CLEAR;
+      s.currentState = CLEAR;
     }
 
     return;
   }
 
-  if (warningLatched) {
-    warningReleaseCounter = 0;
-    fastWarningReleaseCounter = 0;
-    currentState = WARNING;
+  if (s.warningLatched) {
+    s.warningReleaseCounter = 0;
+    s.fastWarningReleaseCounter = 0;
+    s.currentState = WARNING;
     return;
   }
 
-  if (isRecentValidMemoryAvailable(nowMs) && lastValidDistance <= WARNING_LATCH_ENTRY_CM) {
-    warningLatched = true;
-    warningReleaseCounter = 0;
-    fastWarningReleaseCounter = 0;
-    lastLatchedCloseDistance = lastValidDistance;
-    currentState = WARNING;
+  if (isRecentValidMemoryAvailable(s, nowMs) && s.lastValidDistance <= WARNING_LATCH_ENTRY_CM) {
+    s.warningLatched = true;
+    s.warningReleaseCounter = 0;
+    s.fastWarningReleaseCounter = 0;
+    s.lastLatchedCloseDistance = s.lastValidDistance;
+    s.currentState = WARNING;
     return;
   }
 
-  currentState = CLEAR;
+  s.currentState = CLEAR;
+}
+
+// ================= SENSOR PROCESSING =================
+void processSensor(SensorChannel& s, unsigned long nowMs) {
+  s.rawDistance = readQualityDistanceCm(s.trigPin, s.echoPin);
+  float smoothedDistance = updateFilteredDistance(s, s.rawDistance);
+
+  if (s.rawDistance < 0) s.invalidStreak++;
+  else s.invalidStreak = 0;
+
+  if (s.invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
+      (nowMs - s.lastRecoveryMs) > RECOVERY_COOLDOWN_MS &&
+      !s.warningLatched &&
+      s.currentState != WARNING) {
+    resetSensorState(s);
+    s.lastRecoveryMs = nowMs;
+    s.invalidStreak = 0;
+  }
+
+  updateRearState(s, s.rawDistance, smoothedDistance, nowMs);
+  updateLastValidDistance(s, smoothedDistance, nowMs);
 }
 
 // ================= SETUP =================
 void setup() {
   Serial.begin(115200);
 
-  pinMode(TRIGPIN, OUTPUT);
-  pinMode(ECHOPIN, INPUT);
+  leftSensor.trigPin = TRIG_LEFT;
+  leftSensor.echoPin = ECHO_LEFT;
 
-  digitalWrite(TRIGPIN, LOW);
+  centerSensor.trigPin = TRIG_CENTER;
+  centerSensor.echoPin = ECHO_CENTER;
+
+  rightSensor.trigPin = TRIG_RIGHT;
+  rightSensor.echoPin = ECHO_RIGHT;
+
+  pinMode(leftSensor.trigPin, OUTPUT);
+  pinMode(leftSensor.echoPin, INPUT);
+
+  pinMode(centerSensor.trigPin, OUTPUT);
+  pinMode(centerSensor.echoPin, INPUT);
+
+  pinMode(rightSensor.trigPin, OUTPUT);
+  pinMode(rightSensor.echoPin, INPUT);
+
+  digitalWrite(leftSensor.trigPin, LOW);
+  digitalWrite(centerSensor.trigPin, LOW);
+  digitalWrite(rightSensor.trigPin, LOW);
+
   delay(1000);
 
   initCAN();
 
   lastLoopMs = millis();
-  lastValidSeenMs = millis();
-  lastValidDistanceMs = millis();
+  leftSensor.lastValidSeenMs = millis();
+  leftSensor.lastValidDistanceMs = millis();
+  centerSensor.lastValidSeenMs = millis();
+  centerSensor.lastValidDistanceMs = millis();
+  rightSensor.lastValidSeenMs = millis();
+  rightSensor.lastValidDistanceMs = millis();
 
-  Serial.println("Blindspot / Rear CAN Node Started");
+  Serial.println("Rear ultrasonic array CAN node started");
 }
 
 // ================= LOOP =================
 void loop() {
   unsigned long nowMs = millis();
+
+  processSensor(leftSensor, nowMs);
+  delay(SENSOR_GAP_MS);
+
+  nowMs = millis();
+  processSensor(centerSensor, nowMs);
+  delay(SENSOR_GAP_MS);
+
+  nowMs = millis();
+  processSensor(rightSensor, nowMs);
+
+  sendRearMainFrame(nowMs);
+  sendRearDistanceFrame(nowMs);
+  sendRearDebugFrame(nowMs);
+
   float loopMs = (float)(nowMs - lastLoopMs);
   lastLoopMs = nowMs;
 
-  float rawDistance = readQualityDistanceCm();
-  float smoothedDistance = updateFilteredDistance(rawDistance);
+  Serial.print("L raw=");
+  if (leftSensor.rawDistance < 0) Serial.print("Invalid");
+  else Serial.print(leftSensor.rawDistance, 1);
+  Serial.print(" filt=");
+  if (leftSensor.filteredDistance < 0) Serial.print("Invalid");
+  else Serial.print(leftSensor.filteredDistance, 1);
+  Serial.print(" state=");
+  Serial.print(stateName(leftSensor.currentState));
 
-  if (rawDistance < 0) {
-    invalidStreak++;
-  } else {
-    invalidStreak = 0;
-  }
+  Serial.print(" | C raw=");
+  if (centerSensor.rawDistance < 0) Serial.print("Invalid");
+  else Serial.print(centerSensor.rawDistance, 1);
+  Serial.print(" filt=");
+  if (centerSensor.filteredDistance < 0) Serial.print("Invalid");
+  else Serial.print(centerSensor.filteredDistance, 1);
+  Serial.print(" state=");
+  Serial.print(stateName(centerSensor.currentState));
 
-  if (invalidStreak >= INVALID_STREAK_RESET_THRESHOLD &&
-      (nowMs - lastRecoveryMs) > RECOVERY_COOLDOWN_MS &&
-      !warningLatched &&
-      currentState != WARNING) {
-    resetSensorState();
-    lastRecoveryMs = nowMs;
-    invalidStreak = 0;
-  }
+  Serial.print(" | R raw=");
+  if (rightSensor.rawDistance < 0) Serial.print("Invalid");
+  else Serial.print(rightSensor.rawDistance, 1);
+  Serial.print(" filt=");
+  if (rightSensor.filteredDistance < 0) Serial.print("Invalid");
+  else Serial.print(rightSensor.filteredDistance, 1);
+  Serial.print(" state=");
+  Serial.print(stateName(rightSensor.currentState));
 
-  bool fastWarning = shouldFastLatchWarning(rawDistance, smoothedDistance, nowMs);
-  bool suspiciousLatched = isSuspiciousReadingWhileLatched(rawDistance, smoothedDistance, nowMs);
-
-  updateRearState(rawDistance, smoothedDistance, nowMs);
-  updateLastValidDistance(smoothedDistance, nowMs);
-
-  sendRearMainFrame(nowMs, rawDistance, smoothedDistance);
-  sendRearDebugFrame(nowMs, suspiciousLatched, fastWarning);
-
-  Serial.print("Raw: ");
-  if (rawDistance < 0) Serial.print("Invalid");
-  else Serial.print(rawDistance, 1);
-
-  Serial.print(" cm | Filtered: ");
-  if (smoothedDistance < 0) Serial.print("Invalid");
-  else Serial.print(smoothedDistance, 1);
-
-  Serial.print(" cm | WarningLatched: ");
-  Serial.print(warningLatched ? "YES" : "NO");
-  Serial.print(" | ReleaseCounter: ");
-  Serial.print(warningReleaseCounter);
-  Serial.print(" | FastReleaseCounter: ");
-  Serial.print(fastWarningReleaseCounter);
-  Serial.print(" | FastWarning: ");
-  Serial.print(fastWarning ? "YES" : "NO");
-  Serial.print(" | SuspiciousLatched: ");
-  Serial.print(suspiciousLatched ? "YES" : "NO");
-  Serial.print(" | InvalidStreak: ");
-  Serial.print(invalidStreak);
-  Serial.print(" | State: ");
-  Serial.print(stateName(currentState));
+  Serial.print(" | overall=");
+  Serial.print(stateName(overallRearState()));
+  Serial.print(" | nearest=");
+  Serial.print((int)nearestSensorIndex());
   Serial.print(" | Loop: ");
   Serial.println(loopMs, 0);
 }
