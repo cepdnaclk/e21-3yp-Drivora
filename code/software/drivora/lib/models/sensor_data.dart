@@ -19,52 +19,81 @@ class SafetyAlert {
 }
 
 class DrivoraSensorData {
-  // Unit A: Front Radar (FCW)
-  final double ttc; 
+  // --- FRONT UNIT (FCW) ---
+  final int frontState;
+  final String frontStateName;
+  final Color frontStateColor;
   final double frontDistance;
-  
-  // Unit B: Rear Hub (Side/Rear)
-  final double blindSpotLeftDist;
-  final double blindSpotRightDist;
-  final double rearClearance;
+  final double closingSpeed;
+  final bool frontOnline;
 
-  // Unit C: COG & Dynamics (Rollover)
-  final double lateralG;
-  final double tiltAngle;
+  // --- LEAN UNIT (COG) ---
+  final int leanRiskLevel;
+  final String leanRiskName;
+  final double roll;
+  final double pitch;
+  final double confidence;
+  final bool leanOnline;
+  final bool leanCalibrated;
+  final double criticalRollDeg;
+  final double criticalPitchDeg;
 
-  // Unit D: Windshield Hub (AI Vision / LDW)
-  final bool ldwActive;
-  final double lanePosition;
-  
-  // System Basics
-  final double speed;
+  // --- REAR UNIT (BSM) ---
+  final int rearState;
+  final String rearStateName;
+  final Color rearStateColor;
+  final double rearDistance;
+  final bool rearOnline;
+
+  // --- LANE UNIT (LDW) ---
+  final int laneState;
+  final String laneStateName;
+  final Color laneStateColor;
+  final bool laneOnline;
+
+  // --- VIRTUAL / DERIVED ---
+  final bool ldwActive; 
+  final double speed; 
   final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
   
-  // Unit Status
-  final bool unitAOnline;
-  final bool unitBOnline;
-  final bool unitCOnline;
-  final bool unitDOnline;
+  // Legacy support for other screens
+  bool get unitAOnline => frontOnline;
+  bool get unitBOnline => rearOnline;
+  bool get unitCOnline => leanOnline;
+  bool get unitDOnline => laneOnline; 
+  double get ttc => (closingSpeed > 0 && frontDistance > 0) ? (frontDistance / closingSpeed) : 10.0;
+  double get tiltAngle => roll;
+  final double lateralG;
+  double get rearClearance => rearDistance;
 
   DrivoraSensorData({
-    this.ttc = 10.0,
-    this.frontDistance = 100.0,
-    this.blindSpotLeftDist = 15.0,
-    this.blindSpotRightDist = 15.0,
-    this.rearClearance = 20.0,
-    this.lateralG = 0.0,
-    this.tiltAngle = 0.0,
+    this.frontState = 0,
+    this.frontStateName = "CLEAR",
+    this.frontStateColor = const Color(0xFF1DB954),
+    this.frontDistance = -1.0,
+    this.closingSpeed = 0.0,
+    this.frontOnline = false,
+    this.leanRiskLevel = 0,
+    this.leanRiskName = "SAFE",
+    this.roll = 0.0,
+    this.pitch = 0.0,
+    this.confidence = 1.0,
+    this.leanOnline = false,
+    this.leanCalibrated = false,
+    this.criticalRollDeg = 30.0,
+    this.criticalPitchDeg = 20.0,
+    this.rearState = 0,
+    this.rearStateName = "CLEAR",
+    this.rearStateColor = const Color(0xFF1DB954),
+    this.rearDistance = -1.0,
+    this.rearOnline = false,
+    this.laneState = 0,
+    this.laneStateName = "SAFE",
+    this.laneStateColor = const Color(0xFF1DB954),
+    this.laneOnline = false,
     this.ldwActive = false,
-    this.lanePosition = 0.0,
     this.speed = 0.0,
     this.brakeActive = false,
-    this.leftSignal = false,
-    this.rightSignal = false,
-    this.unitAOnline = true,
-    this.unitBOnline = true,
-    this.unitCOnline = true,
-    this.unitDOnline = true,
+    this.lateralG = 0.0,
   });
 }

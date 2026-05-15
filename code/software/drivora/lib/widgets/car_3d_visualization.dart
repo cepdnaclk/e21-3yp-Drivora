@@ -5,21 +5,6 @@ import '../theme/app_theme.dart';
 class Car3DVisualization extends StatefulWidget {
   final double speed;
   final double lanePosition;
-<<<<<<< HEAD
-  final double tiltAngle;
-  final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
-
-  const Car3DVisualization({
-    Key? key,
-    this.speed = 0,
-    this.lanePosition = 0,
-    this.tiltAngle = 0,
-    this.brakeActive = false,
-    this.leftSignal = false,
-    this.rightSignal = false,
-=======
   final bool brakeActive;
   final bool leftSignal;
   final bool rightSignal;
@@ -33,7 +18,6 @@ class Car3DVisualization extends StatefulWidget {
     this.leftSignal = false,
     this.rightSignal = false,
     this.tiltAngle = 0,
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   }) : super(key: key);
 
   @override
@@ -42,1013 +26,776 @@ class Car3DVisualization extends StatefulWidget {
 
 class _Car3DVisualizationState extends State<Car3DVisualization>
     with TickerProviderStateMixin {
-<<<<<<< HEAD
-  late AnimationController _scanController;
-  late AnimationController _pulseController;
-  late AnimationController _rotationController;
-=======
   late AnimationController _roadCtrl;
   late AnimationController _pulseCtrl;
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+  late AnimationController _signalCtrl;
+  late AnimationController _ldwCtrl;
+  late AnimationController _cogCtrl;
 
   @override
   void initState() {
     super.initState();
-<<<<<<< HEAD
-    _scanController = AnimationController(
-      duration: const Duration(seconds: 4),
-      vsync: this,
-    )..repeat();
-
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _rotationController = AnimationController(
-      duration: const Duration(seconds: 8),
-      vsync: this,
-=======
     _roadCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 900),
     )..repeat();
     _pulseCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+      duration: const Duration(milliseconds: 1800),
     )..repeat();
-  }
-
-  @override
-  void dispose() {
-<<<<<<< HEAD
-    _scanController.dispose();
-    _pulseController.dispose();
-    _rotationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge(
-        [_scanController, _pulseController, _rotationController],
-      ),
-      builder: (context, child) {
-        return CustomPaint(
-          painter: Car3DPainter(
-            speed: speed,
-            lanePosition: lanePosition,
-            tiltAngle: tiltAngle,
-            brakeActive: brakeActive,
-            leftSignal: leftSignal,
-            rightSignal: rightSignal,
-            scanProgress: _scanController.value,
-            pulseValue: _pulseController.value,
-            rotationValue: _rotationController.value,
-          ),
-          size: Size.infinite,
-        );
-      },
-    );
-  }
-}
-
-class Car3DPainter extends CustomPainter {
-  final double speed;
-  final double lanePosition;
-  final double tiltAngle;
-  final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
-  final double scanProgress;
-  final double pulseValue;
-  final double rotationValue;
-
-  Car3DPainter({
-    required this.speed,
-    required this.lanePosition,
-    required this.tiltAngle,
-    required this.brakeActive,
-    required this.leftSignal,
-    required this.rightSignal,
-    required this.scanProgress,
-    required this.pulseValue,
-    required this.rotationValue,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Draw premium gradient background
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppTheme.accentBlue.withOpacity(0.08),
-            AppTheme.accentGreen.withOpacity(0.04),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
-    );
-
-    final center = Offset(size.width / 2, size.height / 2);
-
-    // Draw advanced safety visualization
-    _drawAdvancedSafetyZone(canvas, size, center);
-
-    // Draw 3D car with depth
-    _drawCar3DAdvanced(canvas, size, center);
-
-    // Draw scan line
-    _drawScanLine(canvas, size);
-
-    // Draw tilt indicator
-    _drawTiltIndicator(canvas, size, center);
-
-    // Draw speed display
-    _drawSpeedDisplay(canvas, size, center);
-
-    // Draw sensor data visualization
-    _drawSensorVisualization(canvas, size, center);
-  }
-
-  void _drawAdvancedSafetyZone(Canvas canvas, Size size, Offset center) {
-    // Forward detection zone with gradient
-    final conePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.center,
-        end: Alignment.bottomCenter,
-        colors: [
-          AppTheme.accentGreen.withOpacity(0.25),
-          AppTheme.accentGreen.withOpacity(0.05),
-        ],
-      ).createShader(Rect.fromLTWH(center.dx - 80, center.dy - 40, 160, 200));
-
-    final conePath = Path()
-      ..moveTo(center.dx, center.dy - 40)
-      ..lineTo(center.dx - 80, size.height - 30)
-      ..lineTo(center.dx + 80, size.height - 30)
-      ..close();
-
-    canvas.drawPath(conePath, conePaint);
-
-    // Animated zone border
-    final coneBorder = Paint()
-      ..color = AppTheme.accentGreen.withOpacity(0.6 + (pulseValue * 0.3))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
-    canvas.drawPath(conePath, coneBorder);
-
-    // Concentric safety rings with pulsing effect
-    final maxRings = 4;
-    for (int i = 0; i < maxRings; i++) {
-      final radius = 50.0 + (i * 50.0) + (pulseValue * 25);
-      final opacity = (1 - (pulseValue * 0.6)) * (0.4 - (i * 0.08)).clamp(0.0, 0.4);
-
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..color = AppTheme.accentBlue.withOpacity(opacity)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5,
-      );
-    }
-  }
-
-  void _drawCar3DAdvanced(Canvas canvas, Size size, Offset center) {
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-
-    // Smooth rotation
-    canvas.rotate(tiltAngle * 0.025 + (rotationValue * 0.1));
-
-    // Shadow effect for depth
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: const Offset(3, 35), width: 95, height: 55),
-        const Radius.circular(14),
-      ),
-      Paint()
-        ..color = Colors.black.withOpacity(0.15)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Main car body with metallic gradient
-    final bodyGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Colors.red[300]!,
-        Colors.red[600]!,
-        Colors.red[800]!,
-      ],
-    );
-
-    final bodyPaint = Paint()
-      ..shader = bodyGradient.createShader(
-        Rect.fromCenter(center: Offset.zero, width: 90, height: 50),
-      );
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: Offset.zero, width: 90, height: 50),
-        const Radius.circular(14),
-      ),
-      bodyPaint,
-    );
-
-    // Windshield with reflection effect
-    final windshieldPaint = Paint()
-      ..color = Colors.blue.withOpacity(0.7)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(
-      Path()
-        ..moveTo(-30, -18)
-        ..lineTo(-22, -38)
-        ..lineTo(22, -38)
-        ..lineTo(30, -18),
-      windshieldPaint,
-    );
-
-    // Windshield highlight
-    canvas.drawPath(
-      Path()
-        ..moveTo(-25, -35)
-        ..lineTo(-20, -28)
-        ..lineTo(20, -28)
-        ..lineTo(25, -35),
-      Paint()
-        ..color = Colors.white.withOpacity(0.3)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Car hood/top detail
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: const Offset(0, -15),
-          width: 70,
-          height: 25,
-        ),
-        const Radius.circular(10),
-      ),
-      Paint()
-        ..color = Colors.red[700]!
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-
-    // Wheels with better styling
-    _drawWheel3D(canvas, Offset(-28, 28), brakeActive);
-    _drawWheel3D(canvas, Offset(28, 28), brakeActive);
-
-    // Tail lights
-    if (brakeActive) {
-      canvas.drawCircle(Offset(-38, 5), 6, Paint()..color = Colors.red);
-      canvas.drawCircle(Offset(38, 5), 6, Paint()..color = Colors.red);
-      
-      // Glow effect
-      canvas.drawCircle(
-        Offset(-38, 5),
-        9,
-        Paint()
-          ..color = Colors.red.withOpacity(0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      canvas.drawCircle(
-        Offset(38, 5),
-        9,
-        Paint()
-          ..color = Colors.red.withOpacity(0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-    }
-
-    // Headlights
-    canvas.drawCircle(Offset(-25, -22), 5, Paint()..color = Colors.yellow[300]!);
-    canvas.drawCircle(Offset(25, -22), 5, Paint()..color = Colors.yellow[300]!);
-
-    // Signal lights with animation
-    if (leftSignal) {
-      canvas.drawCircle(
-        Offset(-45, -10),
-        4,
-        Paint()..color = Colors.amber.withOpacity(0.6 + (pulseValue * 0.4)),
-      );
-    }
-
-    if (rightSignal) {
-      canvas.drawCircle(
-        Offset(45, -10),
-        4,
-        Paint()..color = Colors.amber.withOpacity(0.6 + (pulseValue * 0.4)),
-      );
-    }
-
-    // Sensor positions with glow
-    _drawSensorDot(canvas, Offset(0, -35), AppTheme.accentGreen); // FCW
-    _drawSensorDot(canvas, Offset(-35, 15), AppTheme.accentAmber); // IMU
-    _drawSensorDot(canvas, Offset(35, 15), AppTheme.accentAmber); // Rear sensors
-
-    canvas.restore();
-  }
-
-  void _drawWheel3D(Canvas canvas, Offset position, bool braking) {
-    // Tire with shine
-    canvas.drawCircle(
-      position,
-      10,
-      Paint()..color = Colors.black,
-    );
-
-    // Rim gradient
-    final rimGradient = RadialGradient(
-      colors: [Colors.grey[300]!, Colors.grey[600]!],
-    );
-
-    canvas.drawCircle(
-      position,
-      6,
-      Paint()
-        ..shader = rimGradient.createShader(Rect.fromCircle(center: position, radius: 6)),
-    );
-
-    // Tire shine
-    canvas.drawArc(
-      Rect.fromCircle(center: position, radius: 10),
-      math.pi * 1.5,
-      math.pi * 0.8,
-      false,
-      Paint()
-        ..color = Colors.grey[400]!.withOpacity(0.4)
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke,
-    );
-
-    if (braking) {
-      canvas.drawCircle(
-        position,
-        13,
-        Paint()
-          ..color = Colors.red.withOpacity(0.25)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5,
-      );
-    }
-  }
-
-  void _drawSensorDot(Canvas canvas, Offset position, Color color) {
-    // Main dot
-    canvas.drawCircle(position, 3.5, Paint()..color = color);
-
-    // Glow effect
-    canvas.drawCircle(
-      position,
-      6,
-      Paint()
-        ..color = color.withOpacity(0.4)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-  }
-
-  void _drawScanLine(Canvas canvas, Size size) {
-    final y = size.height * scanProgress;
-
-    // Glow effect
-    canvas.drawLine(
-      Offset(0, y),
-      Offset(size.width, y),
-      Paint()
-        ..color = AppTheme.accentGreen.withOpacity(0.2)
-        ..strokeWidth = 8,
-    );
-
-    // Main line
-    canvas.drawLine(
-      Offset(0, y),
-      Offset(size.width, y),
-      Paint()
-        ..color = AppTheme.accentGreen.withOpacity(0.7)
-        ..strokeWidth = 2.5,
-    );
-  }
-
-  void _drawTiltIndicator(Canvas canvas, Size size, Offset center) {
-    final indicatorY = size.height - 50;
-    final indicatorWidth = 120.0;
-    final indicatorX = (size.width - indicatorWidth) / 2;
-
-    // Background panel
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(indicatorX, indicatorY, indicatorWidth, 40),
-        const Radius.circular(10),
-      ),
-      Paint()
-        ..color = Colors.grey.withOpacity(0.25)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Tilt bar
-    final barWidth = (indicatorWidth - 4) * ((lanePosition + 1) / 2).clamp(0.0, 1.0);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(indicatorX + 2, indicatorY + 2, barWidth, 36),
-        const Radius.circular(8),
-      ),
-      Paint()
-        ..color = AppTheme.accentAmber
-        ..style = PaintingStyle.fill,
-    );
-
-    // Border
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(indicatorX, indicatorY, indicatorWidth, 40),
-        const Radius.circular(10),
-      ),
-      Paint()
-        ..color = AppTheme.accentAmber.withOpacity(0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-  }
-
-  void _drawSpeedDisplay(Canvas canvas, Size size, Offset center) {
-    // Background for speed display
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(center.dx, center.dy + 15),
-          width: 180,
-          height: 80,
-        ),
-        const Radius.circular(15),
-      ),
-      Paint()
-        ..color = Colors.black.withOpacity(0.1)
-        ..style = PaintingStyle.fill,
-    );
-
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: '${speed.toStringAsFixed(0)}',
-        style: const TextStyle(
-          color: Colors.black87,
-          fontSize: 48,
-          fontWeight: FontWeight.w900,
-          fontFamily: 'Courier',
-          letterSpacing: 2,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(
-        size.width / 2 - textPainter.width / 2,
-        center.dy - 10,
-      ),
-    );
-
-    final unitPainter = TextPainter(
-      text: const TextSpan(
-        text: 'KM/H',
-        style: TextStyle(
-          color: Colors.black54,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.5,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    unitPainter.layout();
-    unitPainter.paint(
-      canvas,
-      Offset(
-        size.width / 2 - unitPainter.width / 2,
-        center.dy + 35,
-      ),
-    );
-  }
-
-  void _drawSensorVisualization(Canvas canvas, Size size, Offset center) {
-    // Front distance indicator
-    final frontDist = 50 + (pulseValue * 30);
-    canvas.drawLine(
-      Offset(center.dx - 15, center.dy - 50),
-      Offset(center.dx - 15, center.dy - 50 - frontDist),
-      Paint()
-        ..color = AppTheme.accentGreen.withOpacity(0.5)
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round,
-    );
-
-    canvas.drawLine(
-      Offset(center.dx + 15, center.dy - 50),
-      Offset(center.dx + 15, center.dy - 50 - frontDist),
-      Paint()
-        ..color = AppTheme.accentGreen.withOpacity(0.5)
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(Car3DPainter oldDelegate) {
-    return oldDelegate.speed != speed ||
-        oldDelegate.lanePosition != lanePosition ||
-        oldDelegate.tiltAngle != tiltAngle ||
-        oldDelegate.brakeActive != brakeActive ||
-        oldDelegate.leftSignal != leftSignal ||
-        oldDelegate.rightSignal != rightSignal ||
-        oldDelegate.scanProgress != scanProgress ||
-        oldDelegate.pulseValue != pulseValue ||
-        oldDelegate.rotationValue != rotationValue;
-  }
-}
-import 'package:flutter/material.dart';
-import 'dart:math' as math;
-import '../theme/app_theme.dart';
-
-class Car3DVisualization extends StatefulWidget {
-  final double speed;
-  final double lanePosition;
-  final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
-  final double tiltAngle;
-
-  const Car3DVisualization({
-    Key? key,
-    required this.speed,
-    this.lanePosition = 0,
-    this.brakeActive = false,
-    this.leftSignal = false,
-    this.rightSignal = false,
-    this.tiltAngle = 0,
-  }) : super(key: key);
-
-  @override
-  State<Car3DVisualization> createState() => _Car3DVisualizationState();
-}
-
-class _Car3DVisualizationState extends State<Car3DVisualization>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
+    _signalCtrl = AnimationController(
       vsync: this,
-    )..repeat();
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+    _ldwCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    )..repeat(reverse: true);
+    _cogCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
-=======
     _roadCtrl.dispose();
     _pulseCtrl.dispose();
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+    _signalCtrl.dispose();
+    _ldwCtrl.dispose();
+    _cogCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool isLaneDeparting = widget.lanePosition.abs() > 0.45;
+    final bool isDanger = widget.brakeActive || isLaneDeparting;
+
     return Container(
       width: double.infinity,
-<<<<<<< HEAD
-      height: 400,
+      height: double.infinity,
       decoration: BoxDecoration(
-        color: AppTheme.panel,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppTheme.border),
-        boxShadow: AppTheme.shadowLg,
+        color: const Color(0xFF060910),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         child: Stack(
+          alignment: Alignment.center,
           children: [
-            // Scan line animation
-            const _ScanLine(),
-            
-            // Safety zone rings
-            Center(
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return CustomPaint(
-                    painter: _SafetyEnvelopePainter(
-                      pulse: _pulseController.value,
-                      tilt: widget.tiltAngle,
-                    ),
-                    size: const Size(double.infinity, double.infinity),
-                  );
-                },
+            // ── LAYER 1: Road with perspective lane markings ──
+            AnimatedBuilder(
+              animation: _roadCtrl,
+              builder: (context, _) => CustomPaint(
+                size: Size.infinite,
+                painter: _TopViewRoadPainter(
+                  progress: _roadCtrl.value,
+                  laneOffset: widget.lanePosition,
+                  speed: widget.speed,
+                ),
               ),
             ),
 
-            // Car Model
-            Center(
-              child: Transform(
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, 0.001)
-                  ..rotateX(0.2)
-                  ..rotateY(widget.lanePosition * 0.1)
-                  ..rotateZ(widget.tiltAngle * (math.pi / 180)),
-                alignment: Alignment.center,
-                child: CustomPaint(
-                  size: const Size(200, 300),
-                  painter: _CarArtistPainter(
-                    brakeActive: widget.brakeActive,
-                    leftSignal: widget.leftSignal,
-                    rightSignal: widget.rightSignal,
+            // ── LAYER 2: Lane Departure Warning Overlay ──
+            if (isLaneDeparting)
+              AnimatedBuilder(
+                animation: _ldwCtrl,
+                builder: (context, _) => CustomPaint(
+                  size: Size.infinite,
+                  painter: _LaneDepartureWarningPainter(
+                    laneOffset: widget.lanePosition,
+                    pulse: _ldwCtrl.value,
                   ),
                 ),
               ),
-            ),
 
-            // Central Telemetry HUD
-            Positioned(
-              bottom: 40, left: 0, right: 0,
-              child: Column(
-                children: [
-                  Text('${widget.speed.toInt()}', 
-                    style: const TextStyle(
-                      fontSize: 64, 
-                      fontWeight: FontWeight.w700, 
-                      color: AppTheme.textPrimary, 
-                      fontFamily: 'Orbitron',
-                      letterSpacing: -2,
-                    )),
-                  const Text('VEHICLE SPEED (KM/H)', 
-                    style: TextStyle(
-                      color: AppTheme.textSecondary, 
-                      fontWeight: FontWeight.bold, 
-                      letterSpacing: 3, 
-                      fontSize: 9
-                    )),
-                ],
-              ),
-            ),
-            
-            const Positioned(
-              top: 15, left: 0, right: 0,
-              child: Text('360° SAFETY ENVELOPE', 
-                textAlign: TextAlign.center,
-                style: TextStyle(fontFamily: 'Orbitron', fontSize: 9, letterSpacing: 2, color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-=======
-      height: double.infinity,
-      color: const Color(0xFF02050A),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // 1. Perspective Road Path Simulation (DRAMATIC DEPARTURE)
-          AnimatedBuilder(
-            animation: _roadCtrl,
-            builder: (context, _) => CustomPaint(
-              size: Size.infinite,
-              painter: _PerspectiveRoadPainter(
-                progress: _roadCtrl.value,
-                laneOffset: widget.lanePosition,
-              ),
-            ),
-          ),
-
-          // 2. Safety Aura / Pulse
-          AnimatedBuilder(
-            animation: _pulseCtrl,
-            builder: (context, _) => CustomPaint(
-              size: Size.infinite,
-              painter: _SafetyFieldPainter(
-                pulse: _pulseCtrl.value,
-                isDanger: widget.brakeActive || widget.lanePosition.abs() > 0.6,
-              ),
-            ),
-          ),
-
-          // 3. ENLARGED 3D Car Model (EXTREME COG TILT)
-          Transform(
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..rotateX(0.2)
-              ..rotateZ(widget.tiltAngle * (math.pi / 180) * 1.5), // Even more exaggerated tilt
-            alignment: Alignment.center,
-            child: SizedBox(
-              width: 280, // Larger car
-              height: 420,
-              child: CustomPaint(
-                painter: _AdvancedCarPainter(
-                  brakeActive: widget.brakeActive,
-                  leftSignal: widget.leftSignal,
-                  rightSignal: widget.rightSignal,
+            // ── LAYER 3: Safety Aura Pulse ──
+            AnimatedBuilder(
+              animation: _pulseCtrl,
+              builder: (context, _) => CustomPaint(
+                size: Size.infinite,
+                painter: _SafetyAuraPainter(
+                  pulse: _pulseCtrl.value,
+                  isDanger: isDanger,
+                  laneOffset: widget.lanePosition,
                 ),
               ),
             ),
-          ),
 
-          // 4. Scanning Grid Lines
-          const _TacticalOverlay(),
-        ],
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+            // ── LAYER 4: TOP-VIEW CAR + COG ──
+            AnimatedBuilder(
+              animation: _signalCtrl,
+              builder: (context, signal) {
+                return AnimatedBuilder(
+                  animation: _cogCtrl,
+                  builder: (context, _) => CustomPaint(
+                    size: Size.infinite,
+                    painter: _TopViewCarPainter(
+                      tiltAngle: widget.tiltAngle,
+                      brakeActive: widget.brakeActive,
+                      leftSignal: widget.leftSignal,
+                      rightSignal: widget.rightSignal,
+                      signalBlink: _signalCtrl.value > 0.5,
+                      laneOffset: widget.lanePosition,
+                      speed: widget.speed,
+                      cogPulse: _cogCtrl.value,
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            // ── LAYER 5: LDW Text Banner ──
+            if (isLaneDeparting)
+              AnimatedBuilder(
+                animation: _ldwCtrl,
+                builder: (context, _) => Positioned(
+                  bottom: 20,
+                  child: AnimatedOpacity(
+                    opacity: _ldwCtrl.value,
+                    duration: const Duration(milliseconds: 200),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentAmber.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.accentAmber.withOpacity(0.5),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.warning_amber_rounded, color: Colors.black, size: 13),
+                          SizedBox(width: 6),
+                          Text(
+                            'LANE DEPARTURE',
+                            style: TextStyle(
+                              fontFamily: 'Orbitron',
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── LAYER 6: Speed Readout ──
+            Positioned(
+              top: 14,
+              child: Column(
+                children: [
+                  Text(
+                    widget.speed.toInt().toString(),
+                    style: TextStyle(
+                      fontFamily: 'Orbitron',
+                      fontSize: 40,
+                      fontWeight: FontWeight.w900,
+                      color: widget.speed > 80
+                          ? AppTheme.accentRed
+                          : AppTheme.accentCyan,
+                      shadows: [
+                        Shadow(
+                          color: (widget.speed > 80
+                              ? AppTheme.accentRed
+                              : AppTheme.accentCyan)
+                              .withOpacity(0.65),
+                          blurRadius: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    'KM/H',
+                    style: TextStyle(
+                      fontFamily: 'Orbitron',
+                      fontSize: 7,
+                      letterSpacing: 3.5,
+                      color: AppTheme.textSecondary.withOpacity(0.55),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── LAYER 7: COG Tilt Tag ──
+            Positioned(
+              bottom: 14,
+              left: 14,
+              child: _HudTag(
+                label: 'COG TILT',
+                value: '${widget.tiltAngle.abs().toStringAsFixed(1)}°',
+                color: widget.tiltAngle.abs() > 15
+                    ? AppTheme.accentRed
+                    : AppTheme.accentGreen,
+              ),
+            ),
+
+            // ── LAYER 8: Lane Offset Tag ──
+            Positioned(
+              bottom: 14,
+              right: 14,
+              child: _HudTag(
+                label: 'LANE Δ',
+                value: '${widget.lanePosition.toStringAsFixed(2)}m',
+                color: isLaneDeparting
+                    ? AppTheme.accentAmber
+                    : AppTheme.accentGreen,
+              ),
+            ),
+
+            // ── LAYER 9: Subtle grid overlay ──
+            CustomPaint(
+              size: Size.infinite,
+              painter: _GridOverlayPainter(),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-<<<<<<< HEAD
-class _CarArtistPainter extends CustomPainter {
-=======
-class _PerspectiveRoadPainter extends CustomPainter {
+// ─────────────────────────────────────────────────────────────
+//  TOP-VIEW ROAD PAINTER
+// ─────────────────────────────────────────────────────────────
+class _TopViewRoadPainter extends CustomPainter {
   final double progress;
   final double laneOffset;
-  _PerspectiveRoadPainter({required this.progress, required this.laneOffset});
+  final double speed;
+
+  _TopViewRoadPainter({
+    required this.progress,
+    required this.laneOffset,
+    required this.speed,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    // EXTREME LANE DEPARTURE: Even more dramatic shift
-    final cx = w / 2 - (laneOffset * 280);
+    final cx = w / 2;
 
-    final roadPaint = Paint()
-      ..color = AppTheme.accentBlue.withOpacity(0.03)
-      ..style = PaintingStyle.fill;
+    const laneWidth = 80.0;
+    const totalRoadWidth = laneWidth * 3;
 
-    // Road Body
-    final path = Path()
-      ..moveTo(cx - 50, h * 0.1)
-      ..lineTo(cx + 50, h * 0.1)
-      ..lineTo(cx + 700, h)
-      ..lineTo(cx - 700, h)
-      ..close();
-    canvas.drawPath(path, roadPaint);
+    // Road surface gradient
+    final roadRect = Rect.fromLTWH(cx - totalRoadWidth / 2, 0, totalRoadWidth, h);
+    final roadGrad = const LinearGradient(
+      colors: [Color(0xFF0A1520), Color(0xFF0F1C2E), Color(0xFF0A1520)],
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+    );
+    canvas.drawRect(roadRect, Paint()..shader = roadGrad.createShader(roadRect));
 
-    // Lateral Perspective Lines (Road Edges)
+    // Road edge lines
     final edgePaint = Paint()
-      ..color = AppTheme.accentBlue.withOpacity(0.18)
-      ..strokeWidth = 3;
-    canvas.drawLine(Offset(cx - 50, h * 0.1), Offset(cx - 700, h), edgePaint);
-    canvas.drawLine(Offset(cx + 50, h * 0.1), Offset(cx + 700, h), edgePaint);
+      ..color = Colors.white.withOpacity(0.50)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
 
-    // Moving Lane Markings
+    canvas.drawLine(Offset(cx - totalRoadWidth / 2, 0), Offset(cx - totalRoadWidth / 2, h), edgePaint);
+    canvas.drawLine(Offset(cx + totalRoadWidth / 2, 0), Offset(cx + totalRoadWidth / 2, h), edgePaint);
+
+    // Lane dividers (dashed amber/gold)
     final dashPaint = Paint()
-      ..color = Colors.white.withOpacity(0.3)
-      ..strokeWidth = 10;
+      ..color = const Color(0xFFFFD700).withOpacity(0.40)
+      ..strokeWidth = 1.6
+      ..style = PaintingStyle.stroke;
 
-    const dashCount = 8;
-    for (var i = 0; i < dashCount; i++) {
-      final t = (progress + i) / dashCount;
-      final y = h * 0.1 + (h * 0.9) * t;
-      final scale = 0.1 + (t * 0.9);
-      final dw = 50.0 * scale;
+    final speedFactor = (speed / 60).clamp(0.3, 2.5);
+    const dashLen = 28.0;
+    const gapLen = 20.0;
+    const period = dashLen + gapLen;
 
-      // Center Dash
-      canvas.drawLine(Offset(cx, y), Offset(cx, y + dw), dashPaint);
+    for (final xOff in [-laneWidth, laneWidth]) {
+      final x = cx + xOff;
+      double y = -(progress * period * speedFactor);
+      while (y < h) {
+        canvas.drawLine(Offset(x, y), Offset(x, y + dashLen), dashPaint);
+        y += period;
+      }
+    }
+
+    // Center lane (dashed subtle white)
+    final centerDashPaint = Paint()
+      ..color = Colors.white.withOpacity(0.14)
+      ..strokeWidth = 1.0;
+
+    double cy2 = -(progress * period * speedFactor * 0.8);
+    while (cy2 < h) {
+      canvas.drawLine(Offset(cx, cy2), Offset(cx, cy2 + dashLen * 0.6), centerDashPaint);
+      cy2 += period;
+    }
+
+    // Road shoulder glow
+    final curbPaint = Paint()
+      ..color = AppTheme.accentBlue.withOpacity(0.05)
+      ..strokeWidth = 10
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawLine(Offset(cx - totalRoadWidth / 2 - 5, 0), Offset(cx - totalRoadWidth / 2 - 5, h), curbPaint);
+    canvas.drawLine(Offset(cx + totalRoadWidth / 2 + 5, 0), Offset(cx + totalRoadWidth / 2 + 5, h), curbPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  LANE DEPARTURE WARNING PAINTER
+// ─────────────────────────────────────────────────────────────
+class _LaneDepartureWarningPainter extends CustomPainter {
+  final double laneOffset;
+  final double pulse;
+
+  _LaneDepartureWarningPainter({required this.laneOffset, required this.pulse});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cx = w / 2;
+
+    const laneWidth = 80.0;
+    final isLeft = laneOffset < 0;
+    final edgeX = isLeft ? cx - laneWidth * 1.5 : cx + laneWidth * 1.5;
+
+    // Flashing edge
+    final warnPaint = Paint()
+      ..color = AppTheme.accentAmber.withOpacity(0.28 + pulse * 0.55)
+      ..strokeWidth = 4 + pulse * 4
+      ..style = PaintingStyle.stroke
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 7 + pulse * 5);
+
+    canvas.drawLine(Offset(edgeX, 0), Offset(edgeX, h), warnPaint);
+
+    // Diagonal hatching
+    final hatchPaint = Paint()
+      ..color = AppTheme.accentAmber.withOpacity(0.07 + pulse * 0.09)
+      ..strokeWidth = 1.5;
+
+    final hatchX1 = isLeft ? 0.0 : edgeX;
+    final hatchX2 = isLeft ? edgeX : w;
+
+    for (double y = -w; y < h + w; y += 22) {
+      canvas.drawLine(
+        Offset(hatchX1, y),
+        Offset(hatchX2, y + (hatchX2 - hatchX1)),
+        hatchPaint,
+      );
     }
   }
 
-  @override bool shouldRepaint(covariant CustomPainter old) => true;
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
 }
 
-class _AdvancedCarPainter extends CustomPainter {
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+// ─────────────────────────────────────────────────────────────
+//  SAFETY AURA PAINTER
+// ─────────────────────────────────────────────────────────────
+class _SafetyAuraPainter extends CustomPainter {
+  final double pulse;
+  final bool isDanger;
+  final double laneOffset;
+
+  _SafetyAuraPainter({required this.pulse, required this.isDanger, required this.laneOffset});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height * 0.55);
+    final color = isDanger ? AppTheme.accentRed : AppTheme.accentCyan;
+
+    for (int i = 0; i < 2; i++) {
+      final t = (pulse + i * 0.5) % 1.0;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: center,
+          width: 130 + t * 110,
+          height: 220 + t * 140,
+        ),
+        Paint()
+          ..color = color.withOpacity(0.16 * (1 - t))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  TOP-VIEW CAR PAINTER
+// ─────────────────────────────────────────────────────────────
+class _TopViewCarPainter extends CustomPainter {
+  final double tiltAngle;
   final bool brakeActive;
   final bool leftSignal;
   final bool rightSignal;
+  final bool signalBlink;
+  final double laneOffset;
+  final double speed;
+  final double cogPulse;
 
-<<<<<<< HEAD
-  _CarArtistPainter({required this.brakeActive, required this.leftSignal, required this.rightSignal});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    
-    // Main Chassis
-    final bodyPaint = Paint()
-      ..shader = const RadialGradient(
-        colors: [Color(0xFFFFFFFF), Color(0xFFD0D0D8)],
-      ).createShader(Rect.fromCenter(center: center, width: 94, height: 158));
-    
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 94, height: 158), const Radius.circular(10)),
-      bodyPaint
-    );
-
-    // Cab
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(center.dx - 43, center.dy - 79, 86, 55), const Radius.circular(8)),
-      Paint()..shader = const LinearGradient(colors: [Color(0xFFF0F0F5), Color(0xFFC8C8D0)]).createShader(Rect.fromLTWH(0, 0, 100, 100))
-    );
-
-    // Windshield
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(center.dx - 35, center.dy - 71, 70, 30), const Radius.circular(5)),
-      Paint()..color = const Color(0xFF0A84FF).withOpacity(0.2)
-    );
-
-    // Dynamic Lights
-    if (brakeActive) {
-      final brakeGlow = Paint()..color = AppTheme.accentRed..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
-      canvas.drawRect(Rect.fromLTWH(center.dx - 40, center.dy + 75, 20, 5), brakeGlow);
-      canvas.drawRect(Rect.fromLTWH(center.dx + 20, center.dy + 75, 20, 5), brakeGlow);
-    }
-    
-    // Signals
-    if (leftSignal) {
-      canvas.drawCircle(center.translate(-45, -70), 6, Paint()..color = AppTheme.accentAmber..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
-    }
-    if (rightSignal) {
-      canvas.drawCircle(center.translate(45, -70), 6, Paint()..color = AppTheme.accentAmber..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
-    }
-
-    // Sensor Dots
-    canvas.drawCircle(center.translate(0, -80), 3, Paint()..color = AppTheme.accentGreen); // FCW Unit
-    canvas.drawCircle(center.translate(0, 30), 4, Paint()..color = AppTheme.accentAmber); // IMU Unit
-  }
-
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-class _SafetyEnvelopePainter extends CustomPainter {
-  final double pulse;
-  final double tilt;
-  _SafetyEnvelopePainter({required this.pulse, required this.tilt});
-=======
-  _AdvancedCarPainter({required this.brakeActive, required this.leftSignal, required this.rightSignal});
+  _TopViewCarPainter({
+    required this.tiltAngle,
+    required this.brakeActive,
+    required this.leftSignal,
+    required this.rightSignal,
+    required this.signalBlink,
+    required this.laneOffset,
+    required this.speed,
+    required this.cogPulse,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
+    final w = size.width;
+    final h = size.height;
 
-    // Chassis Base
-    final chassisRect = Rect.fromCenter(center: Offset(cx, cy), width: 120, height: 250);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(chassisRect, const Radius.circular(22)),
-      Paint()..shader = const LinearGradient(
-        colors: [Color(0xFF2C3E50), Color(0xFF000000)],
-        begin: Alignment.topCenter, end: Alignment.bottomCenter
-      ).createShader(chassisRect),
-    );
+    final carCX = w / 2 + (laneOffset * 70.0);
+    final carCY = h * 0.54;
 
-    // Cabin Glass
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(cx - 50, cy - 90, 100, 110), const Radius.circular(16)),
-      Paint()..color = Colors.white.withOpacity(0.08)
-    );
+    canvas.save();
+    canvas.translate(carCX, carCY);
+    canvas.rotate(tiltAngle * (math.pi / 180) * 0.55);
 
-    // Front Windshield
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(cx - 42, cy - 80, 84, 40), const Radius.circular(8)),
-      Paint()..color = const Color(0xFF00B0FF).withOpacity(0.18)
-    );
+    const carW = 68.0;
+    const carH = 140.0;
 
-    // Interactive Lights
-    if (brakeActive) {
-      final brake = Paint()..color = AppTheme.accentRed..maskFilter = const MaskFilter.blur(BlurStyle.normal, 25);
-      canvas.drawRect(Rect.fromLTWH(cx - 55, cy + 110, 35, 10), brake);
-      canvas.drawRect(Rect.fromLTWH(cx + 20, cy + 110, 35, 10), brake);
-    }
-
-    if (DateTime.now().millisecond % 1000 > 500) {
-      final sigColor = AppTheme.accentAmber;
-      if (leftSignal) canvas.drawCircle(Offset(cx - 60, cy - 100), 12, Paint()..color = sigColor..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15));
-      if (rightSignal) canvas.drawCircle(Offset(cx + 60, cy - 100), 12, Paint()..color = sigColor..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15));
-    }
-
-    // Detail: Headlights
-    final head = Paint()..color = Colors.white.withOpacity(0.95)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-    canvas.drawCircle(Offset(cx - 45, cy - 115), 7, head);
-    canvas.drawCircle(Offset(cx + 45, cy - 115), 7, head);
-  }
-  @override bool shouldRepaint(covariant CustomPainter old) => true;
-}
-
-class _SafetyFieldPainter extends CustomPainter {
-  final double pulse;
-  final bool isDanger;
-  _SafetyFieldPainter({required this.pulse, required this.isDanger});
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-<<<<<<< HEAD
-    
-    // Forward Cone
-    final conePath = Path()
-      ..moveTo(center.dx, center.dy - 80)
-      ..lineTo(center.dx - 100, center.dy - 220)
-      ..lineTo(center.dx + 100, center.dy - 220)
-      ..close();
-    
-    canvas.drawPath(conePath, Paint()..shader = LinearGradient(
-      colors: [AppTheme.accentGreen.withOpacity(0.1), Colors.transparent],
-      begin: Alignment.bottomCenter, end: Alignment.topCenter
-    ).createShader(Rect.fromLTWH(0, 0, 500, 500)));
-
-    // Pulsing Rings
-    final ringPaint = Paint()
-      ..color = AppTheme.accentBlue.withOpacity(0.2 * (1 - pulse))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    
-    canvas.drawCircle(center, 120 + pulse * 50, ringPaint);
-    
-    // Tilt Indicator
-    final tiltPaint = Paint()..color = AppTheme.accentAmber.withOpacity(0.5)..strokeWidth = 1;
-    canvas.drawLine(center.translate(-60, 100), center.translate(60, 100), tiltPaint);
-    canvas.drawCircle(center.translate(tilt * 2, 100), 5, Paint()..color = AppTheme.accentAmber);
-  }
-
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-class _ScanLine extends StatefulWidget {
-  const _ScanLine();
-  @override
-  State<_ScanLine> createState() => _ScanLineState();
-}
-
-class _ScanLineState extends State<_ScanLine> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
-  }
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, _) => Positioned(
-        top: 400 * _ctrl.value,
-        left: 0, right: 0,
-        child: Container(
-          height: 1,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.transparent, AppTheme.accentBlue.withOpacity(0.5), Colors.transparent])
-          ),
-        ),
-=======
-    final color = isDanger ? AppTheme.accentRed : AppTheme.accentCyan;
-
-    canvas.drawCircle(
-      center,
-      160 + (pulse * 70),
+    // Shadow
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(0, 8), width: carW + 22, height: carH * 0.55),
       Paint()
-        ..color = color.withOpacity(0.15 * (1 - pulse))
+        ..color = Colors.black.withOpacity(0.50)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24),
+    );
+
+    // Car Body
+    final bodyPath = _buildCarBodyPath(carW, carH);
+    canvas.drawPath(
+      bodyPath,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF1C2B3F), Color(0xFF0A1320), Color(0xFF162030)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(Rect.fromCenter(center: Offset.zero, width: carW, height: carH)),
+    );
+
+    // Body outline glow
+    canvas.drawPath(
+      bodyPath,
+      Paint()
+        ..color = AppTheme.accentBlue.withOpacity(0.40)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0,
+        ..strokeWidth = 1.5
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+
+    // Roof Glass
+    final roofPath = Path()
+      ..addRRect(RRect.fromRectAndCorners(
+        Rect.fromCenter(center: const Offset(0, -10), width: carW * 0.62, height: carH * 0.38),
+        topLeft: const Radius.circular(10),
+        topRight: const Radius.circular(10),
+        bottomLeft: const Radius.circular(6),
+        bottomRight: const Radius.circular(6),
+      ));
+    canvas.drawPath(
+      roofPath,
+      Paint()
+        ..color = const Color(0xFF00B4D8).withOpacity(0.10)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      roofPath,
+      Paint()
+        ..color = AppTheme.accentCyan.withOpacity(0.28)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+
+    // Wheels
+    _drawWheel(canvas, -carW * 0.46, -carH * 0.34);
+    _drawWheel(canvas, carW * 0.46, -carH * 0.34);
+    _drawWheel(canvas, -carW * 0.46, carH * 0.34);
+    _drawWheel(canvas, carW * 0.46, carH * 0.34);
+
+    // Headlights
+    _drawHeadlight(canvas, -carW * 0.35, -carH * 0.47);
+    _drawHeadlight(canvas, carW * 0.35, -carH * 0.47);
+
+    // Brake / Tail lights
+    if (brakeActive) {
+      _drawBrakeLight(canvas, -carW * 0.35, carH * 0.47);
+      _drawBrakeLight(canvas, carW * 0.35, carH * 0.47);
+    } else {
+      _drawTailLight(canvas, -carW * 0.35, carH * 0.47);
+      _drawTailLight(canvas, carW * 0.35, carH * 0.47);
+    }
+
+    // Turn signals
+    if (signalBlink) {
+      if (leftSignal) {
+        _drawSignal(canvas, -carW * 0.46, -carH * 0.44);
+        _drawSignal(canvas, -carW * 0.46, carH * 0.44);
+      }
+      if (rightSignal) {
+        _drawSignal(canvas, carW * 0.46, -carH * 0.44);
+        _drawSignal(canvas, carW * 0.46, carH * 0.44);
+      }
+    }
+
+    // Hood line
+    canvas.drawLine(
+      Offset(-carW * 0.38, -carH * 0.32),
+      Offset(carW * 0.38, -carH * 0.32),
+      Paint()
+        ..color = AppTheme.accentBlue.withOpacity(0.18)
+        ..strokeWidth = 1.2,
+    );
+
+    // Trunk line
+    canvas.drawLine(
+      Offset(-carW * 0.36, carH * 0.32),
+      Offset(carW * 0.36, carH * 0.32),
+      Paint()
+        ..color = AppTheme.accentBlue.withOpacity(0.14)
+        ..strokeWidth = 1.0,
+    );
+
+    // COG Point
+    _drawCOGPoint(canvas, carW, carH);
+
+    canvas.restore();
+
+    // Velocity vector
+    _drawVelocityVector(canvas, carCX, carCY, carH);
+  }
+
+  Path _buildCarBodyPath(double w, double h) {
+    final halfW = w / 2;
+    final halfH = h / 2;
+    return Path()
+      ..moveTo(0, -halfH)
+      ..cubicTo(-halfW * 0.3, -halfH, -halfW, -halfH + 22, -halfW, -halfH + 38)
+      ..lineTo(-halfW, halfH - 22)
+      ..cubicTo(-halfW, halfH, -halfW * 0.5, halfH, 0, halfH)
+      ..cubicTo(halfW * 0.5, halfH, halfW, halfH, halfW, halfH - 22)
+      ..lineTo(halfW, -halfH + 38)
+      ..cubicTo(halfW, -halfH + 22, halfW * 0.3, -halfH, 0, -halfH)
+      ..close();
+  }
+
+  void _drawWheel(Canvas canvas, double x, double y) {
+    const ww = 11.0;
+    const wh = 20.0;
+    final wheelRect = Rect.fromCenter(center: Offset(x, y), width: ww, height: wh);
+    canvas.drawRRect(RRect.fromRectAndRadius(wheelRect, const Radius.circular(3)),
+        Paint()..color = const Color(0xFF080E14));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(wheelRect, const Radius.circular(3)),
+      Paint()
+        ..color = const Color(0xFF243045)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+    canvas.drawCircle(Offset(x, y), 3.5, Paint()..color = const Color(0xFF354A60));
+  }
+
+  void _drawHeadlight(Canvas canvas, double x, double y) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, y), width: 16, height: 5),
+          const Radius.circular(2)),
+      Paint()
+        ..color = Colors.white.withOpacity(0.92)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
     );
   }
-  @override bool shouldRepaint(covariant CustomPainter old) => true;
-}
 
-class _TacticalOverlay extends StatelessWidget {
-  const _TacticalOverlay();
-  @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: CustomPaint(
-        painter: _GridOverlayPainter(),
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+  void _drawBrakeLight(Canvas canvas, double x, double y) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, y), width: 16, height: 5),
+          const Radius.circular(2)),
+      Paint()
+        ..color = AppTheme.accentRed
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+  }
+
+  void _drawTailLight(Canvas canvas, double x, double y) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, y), width: 14, height: 4),
+          const Radius.circular(2)),
+      Paint()..color = const Color(0xFF8B0000).withOpacity(0.65),
+    );
+  }
+
+  void _drawSignal(Canvas canvas, double x, double y) {
+    canvas.drawCircle(
+      Offset(x, y),
+      5,
+      Paint()
+        ..color = AppTheme.accentAmber
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+    );
+  }
+
+  void _drawCOGPoint(Canvas canvas, double carW, double carH) {
+    final cogY = -carH * 0.05 + (tiltAngle * 0.5);
+    final cogX = tiltAngle * 0.4;
+
+    // Crosshair
+    final cogLinePaint = Paint()
+      ..color = AppTheme.accentCyan.withOpacity(0.50)
+      ..strokeWidth = 0.9;
+    canvas.drawLine(Offset(cogX - 18, cogY), Offset(cogX + 18, cogY), cogLinePaint);
+    canvas.drawLine(Offset(cogX, cogY - 18), Offset(cogX, cogY + 18), cogLinePaint);
+
+    // Pulsing ring
+    canvas.drawCircle(
+      Offset(cogX, cogY),
+      8 + cogPulse * 5,
+      Paint()
+        ..color = AppTheme.accentCyan.withOpacity(0.18 * (1 - cogPulse))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // COG dot
+    canvas.drawCircle(
+      Offset(cogX, cogY),
+      5.5,
+      Paint()
+        ..color = AppTheme.accentCyan
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawCircle(Offset(cogX, cogY), 3.5, Paint()..color = Colors.white);
+
+    // Label
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: 'COG',
+        style: TextStyle(
+          fontFamily: 'Orbitron',
+          fontSize: 6.5,
+          color: AppTheme.accentCyan.withOpacity(0.75),
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.5,
+        ),
       ),
-    );
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(canvas, Offset(cogX + 9, cogY - 14));
   }
-}
-<<<<<<< HEAD
-=======
 
+  void _drawVelocityVector(Canvas canvas, double cx, double cy, double carH) {
+    if (speed < 2) return;
+    final arrowLen = (speed / 120.0).clamp(0.0, 1.0) * 50 + 20;
+    final arrowPaint = Paint()
+      ..color = AppTheme.accentGreen.withOpacity(0.65)
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    final tipY = cy - carH * 0.5 - arrowLen;
+    canvas.drawLine(Offset(cx, cy - carH * 0.5), Offset(cx, tipY), arrowPaint);
+
+    final path = Path()
+      ..moveTo(cx, tipY - 8)
+      ..lineTo(cx - 5, tipY + 2)
+      ..lineTo(cx + 5, tipY + 2)
+      ..close();
+    canvas.drawPath(path, Paint()..color = AppTheme.accentGreen.withOpacity(0.65));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GRID OVERLAY
+// ─────────────────────────────────────────────────────────────
 class _GridOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.015)
+      ..color = Colors.white.withOpacity(0.010)
       ..strokeWidth = 0.5;
-    for (double i = 0; i < size.width; i += 40) canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    for (double i = 0; i < size.height; i += 40) canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
+    for (double x = 0; x < size.width; x += 36) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += 36) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
   }
-  @override bool shouldRepaint(_) => false;
+
+  @override
+  bool shouldRepaint(_) => false;
 }
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
+
+// ─────────────────────────────────────────────────────────────
+//  HUD TAG
+// ─────────────────────────────────────────────────────────────
+class _HudTag extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _HudTag({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.60),
+        border: Border.all(color: color.withOpacity(0.40), width: 1),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: color.withOpacity(0.15), blurRadius: 10),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'Orbitron',
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: color,
+              shadows: [Shadow(color: color.withOpacity(0.5), blurRadius: 8)],
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 6.5,
+              color: AppTheme.textSecondary.withOpacity(0.65),
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

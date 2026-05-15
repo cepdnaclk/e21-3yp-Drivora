@@ -77,7 +77,6 @@ linux/flutter/generated_plugin_registrant.cc
 linux/flutter/generated_plugins.cmake
 
 # Web
-lib/generated_plugin_registrant.dart
 
 # Exceptions to above rules.
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages

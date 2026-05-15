@@ -1,9 +1,4 @@
 import 'package:flutter/material.dart';
-<<<<<<< HEAD
-import '../theme/app_theme.dart';
-
-class StatusCard extends StatelessWidget {
-=======
 import 'dart:math' as math;
 import '../theme/app_theme.dart';
 
@@ -11,7 +6,6 @@ import '../theme/app_theme.dart';
 //  STATUS CARD  – glowing metric tile
 // ─────────────────────────────────────────────────────────────────────────────
 class StatusCard extends StatefulWidget {
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   final String title;
   final String value;
   final String unit;
@@ -30,61 +24,6 @@ class StatusCard extends StatefulWidget {
   }) : super(key: key);
 
   @override
-<<<<<<< HEAD
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: backgroundColor ?? DrivoraTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: accentColor?.withOpacity(0.3) ?? DrivoraTheme.dividerColor,
-          width: 1,
-        ),
-        boxShadow: DrivoraTheme.softShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: DrivoraTheme.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Icon(
-                icon,
-                color: accentColor ?? DrivoraTheme.primaryNeon,
-                size: 20,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  color: accentColor ?? DrivoraTheme.primaryNeon,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                unit,
-                style: const TextStyle(
-                  color: DrivoraTheme.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-=======
   State<StatusCard> createState() => _StatusCardState();
 }
 
@@ -209,30 +148,20 @@ class _StatusCardState extends State<StatusCard>
                     colors: [accent, accent.withOpacity(0)],
                   ),
                   borderRadius: BorderRadius.circular(1),
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
                 ),
               ),
             ],
           ),
-<<<<<<< HEAD
-        ],
-      ),
-=======
         );
       },
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
     );
   }
 }
 
-<<<<<<< HEAD
-class CircularProgressCard extends StatelessWidget {
-=======
 // ─────────────────────────────────────────────────────────────────────────────
 //  CIRCULAR PROGRESS CARD  – arc gauge
 // ─────────────────────────────────────────────────────────────────────────────
 class CircularProgressCard extends StatefulWidget {
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   final String title;
   final double value;
   final double maxValue;
@@ -249,67 +178,6 @@ class CircularProgressCard extends StatefulWidget {
   }) : super(key: key);
 
   @override
-<<<<<<< HEAD
-  Widget build(BuildContext context) {
-    final percentage = (value / maxValue).clamp(0.0, 1.0);
-    final color = progressColor ?? DrivoraTheme.primaryNeon;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: DrivoraTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: DrivoraTheme.dividerColor,
-          width: 1,
-        ),
-        boxShadow: DrivoraTheme.softShadow,
-      ),
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 100,
-                height: 100,
-                child: CircularProgressIndicator(
-                  value: percentage,
-                  strokeWidth: 8,
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                  backgroundColor: color.withOpacity(0.2),
-                ),
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${(percentage * 100).toStringAsFixed(0)}%',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '${value.toStringAsFixed(1)}$unit',
-                    style: const TextStyle(
-                      color: DrivoraTheme.textSecondary,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(
-              color: DrivoraTheme.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-=======
   State<CircularProgressCard> createState() => _CircularProgressCardState();
 }
 
@@ -417,7 +285,6 @@ class _CircularProgressCardState extends State<CircularProgressCard>
               fontSize: 11,
               fontWeight: FontWeight.w600,
               letterSpacing: 1.5,
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
             ),
             textAlign: TextAlign.center,
           ),
@@ -427,12 +294,6 @@ class _CircularProgressCardState extends State<CircularProgressCard>
   }
 }
 
-<<<<<<< HEAD
-class AlertCard extends StatelessWidget {
-  final String title;
-  final String message;
-  final String type; // 'danger', 'warning', 'info'
-=======
 class _ArcProgressPainter extends CustomPainter {
   final double progress;
   final Color color;
@@ -542,7 +403,6 @@ class AlertCard extends StatefulWidget {
   final String title;
   final String message;
   final String type; // 'danger' | 'warning' | 'info'
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   final VoidCallback? onDismiss;
 
   const AlertCard({
@@ -553,27 +413,6 @@ class AlertCard extends StatefulWidget {
     this.onDismiss,
   }) : super(key: key);
 
-<<<<<<< HEAD
-  Color _getAlertColor() {
-    switch (type) {
-      case 'danger':
-        return DrivoraTheme.dangerRed;
-      case 'warning':
-        return DrivoraTheme.warningYellow;
-      default:
-        return DrivoraTheme.primaryNeon;
-    }
-  }
-
-  IconData _getAlertIcon() {
-    switch (type) {
-      case 'danger':
-        return Icons.error_outline;
-      case 'warning':
-        return Icons.warning_amber;
-      default:
-        return Icons.info_outline;
-=======
   @override
   State<AlertCard> createState() => _AlertCardState();
 }
@@ -611,70 +450,11 @@ class _AlertCardState extends State<AlertCard>
       case 'danger':  return Icons.warning_rounded;
       case 'warning': return Icons.info_rounded;
       default:        return Icons.check_circle_rounded;
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
     }
   }
 
   @override
   Widget build(BuildContext context) {
-<<<<<<< HEAD
-    final alertColor = _getAlertColor();
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: alertColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: alertColor.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _getAlertIcon(),
-            color: alertColor,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: alertColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  message,
-                  style: const TextStyle(
-                    color: DrivoraTheme.textSecondary,
-                    fontSize: 11,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          if (onDismiss != null)
-            GestureDetector(
-              onTap: onDismiss,
-              child: Icon(
-                Icons.close,
-                color: alertColor,
-                size: 16,
-              ),
-            ),
-        ],
-      ),
-=======
     final color = _alertColor;
 
     return AnimatedBuilder(
@@ -752,19 +532,14 @@ class _AlertCardState extends State<AlertCard>
           ),
         );
       },
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
     );
   }
 }
 
-<<<<<<< HEAD
-class StatisticsChart extends StatelessWidget {
-=======
 // ─────────────────────────────────────────────────────────────────────────────
 //  STATISTICS CHART  – animated bar chart
 // ─────────────────────────────────────────────────────────────────────────────
 class StatisticsChart extends StatefulWidget {
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
   final String label;
   final List<double> values;
   final Color? barColor;
@@ -777,23 +552,6 @@ class StatisticsChart extends StatefulWidget {
   }) : super(key: key);
 
   @override
-<<<<<<< HEAD
-  Widget build(BuildContext context) {
-    if (values.isEmpty) return const SizedBox.shrink();
-
-    final maxValue = values.reduce((a, b) => a > b ? a : b);
-    final color = barColor ?? DrivoraTheme.primaryNeon;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: DrivoraTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: DrivoraTheme.dividerColor,
-          width: 1,
-        ),
-=======
   State<StatisticsChart> createState() => _StatisticsChartState();
 }
 
@@ -829,28 +587,11 @@ class _StatisticsChartState extends State<StatisticsChart>
         color: AppTheme.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-<<<<<<< HEAD
-            label,
-            style: const TextStyle(
-              color: DrivoraTheme.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: values
-                .map((value) {
-                  final heightPercent = maxValue > 0 ? (value / maxValue) : 0;
-=======
             widget.label,
             style: TextStyle(
               color: AppTheme.textSecondary,
@@ -871,24 +612,10 @@ class _StatisticsChartState extends State<StatisticsChart>
                   final barH = 48.0 * ratio * _grow.value;
                   final isMax = entry.value == maxValue;
 
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
                   return Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Container(
-<<<<<<< HEAD
-                        width: 6,
-                        height: 40 * heightPercent,
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(4),
-                          boxShadow: [
-                            BoxShadow(
-                              color: color.withOpacity(0.5),
-                              blurRadius: 8,
-                            ),
-                          ],
-=======
                         width: 8,
                         height: barH,
                         decoration: BoxDecoration(
@@ -903,19 +630,13 @@ class _StatisticsChartState extends State<StatisticsChart>
                           boxShadow: isMax
                               ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8)]
                               : null,
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
                         ),
                       ),
                     ],
                   );
-<<<<<<< HEAD
-                })
-                .toList(),
-=======
                 }).toList(),
               );
             },
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
           ),
         ],
       ),
@@ -923,12 +644,9 @@ class _StatisticsChartState extends State<StatisticsChart>
   }
 }
 
-<<<<<<< HEAD
-=======
 // ─────────────────────────────────────────────────────────────────────────────
 //  GLASSMORPHIC CARD  – dark-glass container
 // ─────────────────────────────────────────────────────────────────────────────
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
 class GlassmorphicCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -939,11 +657,7 @@ class GlassmorphicCard extends StatelessWidget {
     Key? key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
-<<<<<<< HEAD
-    this.borderRadius = 16,
-=======
     this.borderRadius = 20,
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
     this.borderColor,
   }) : super(key: key);
 
@@ -952,28 +666,16 @@ class GlassmorphicCard extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-<<<<<<< HEAD
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(
-          color: borderColor ?? Colors.white.withOpacity(0.1),
-=======
         color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
           color: borderColor ?? Colors.white.withOpacity(0.08),
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-<<<<<<< HEAD
-            color: Colors.black.withOpacity(0.25),
-            blurRadius: 8,
-=======
             color: Colors.black.withOpacity(0.5),
             blurRadius: 20,
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
             offset: const Offset(0, 8),
           ),
         ],
@@ -982,8 +684,6 @@ class GlassmorphicCard extends StatelessWidget {
     );
   }
 }
-<<<<<<< HEAD
-=======
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  NEON DIVIDER
@@ -1059,4 +759,3 @@ class HudBadge extends StatelessWidget {
     );
   }
 }
->>>>>>> 6db0122 (Added/Updated drivora project inside code/software/drivora)
