@@ -1,10 +1,15 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
+
 import 'firebase_options.dart';
+import 'providers/user_provider.dart';
+import 'screens/dashboard_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/registration_screen.dart';
+import 'screens/splash_screen.dart';
 import 'services/wifi_sensor_service.dart';
 import 'theme/app_theme.dart';
-import 'screens/registration_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,12 +20,14 @@ void main() async {
 }
 
 class DrivoraApp extends StatelessWidget {
-  const DrivoraApp({Key? key}) : super(key: key);
+  const DrivoraApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
+  Widget build(BuildContext context) => MultiProvider(
       providers: [
+        ChangeNotifierProvider<UserProvider>(
+          create: (_) => UserProvider()..initializeUser(),
+        ),
         ChangeNotifierProvider<WiFiSensorService>(
           create: (_) => WiFiSensorService()..initialize(),
         ),
@@ -29,8 +36,13 @@ class DrivoraApp extends StatelessWidget {
         title: 'DRIVORA U-ADAS',
         theme: AppTheme.darkTheme,
         debugShowCheckedModeBanner: false,
-        home: const RegistrationScreen(),
+        home: const SplashScreen(),
+        routes: {
+          '/splash': (_) => const SplashScreen(),
+          '/onboarding': (_) => const OnboardingScreen(),
+          '/dashboard': (_) => const DashboardScreen(),
+          '/registration': (_) => const RegistrationScreen(),
+        },
       ),
     );
-  }
 }

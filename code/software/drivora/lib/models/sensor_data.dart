@@ -3,11 +3,6 @@ import 'package:flutter/material.dart';
 enum AlertSeverity { info, warning, danger, critical }
 
 class SafetyAlert {
-  final String title;
-  final String message;
-  final AlertSeverity severity;
-  final String unitSource;
-  final DateTime timestamp;
 
   SafetyAlert({
     required this.title,
@@ -16,9 +11,45 @@ class SafetyAlert {
     required this.unitSource,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
+  final String title;
+  final String message;
+  final AlertSeverity severity;
+  final String unitSource;
+  final DateTime timestamp;
 }
 
 class DrivoraSensorData {
+
+  DrivoraSensorData({
+    this.frontState = 0,
+    this.frontStateName = 'CLEAR',
+    this.frontStateColor = const Color(0xFF1DB954),
+    this.frontDistance = -1.0,
+    this.closingSpeed = 0.0,
+    this.frontOnline = false,
+    this.leanRiskLevel = 0,
+    this.leanRiskName = 'SAFE',
+    this.roll = 0.0,
+    this.pitch = 0.0,
+    this.confidence = 1.0,
+    this.leanOnline = false,
+    this.leanCalibrated = false,
+    this.criticalRollDeg = 30.0,
+    this.criticalPitchDeg = 20.0,
+    this.rearState = 0,
+    this.rearStateName = 'CLEAR',
+    this.rearStateColor = const Color(0xFF1DB954),
+    this.rearDistance = -1.0,
+    this.rearOnline = false,
+    this.laneState = 0,
+    this.laneStateName = 'SAFE',
+    this.laneStateColor = const Color(0xFF1DB954),
+    this.laneOnline = false,
+    this.ldwActive = false,
+    this.speed = 0.0,
+    this.brakeActive = false,
+    this.lateralG = 0.0,
+  });
   // --- FRONT UNIT (FCW) ---
   final int frontState;
   final String frontStateName;
@@ -66,34 +97,8 @@ class DrivoraSensorData {
   final double lateralG;
   double get rearClearance => rearDistance;
 
-  DrivoraSensorData({
-    this.frontState = 0,
-    this.frontStateName = "CLEAR",
-    this.frontStateColor = const Color(0xFF1DB954),
-    this.frontDistance = -1.0,
-    this.closingSpeed = 0.0,
-    this.frontOnline = false,
-    this.leanRiskLevel = 0,
-    this.leanRiskName = "SAFE",
-    this.roll = 0.0,
-    this.pitch = 0.0,
-    this.confidence = 1.0,
-    this.leanOnline = false,
-    this.leanCalibrated = false,
-    this.criticalRollDeg = 30.0,
-    this.criticalPitchDeg = 20.0,
-    this.rearState = 0,
-    this.rearStateName = "CLEAR",
-    this.rearStateColor = const Color(0xFF1DB954),
-    this.rearDistance = -1.0,
-    this.rearOnline = false,
-    this.laneState = 0,
-    this.laneStateName = "SAFE",
-    this.laneStateColor = const Color(0xFF1DB954),
-    this.laneOnline = false,
-    this.ldwActive = false,
-    this.speed = 0.0,
-    this.brakeActive = false,
-    this.lateralG = 0.0,
-  });
+  // Color mappings for UI consistency
+  Color get frontColor => frontStateColor;
+  Color get rearColor => rearStateColor;
+  Color get laneColor => laneStateColor;
 }

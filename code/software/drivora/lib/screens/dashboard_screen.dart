@@ -2,112 +2,111 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/wifi_sensor_service.dart';
 import '../services/audio_service.dart';
 import '../models/sensor_data.dart';
-import '../theme/app_theme.dart';
 import 'alerts_screen.dart';
+import 'alert_history_screen.dart';
 import 'analytics_screen.dart';
 import 'settings_screen.dart';
-import 'map_screen.dart';
 import 'account_screen.dart';
 
-class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+// ─── PALETTE ─────────────────────────────────────────────────────────────────
+const _kBg        = Color(0xFF060810);
+const _kSurface   = Color(0xFF0C0F1A);
+const _kSurface2  = Color(0xFF111526);
+const _kBorder    = Color(0xFF1C2236);
+const _kBlue      = Color(0xFF2979FF);
+const _kCyan      = Color(0xFF00E5FF);
+const _kGreen     = Color(0xFF00E676);
+const _kAmber     = Color(0xFFFFAB00);
+const _kRed       = Color(0xFFFF1744);
+const _kPurple    = Color(0xFF7C4DFF);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT SCAFFOLD
+// ─────────────────────────────────────────────────────────────────────────────
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  int _currentIndex = 0;
-
-  final List<Widget> _pages = const [
+  int _idx = 0;
+  final _pages = const [
     DashboardContent(),
-    MapScreen(),
     AnalyticsScreen(),
     AlertsScreen(),
+    AlertHistoryScreen(),
+    AccountScreen(),
     SettingsScreen(),
   ];
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF030508),
-      body: IndexedStack(index: _currentIndex, children: _pages),
-      bottomNavigationBar: _DashboardNavBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _kBg,
+    body: IndexedStack(index: _idx, children: _pages),
+    bottomNavigationBar: _NavBar(current: _idx, onTap: (i) => setState(() => _idx = i)),
+  );
 }
 
-class _DashboardNavBar extends StatelessWidget {
-  final int currentIndex;
+class _NavBar extends StatelessWidget {
+  const _NavBar({required this.current, required this.onTap});
+  final int current;
   final ValueChanged<int> onTap;
 
-  const _DashboardNavBar({required this.currentIndex, required this.onTap});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0A0D14),
-        border: Border(top: BorderSide(color: Color(0xFF1E2535), width: 1)),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavIcon(Icons.speed_rounded, 'DRIVE', 0, currentIndex, onTap),
-              _NavIcon(Icons.map_rounded, 'MAP', 1, currentIndex, onTap),
-              _NavIcon(Icons.analytics_rounded, 'DATA', 2, currentIndex, onTap),
-              _NavIcon(Icons.notifications_active_rounded, 'ALERTS', 3, currentIndex, onTap),
-              _NavIcon(Icons.tune_rounded, 'SETUP', 4, currentIndex, onTap),
-            ],
-          ),
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      color: _kSurface,
+      border: Border(top: BorderSide(color: _kBorder, width: 1)),
+    ),
+    child: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NI(Icons.speed_rounded,                  'DRIVE',   0, current, onTap),
+            _NI(Icons.analytics_rounded,              'DATA',    1, current, onTap),
+            _NI(Icons.notifications_active_rounded,   'ALERTS',  2, current, onTap),
+            _NI(Icons.history_rounded,                'HISTORY', 3, current, onTap),
+            _NI(Icons.person_rounded,                 'ACCOUNT', 4, current, onTap),
+            _NI(Icons.tune_rounded,                   'SETUP',   5, current, onTap),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _NavIcon extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int index;
-  final int currentIndex;
+class _NI extends StatelessWidget {
+  const _NI(this.icon, this.label, this.index, this.current, this.onTap);
+  final IconData icon; final String label; final int index, current;
   final ValueChanged<int> onTap;
-
-  const _NavIcon(this.icon, this.label, this.index, this.currentIndex, this.onTap);
-
   @override
   Widget build(BuildContext context) {
-    final active = index == currentIndex;
+    final a = index == current;
     return GestureDetector(
       onTap: () => onTap(index),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: active ? const Color(0xFF2979FF) : Colors.white24, size: 28),
-          const SizedBox(height: 4),
-          Text(label, style: GoogleFonts.rajdhani(color: active ? Colors.white : Colors.white24, fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
-      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, color: a ? _kCyan : Colors.white24, size: 26),
+        const SizedBox(height: 3),
+        Text(label, style: GoogleFonts.rajdhani(
+            color: a ? _kCyan : Colors.white24, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
+      ]),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD CONTENT
+// ─────────────────────────────────────────────────────────────────────────────
 class DashboardContent extends StatefulWidget {
-  const DashboardContent({Key? key}) : super(key: key);
-
+  const DashboardContent({super.key});
   @override
   State<DashboardContent> createState() => _DashboardContentState();
 }
@@ -117,497 +116,1098 @@ class _DashboardContentState extends State<DashboardContent> {
   String _userName = 'DRIVER';
 
   @override
-  void initState() {
-    super.initState();
-    _loadUserData();
-  }
+  void initState() { super.initState(); _loadUser(); }
 
-  Future<void> _loadUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _userName = (prefs.getString('userName') ?? 'DRIVER').toUpperCase();
-    });
+  Future<void> _loadUser() async {
+    final p = await SharedPreferences.getInstance();
+    setState(() => _userName = (p.getString('userName') ?? 'DRIVER').toUpperCase());
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
+  Widget build(BuildContext context) => Consumer<WiFiSensorService>(
       builder: (context, svc, _) {
-        final data = svc.currentData;
+        final d     = svc.currentData;
         final alerts = svc.activeAlerts;
-        final bool speedAlert = data.speed > 100;
+        final speedAlert = d.speed > 100;
 
-        return Stack(
-          children: [
-            Column(
-              children: [
-                _buildHeader(context, svc, data.speed),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Row(
-                      children: [
-                        // --- MERGED COLLISION HUB (LEFT) ---
-                        Expanded(
-                          flex: 3,
-                          child: _PremiumMonitorCard(
-                            title: 'COLLISION HUB',
-                            isOnline: data.frontOnline && data.rearOnline,
-                            visual: _Merged3DCarVisual(
-                              frontState: data.frontState,
-                              frontColor: data.frontStateColor,
-                              rearState: data.rearState,
-                              rearColor: data.rearStateColor,
-                              frontActive: data.frontOnline,
-                              rearActive: data.rearOnline,
-                              frontDistance: data.frontDistance,
-                              rearDistance: data.rearDistance,
-                            ),
-                            metrics: [
-                              _MetricData('FRONT', '${data.frontDistance >= 0 ? data.frontDistance.toStringAsFixed(1) : "--"} CM'),
-                              _MetricData('REAR', '${data.rearDistance >= 0 ? data.rearDistance.toStringAsFixed(1) : "--"} CM'),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        // --- LEAN MONITOR BOX (CENTER) - INCREASED SIZE ---
-                        Expanded(
-                          flex: 5,
-                          child: _LeanScopeCard(data: data),
-                        ),
-                        const SizedBox(width: 16),
-                        // --- LANE ASSIST (RIGHT) - INCREASED SIZE ---
-                        Expanded(
-                          flex: 4,
-                          child: _PremiumMonitorCard(
-                            title: 'LANE ASSIST',
-                            isOnline: data.laneOnline,
-                            stateName: data.laneStateName,
-                            stateColor: data.laneStateColor,
-                            visual: _LaneVisual(laneState: data.laneState),
-                            metrics: [
-                              _MetricData('SYSTEM', 'MONITORING'),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                _CommandCenter(svc: svc),
-              ],
+        return Stack(children: [
+          Column(children: [
+            _Header(svc: svc, userName: _userName, audio: _audio),
+            Expanded(child: _Body(data: d)),
+            _CmdBtn(svc: svc),
+          ]),
+
+          // Floating alert banner
+          if (speedAlert || alerts.isNotEmpty)
+            Positioned(
+              top: 118, left: 0, right: 0,
+              child: Center(child: _AlertBanner(
+                title:   speedAlert ? 'OVERSPEED DETECTED'          : alerts.first.title.toUpperCase(),
+                message: speedAlert ? 'REDUCE VELOCITY BELOW 100 CM/S' : alerts.first.message.toUpperCase(),
+                onDismiss: speedAlert ? null : svc.clearAlerts,
+              )),
             ),
-
-            // --- TOP DOCKED SAFETY ALERTS ---
-            if (speedAlert || alerts.isNotEmpty)
-              Positioned(
-                top: 135,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: _FloatingAlertBanner(
-                    title: speedAlert ? 'OVERSPEED DETECTED' : alerts.first.title.toUpperCase(),
-                    message: speedAlert ? 'REDUCE VELOCITY BELOW 100 CM/S' : alerts.first.message.toUpperCase(),
-                    onDismiss: speedAlert ? null : svc.clearAlerts,
-                  ),
-                ),
-              ),
-          ],
-        );
+        ]);
       },
     );
-  }
+}
 
-  Widget _buildHeader(BuildContext context, WiFiSensorService svc, double speed) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 48, 24, 20),
+// ─────────────────────────────────────────────────────────────────────────────
+// HEADER
+// ─────────────────────────────────────────────────────────────────────────────
+class _Header extends StatelessWidget {
+  const _Header({required this.svc, required this.userName, required this.audio});
+  final WiFiSensorService svc;
+  final String userName;
+  final AudioService audio;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.fromLTRB(20, 44, 20, 14),
       decoration: const BoxDecoration(
-        color: Color(0xFF0A0D14),
-        border: Border(bottom: BorderSide(color: Color(0xFF1E2535), width: 1.5)),
+        color: _kSurface,
+        border: Border(bottom: BorderSide(color: _kBorder, width: 1.5)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('ADAS BRAIN HUB', style: GoogleFonts.orbitron(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  _HeaderStatusPill('LINK: ${svc.isConnected ? "ACTIVE" : "STANDBY"}', svc.isConnected),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () => _audio.playCriticalSound(),
-                    child: _HeaderStatusPill('AUDIO FEEDBACK', false, isTappable: true),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          // --- TOP CENTERED SPEED DISPLAY ---
-          //Container(
-            //padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
-            //decoration: BoxDecoration(
-              //color: Colors.black.withOpacity(0.5),
-              //borderRadius: BorderRadius.circular(22),
-              //border: Border.all(color: speed > 100 ? Colors.red : const Color(0xFF2979FF).withOpacity(0.5), width: 2),
-            //),
-            //child: Column(
-              //children: [
-                //Text(
-                  //speed.toInt().toString(),
-                  //style: GoogleFonts.orbitron(color: speed > 100 ? Colors.red : Colors.white, fontSize: 36, fontWeight: FontWeight.w900),
-                //),
-                //Text('CM/S', style: GoogleFonts.rajdhani(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
-              //],
-            //),
-          //),
-
-          GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(_userName, style: GoogleFonts.rajdhani(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    const Text('SYSTEM OPERATOR', style: TextStyle(color: Color(0xFF2979FF), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                const CircleAvatar(radius: 20, backgroundColor: Color(0xFF1E2535), child: Icon(Icons.person, color: Colors.white, size: 22)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PREMIUM MONITOR CARD — REDUCED TEXT SIZE FOR SAFE STATES
-// ─────────────────────────────────────────────────────────────────────────────
-class _PremiumMonitorCard extends StatelessWidget {
-  final String title;
-  final bool isOnline;
-  final String? stateName;
-  final Color? stateColor;
-  final Widget visual;
-  final List<_MetricData> metrics;
-
-  const _PremiumMonitorCard({
-    required this.title,
-    required this.isOnline,
-    this.stateName,
-    this.stateColor,
-    required this.visual,
-    required this.metrics,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A0D14),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFF1E2535), width: 1.5),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: GoogleFonts.rajdhani(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 1)),
-              _StatusLight(online: isOnline),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Expanded(child: visual),
-          if (stateName != null && stateColor != null) ...[
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                color: stateColor!.withOpacity(0.85),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: stateColor!.withOpacity(0.3), blurRadius: 15)],
-              ),
-              alignment: Alignment.center,
-              child: Text(stateName!, textAlign: TextAlign.center, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-            ),
-          ],
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: metrics.map((m) => Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(m.label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                const SizedBox(height: 6),
-                Text(m.value, textAlign: TextAlign.center, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              ],
-            )).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LEAN SCOPE CARD — REDUCED TEXT SIZE FOR SAFE STATE
-// ─────────────────────────────────────────────────────────────────────────────
-class _LeanScopeCard extends StatelessWidget {
-  final DrivoraSensorData data;
-  const _LeanScopeCard({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    final riskColor = data.leanRiskLevel == 2 ? const Color(0xFFFF1744) : (data.leanRiskLevel == 1 ? const Color(0xFFFFAB00) : const Color(0xFF00E676));
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A0D14),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFF1E2535), width: 1.5),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('COG ATTITUDE MONITOR', style: GoogleFonts.rajdhani(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
-              _StatusLight(online: data.leanOnline),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF1A1F2B), width: 2),
-              ),
-              child: _LeanDotScope(
-                roll: data.roll,
-                pitch: data.pitch,
-                criticalRollDeg: data.criticalRollDeg,
-                criticalPitchDeg: data.criticalPitchDeg,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(children: [
+        GestureDetector(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: riskColor.withOpacity(0.85),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: riskColor.withOpacity(0.3), blurRadius: 15)],
+              color: _kSurface2,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _kCyan.withOpacity(0.3), width: 1.5),
             ),
-            alignment: Alignment.center,
-            child: Text(data.leanRiskName, textAlign: TextAlign.center, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const CircleAvatar(radius: 18, backgroundColor: _kBlue,
+                  child: Icon(Icons.person, color: Colors.white, size: 20)),
+              const SizedBox(width: 10),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(userName, style: GoogleFonts.rajdhani(
+                    color: _kCyan, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                const Text('PROFILE', style: TextStyle(
+                    color: Colors.white54, fontSize: 8, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+              ]),
+            ]),
           ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _ScopeMetric('ROLL', '${data.roll.toStringAsFixed(2)}°'),
-              _ScopeMetric('PITCH', '${data.pitch.toStringAsFixed(2)}°'),
-              _ScopeMetric('CONF', data.confidence.toStringAsFixed(2)),
-            ],
+        ),
+        const Spacer(),
+        Column(mainAxisSize: MainAxisSize.min, children: [
+          ShaderMask(
+            shaderCallback: (r) => const LinearGradient(
+              colors: [_kCyan, _kBlue, _kPurple],
+            ).createShader(r),
+            child: Text('ADAS BRAIN HUB',
+                style: GoogleFonts.orbitron(
+                    color: Colors.white, fontSize: 20,
+                    fontWeight: FontWeight.w900, letterSpacing: 2.5)),
           ),
-        ],
-      ),
+          const SizedBox(height: 8),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _Pill(
+              label: 'LINK: ${svc.isConnected ? "ACTIVE" : "STANDBY"}',
+              active: svc.isConnected,
+              dotColor: svc.isConnected ? _kGreen : _kRed,
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: audio.playSystemAlert,
+              child: const _Pill(label: '♪  AUDIO', active: false, dotColor: _kAmber),
+            ),
+          ]),
+        ]),
+        const Spacer(),
+      ]),
     );
-  }
+}
 
-  Widget _ScopeMetric(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        Text(value, textAlign: TextAlign.center, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-      ],
-    );
-  }
+class _Pill extends StatelessWidget {
+  const _Pill({required this.label, required this.active, required this.dotColor});
+  final String label; final bool active; final Color dotColor;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+    decoration: BoxDecoration(
+      color: _kSurface2,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: dotColor.withOpacity(0.3), width: 1),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 6, height: 6,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor,
+              boxShadow: [BoxShadow(color: dotColor.withOpacity(0.7), blurRadius: 5)])),
+      const SizedBox(width: 6),
+      Text(label, style: TextStyle(
+          color: active ? dotColor : Colors.white54, fontSize: 10,
+          fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+    ]),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEAN DOT SCOPE (unchanged logic, same as before)
+// BODY
 // ─────────────────────────────────────────────────────────────────────────────
-class _LeanDotScope extends StatefulWidget {
-  final double roll;
-  final double pitch;
-  final double criticalRollDeg;
-  final double criticalPitchDeg;
-
-  const _LeanDotScope({
-    required this.roll,
-    required this.pitch,
-    required this.criticalRollDeg,
-    required this.criticalPitchDeg,
-  });
+class _Body extends StatelessWidget {
+  const _Body({required this.data});
+  final DrivoraSensorData data;
 
   @override
-  State<_LeanDotScope> createState() => _LeanDotScopeState();
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SizedBox(width: 200, child: _LeftPanel(data: data)),
+      const SizedBox(width: 12),
+      Expanded(flex: 2, child: _CarCanvas(data: data)),
+      const SizedBox(width: 12),
+      SizedBox(width: 200, child: _RightPanel(data: data)),
+    ]),
+  );
 }
 
-class _LeanDotScopeState extends State<_LeanDotScope> with SingleTickerProviderStateMixin {
+// ─────────────────────────────────────────────────────────────────────────────
+// LEFT PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+class _LeftPanel extends StatelessWidget {
+  const _LeftPanel({required this.data});
+  final DrivoraSensorData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = data.frontStateColor;
+    final lc = data.leanRiskLevel == 2 ? _kRed : data.leanRiskLevel == 1 ? _kAmber : _kGreen;
+
+    return Column(children: [
+      Expanded(flex: 50, child: _Card(
+        accent: fc,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _CardHeader('FRONT COLLISION', data.frontOnline, fc),
+          const SizedBox(height: 10),
+          _SensorRing(color: fc, icon: Icons.sensors, online: data.frontOnline),
+          const SizedBox(height: 10),
+          _BigMetricRow('DISTANCE', data.frontDistance >= 0
+              ? data.frontDistance.toStringAsFixed(1) : '– –', 'CM', fc),
+          const SizedBox(height: 8),
+          _StateBar(data.frontStateName, fc),
+          const Spacer(),
+          _SubGrid([
+            _SMini('STATUS', data.frontOnline ? 'ONLINE' : 'OFFLINE', data.frontOnline ? _kGreen : _kRed),
+          ]),
+        ]),
+      )),
+      const SizedBox(height: 12),
+      Expanded(flex: 50, child: _Card(
+        accent: lc,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _CardHeader('COG ATTITUDE', data.leanOnline, lc),
+          const SizedBox(height: 10),
+          _StateBar(data.leanRiskName, lc),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: _MiniMetric('ROLL',  '${data.roll.toStringAsFixed(1)}°',   lc)),
+            const SizedBox(width: 8),
+            Expanded(child: _MiniMetric('PITCH', '${data.pitch.toStringAsFixed(1)}°',  lc)),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: _MiniMetric('CONF',  data.confidence.toStringAsFixed(2), Colors.white54)),
+            const SizedBox(width: 8),
+            Expanded(child: _MiniMetric('RISK',  ['LOW', 'MED', 'HIGH'][data.leanRiskLevel.clamp(0, 2)],
+                [_kGreen, _kAmber, _kRed][data.leanRiskLevel.clamp(0, 2)])),
+          ]),
+          const Spacer(),
+          _LeanBar(roll: data.roll, critical: data.criticalRollDeg, color: lc),
+        ]),
+      )),
+    ]);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RIGHT PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+class _RightPanel extends StatelessWidget {
+  const _RightPanel({required this.data});
+  final DrivoraSensorData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final rc = data.rearStateColor;
+    final laneColor = data.laneState == 0 ? _kGreen : data.laneState == 1 ? _kAmber : _kRed;
+
+    return Column(children: [
+      Expanded(flex: 50, child: _Card(
+        accent: rc,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _CardHeader('REAR COLLISION', data.rearOnline, rc),
+          const SizedBox(height: 10),
+          _SensorRing(color: rc, icon: Icons.sensors, online: data.rearOnline),
+          const SizedBox(height: 10),
+          _BigMetricRow('DISTANCE', data.rearDistance >= 0
+              ? data.rearDistance.toStringAsFixed(1) : '– –', 'CM', rc),
+          const SizedBox(height: 8),
+          _StateBar(data.rearStateName, rc),
+          const Spacer(),
+          _SubGrid([
+            _SMini('STATUS', data.rearOnline ? 'ONLINE' : 'OFFLINE', data.rearOnline ? _kGreen : _kRed),
+          ]),
+        ]),
+      )),
+      const SizedBox(height: 12),
+      Expanded(flex: 50, child: _Card(
+        accent: laneColor,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _CardHeader('LANE ASSIST', data.laneOnline, laneColor),
+          const SizedBox(height: 10),
+          _StateBar(data.laneStateName, laneColor),
+          const SizedBox(height: 10),
+          _LaneSideRow('LEFT  LANE',  data.laneState == 1, 'CROSSING', 'CLEAR'),
+          const SizedBox(height: 8),
+          _LaneSideRow('RIGHT LANE',  data.laneState == 2, 'CROSSING', 'CLEAR'),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: _MiniMetric('SYSTEM', 'ACTIVE', data.laneOnline ? _kCyan : Colors.white38)),
+            const SizedBox(width: 8),
+            const Expanded(child: _MiniMetric('MODE',   'AUTO',   Colors.white60)),
+          ]),
+          const Spacer(),
+          _LanePositionBar(laneState: data.laneState),
+        ]),
+      )),
+    ]);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED CARD WIDGET
+// ─────────────────────────────────────────────────────────────────────────────
+class _Card extends StatelessWidget {
+  const _Card({required this.child, required this.accent});
+  final Widget child;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: _kSurface,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: accent.withOpacity(0.25), width: 1.5),
+      boxShadow: [BoxShadow(color: accent.withOpacity(0.06), blurRadius: 18, spreadRadius: 1)],
+    ),
+    child: child,
+  );
+}
+
+class _CardHeader extends StatelessWidget {
+  const _CardHeader(this.title, this.online, this.color);
+  final String title; final bool online; final Color color;
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(width: 3, height: 16,
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+      const SizedBox(width: 8),
+      Expanded(child: Text(title, style: GoogleFonts.rajdhani(
+          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2))),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: (online ? _kGreen : _kRed).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: (online ? _kGreen : _kRed).withOpacity(0.4)),
+        ),
+        child: Text(online ? '● ON' : '● OFF',
+            style: TextStyle(color: online ? _kGreen : _kRed, fontSize: 8, fontWeight: FontWeight.w900)),
+      ),
+    ],
+  );
+}
+
+class _SensorRing extends StatelessWidget {
+  const _SensorRing({required this.color, required this.icon, required this.online});
+  final Color color; final IconData icon; final bool online;
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      width: 62, height: 62,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withOpacity(online ? 0.7 : 0.25), width: 2),
+        boxShadow: [BoxShadow(color: color.withOpacity(online ? 0.3 : 0.0), blurRadius: 16)],
+      ),
+      child: Icon(icon, color: color.withOpacity(online ? 1 : 0.3), size: 28),
+    ),
+  );
+}
+
+class _BigMetricRow extends StatelessWidget {
+  const _BigMetricRow(this.label, this.value, this.unit, this.color);
+  final String label, value, unit; final Color color;
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(label, style: const TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+    const SizedBox(height: 3),
+    Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+      Text(value, style: GoogleFonts.orbitron(color: color, fontSize: 26, fontWeight: FontWeight.w900)),
+      const SizedBox(width: 4),
+      Text(unit, style: TextStyle(color: color.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.bold)),
+    ]),
+  ]);
+}
+
+class _StateBar extends StatelessWidget {
+  const _StateBar(this.label, this.color);
+  final String label; final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(vertical: 7),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withOpacity(0.4), width: 1),
+    ),
+    alignment: Alignment.center,
+    child: Text(label, style: GoogleFonts.rajdhani(
+        color: color, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+  );
+}
+
+class _MG { const _MG(this.l, this.v, this.c); final String l, v; final Color c; }
+class _MetricGrid extends StatelessWidget {
+  const _MetricGrid(this.items);
+  final List<_MG> items;
+  @override
+  Widget build(BuildContext context) => Row(children: items.map((m) => Expanded(
+    child: Container(
+      margin: EdgeInsets.only(right: m == items.last ? 0 : 6),
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+      decoration: BoxDecoration(
+        color: _kSurface2,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _kBorder, width: 1),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(m.l, style: const TextStyle(color: Colors.white38, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 1)),
+        const SizedBox(height: 3),
+        Text(m.v, style: GoogleFonts.orbitron(color: m.c, fontSize: 13, fontWeight: FontWeight.bold)),
+      ]),
+    ),
+  )).toList());
+}
+
+class _MiniMetric extends StatelessWidget {
+  const _MiniMetric(this.label, this.value, this.color);
+  final String label, value; final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(7),
+      border: Border.all(color: color.withOpacity(0.3)),
+    ),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label, style: const TextStyle(color: Colors.white38, fontSize: 7, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+      const SizedBox(height: 2),
+      Text(value, style: GoogleFonts.orbitron(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+    ]),
+  );
+}
+
+class _SMini { const _SMini(this.l, this.v, this.c); final String l, v; final Color c; }
+class _SubGrid extends StatelessWidget {
+  const _SubGrid(this.items);
+  final List<_SMini> items;
+  @override
+  Widget build(BuildContext context) => Row(children: items.map((m) => Expanded(
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+      decoration: BoxDecoration(
+        color: m.c.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: m.c.withOpacity(0.25)),
+      ),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(m.l, style: const TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 0.8)),
+        Text(m.v, style: TextStyle(color: m.c, fontSize: 9, fontWeight: FontWeight.w900)),
+      ]),
+    ),
+  )).toList());
+}
+
+class _LeanBar extends StatelessWidget {
+  const _LeanBar({required this.roll, required this.critical, required this.color});
+  final double roll, critical; final Color color;
+  @override
+  Widget build(BuildContext context) {
+    final pct = (roll / math.max(critical * 3, 1)).clamp(-1.0, 1.0);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('ROLL INDICATOR', style: TextStyle(color: Colors.white30, fontSize: 8, letterSpacing: 1)),
+      const SizedBox(height: 4),
+      Container(
+        height: 6, width: double.infinity,
+        decoration: BoxDecoration(color: _kSurface2, borderRadius: BorderRadius.circular(3)),
+        child: FractionallySizedBox(
+          alignment: pct >= 0 ? Alignment.centerLeft : Alignment.centerRight,
+          widthFactor: pct.abs() * 0.5,
+          child: Container(
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3),
+                boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 6)]),
+          ),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _LanePositionBar extends StatelessWidget {
+  const _LanePositionBar({required this.laneState});
+  final int laneState;
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    const Text('LANE POSITION', style: TextStyle(color: Colors.white30, fontSize: 8, letterSpacing: 1)),
+    const SizedBox(height: 4),
+    Container(
+      height: 22, width: double.infinity,
+      decoration: BoxDecoration(color: _kSurface2, borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: _kBorder)),
+      child: Row(children: [
+        Expanded(child: Container(
+          decoration: BoxDecoration(
+            color: laneState == 1 ? _kAmber.withOpacity(0.3) : Colors.transparent,
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(4)),
+            border: laneState == 1 ? Border.all(color: _kAmber.withOpacity(0.6)) : null,
+          ),
+          alignment: Alignment.center,
+          child: Text('LEFT', style: TextStyle(
+              color: laneState == 1 ? _kAmber : Colors.white24, fontSize: 8, fontWeight: FontWeight.w900)),
+        )),
+        Container(width: 1, color: _kBorder),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Container(width: 8, height: 14,
+              decoration: BoxDecoration(
+                color: laneState == 0 ? _kGreen.withOpacity(0.4) : _kAmber.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(2),
+                border: Border.all(color: laneState == 0 ? _kGreen : _kAmber, width: 1),
+              )),
+        ),
+        Container(width: 1, color: _kBorder),
+        Expanded(child: Container(
+          decoration: BoxDecoration(
+            color: laneState == 2 ? _kAmber.withOpacity(0.3) : Colors.transparent,
+            borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
+            border: laneState == 2 ? Border.all(color: _kAmber.withOpacity(0.6)) : null,
+          ),
+          alignment: Alignment.center,
+          child: Text('RIGHT', style: TextStyle(
+              color: laneState == 2 ? _kAmber : Colors.white24, fontSize: 8, fontWeight: FontWeight.w900)),
+        )),
+      ]),
+    ),
+  ]);
+}
+
+class _LaneSideRow extends StatelessWidget {
+  const _LaneSideRow(this.label, this.active, this.alertTxt, this.clearTxt);
+  final String label, alertTxt, clearTxt; final bool active;
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 0.8)),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: (active ? _kAmber : _kGreen).withOpacity(0.12),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: (active ? _kAmber : _kGreen).withOpacity(0.4)),
+        ),
+        child: Text(active ? alertTxt : clearTxt,
+            style: TextStyle(color: active ? _kAmber : _kGreen, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+      ),
+    ],
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAR CANVAS — lean scope now rendered ON TOP of car body, car enlarged
+// ─────────────────────────────────────────────────────────────────────────────
+class _CarCanvas extends StatefulWidget {
+  const _CarCanvas({required this.data});
+  final DrivoraSensorData data;
+  @override
+  State<_CarCanvas> createState() => _CarCanvasState();
+}
+
+class _CarCanvasState extends State<_CarCanvas> with TickerProviderStateMixin {
+  late AnimationController _pulse, _alert, _signal, _lane;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse  = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+    _alert  = AnimationController(vsync: this, duration: const Duration(milliseconds: 380))..repeat(reverse: true);
+    _signal = AnimationController(vsync: this, duration: const Duration(milliseconds: 750))..repeat();
+    _lane   = AnimationController(vsync: this, duration: const Duration(milliseconds: 550))..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() { _pulse.dispose(); _alert.dispose(); _signal.dispose(); _lane.dispose(); super.dispose(); }
+
+  @override
+  void didUpdateWidget(covariant _CarCanvas old) {
+    super.didUpdateWidget(old);
+    final minD = [
+      if (widget.data.frontDistance >= 0) widget.data.frontDistance,
+      if (widget.data.rearDistance  >= 0) widget.data.rearDistance,
+    ].fold<double>(9999, math.min);
+    final dur = minD < 20  ? const Duration(milliseconds: 280)
+        : minD < 50  ? const Duration(milliseconds: 560)
+        : minD < 100 ? const Duration(milliseconds: 880)
+        :              const Duration(milliseconds: 1300);
+    if (_pulse.duration != dur) { _pulse.duration = dur; _pulse.repeat(); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      gradient: const RadialGradient(
+        center: Alignment.center, radius: 0.85,
+        colors: [Color(0xFF0D1220), _kBg],
+      ),
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(color: _kBorder, width: 1.5),
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(23),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_pulse, _alert, _signal, _lane]),
+        builder: (context, _) => Stack(children: [
+          // Road grid backdrop
+          CustomPaint(size: Size.infinite, painter: _RoadGridPainter()),
+          // Main car + sensors + lane lines (road layer)
+          CustomPaint(size: Size.infinite, painter: _CarPainter(
+            pulse: _pulse.value, alertFlash: _alert.value,
+            signal: _signal.value, lanePulse: _lane.value,
+            data: widget.data,
+          )),
+          // ── LEAN SCOPE rendered ON TOP of the car body ──────────────
+          Positioned.fill(child: _EmbeddedLeanScope(data: widget.data)),
+        ]),
+      ),
+    ),
+  );
+}
+
+// ─── ROAD GRID BACKDROP ───────────────────────────────────────────────────────
+class _RoadGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = const Color(0xFF0F1525)..strokeWidth = 0.5;
+    for (double x = 0; x < size.width; x += 40) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
+    }
+    for (double y = 0; y < size.height; y += 40) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+    }
+  }
+  @override bool shouldRepaint(covariant CustomPainter _) => false;
+}
+
+// ─── EMBEDDED LEAN SCOPE — draws on top of car body ──────────────────────────
+class _EmbeddedLeanScope extends StatefulWidget {
+  const _EmbeddedLeanScope({required this.data});
+  final DrivoraSensorData data;
+  @override
+  State<_EmbeddedLeanScope> createState() => _EmbeddedLeanScopeState();
+}
+
+class _EmbeddedLeanScopeState extends State<_EmbeddedLeanScope> with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  double _currentX = 0, _currentY = 0, _targetX = 0, _targetY = 0;
-  bool _initialized = false;
-  static const double _smooth = 0.35;
+  double _cx = 0, _cy = 0, _tx = 0, _ty = 0;
+  bool _init = false;
+  static const double _smooth = 0.30;
 
   @override
   void initState() {
     super.initState();
     _ticker = createTicker((_) {
-      if (!mounted || !_initialized) return;
-      final nextX = _currentX + (_targetX - _currentX) * _smooth;
-      final nextY = _currentY + (_targetY - _currentY) * _smooth;
-      if ((nextX - _currentX).abs() > 0.001 || (nextY - _currentY).abs() > 0.001) {
-        setState(() { _currentX = nextX; _currentY = nextY; });
+      if (!mounted || !_init) return;
+      final nx = _cx + (_tx - _cx) * _smooth;
+      final ny = _cy + (_ty - _cy) * _smooth;
+      if ((nx - _cx).abs() > 0.001 || (ny - _cy).abs() > 0.001) {
+        setState(() { _cx = nx; _cy = ny; });
       }
-    });
-    _ticker.start();
+    })..start();
   }
-
   @override
   void dispose() { _ticker.dispose(); super.dispose(); }
 
-  double _softAxisPosition(double val, double crit, double rad) {
-    const iR = 0.78; const oR = 0.90; const hR = 2.85;
-    final absV = val.abs(); final sign = val >= 0 ? 1.0 : -1.0;
-    final iS = math.max(crit, 0.01); final oS = math.max(crit * hR, iS + 0.01);
+  double _pos(double val, double crit, double r) {
+    const iR = 0.78, oR = 0.90, hR = 2.85;
+    final a = val.abs(), s = val >= 0 ? 1.0 : -1.0;
+    final iS = math.max(crit, 0.01), oS = math.max(crit * hR, iS + 0.01);
     double mag;
-    if (absV <= iS) { mag = (absV / iS) * iR; }
-    else {
-      final t = math.min((absV - iS) / (oS - iS), 1.0);
-      final e = 1.0 - math.exp(-3.2 * t);
-      mag = iR + (oR - iR) * (e / (1.0 - math.exp(-3.2)));
+    if (a <= iS) {
+      mag = (a / iS) * iR;
+    } else {
+      final t = math.min((a - iS) / (oS - iS), 1);
+      mag = iR + (oR - iR) * ((1 - math.exp(-3.2 * t)) / (1 - math.exp(-3.2)));
     }
-    return sign * mag * rad;
+    return s * mag * r;
   }
 
   @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final side = math.min(constraints.maxWidth, constraints.maxHeight) * 0.92;
-      final radius = side / 2 - 12;
-      final px = side / 2 + _softAxisPosition(widget.roll, widget.criticalRollDeg, radius);
-      final py = side / 2 + _softAxisPosition(widget.pitch, widget.criticalPitchDeg, radius);
-      if (!_initialized) { _currentX = px; _currentY = py; _initialized = true; }
-      _targetX = px; _targetY = py;
-      return Center(child: SizedBox(width: side, height: side, child: CustomPaint(painter: _LeanScopePainter(dotX: _currentX, dotY: _currentY))));
-    });
-  }
+  Widget build(BuildContext context) => LayoutBuilder(builder: (ctx, c) {
+    // ── Scope radius sized to fit inside the enlarged car cabin ──────────
+    // Car height = h * 0.65, cabin = carH * 0.42 ≈ h * 0.273
+    // Use ~48% of min(w,h) so the scope fills the cabin area visually
+    final scopeR = math.min(c.maxWidth, c.maxHeight) * 0.155;
+    final ox = c.maxWidth / 2, oy = c.maxHeight / 2;
+    final px = ox + _pos(widget.data.roll,  widget.data.criticalRollDeg,  scopeR);
+    final py = oy + _pos(widget.data.pitch, widget.data.criticalPitchDeg, scopeR);
+    if (!_init) { _cx = px; _cy = py; _init = true; }
+    _tx = px; _ty = py;
+    return CustomPaint(
+      size: Size(c.maxWidth, c.maxHeight),
+      painter: _ScopePainter(
+        dotX: _cx, dotY: _cy,
+        cx: ox, cy: oy, radius: scopeR,
+        riskLevel: widget.data.leanRiskLevel,
+      ),
+    );
+  });
 }
 
-class _LeanScopePainter extends CustomPainter {
-  final double dotX, dotY;
-  _LeanScopePainter({required this.dotX, required this.dotY});
+class _ScopePainter extends CustomPainter {
+  _ScopePainter({required this.dotX, required this.dotY,
+    required this.cx, required this.cy, required this.radius, required this.riskLevel});
+  final double dotX, dotY, cx, cy, radius;
+  final int riskLevel;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final ringPaint = Paint()..color = const Color(0xFF555555)..style = PaintingStyle.stroke..strokeWidth = 1;
-    final linePaint = Paint()..color = const Color(0xFF555555)..strokeWidth = 2;
-    final radii = [0.44, 0.35, 0.26, 0.17, 0.08];
-    for (final r in radii) { canvas.drawCircle(center, size.width * r, ringPaint); }
-    canvas.drawLine(Offset(center.dx, 0), Offset(center.dx, size.height), linePaint);
-    canvas.drawLine(Offset(0, center.dy), Offset(size.width, center.dy), linePaint);
+    final center = Offset(cx, cy);
+    final dotColor = riskLevel == 2 ? _kRed : riskLevel == 1 ? _kAmber : _kCyan;
 
+    // Slight dark backing so scope is legible over car body
+    canvas.drawCircle(center, radius,
+        Paint()..color = const Color(0xAA060810));
+
+    // Rings
+    for (var i = 1; i <= 4; i++) {
+      canvas.drawCircle(center, radius * (i / 4.0),
+          Paint()..color = const Color(0xFF1A2540)..style = PaintingStyle.stroke..strokeWidth = 1);
+    }
+    // Cross-hairs
+    final lp = Paint()..color = const Color(0xFF1A2540)..strokeWidth = 0.8;
+    canvas.drawLine(Offset(cx - radius, cy), Offset(cx + radius, cy), lp);
+    canvas.drawLine(Offset(cx, cy - radius), Offset(cx, cy + radius), lp);
+
+    // Risk zone rings
+    canvas.drawCircle(center, radius * 0.6,
+        Paint()..color = _kAmber.withOpacity(0.10)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    canvas.drawCircle(center, radius * 0.85,
+        Paint()..color = _kRed.withOpacity(0.10)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+    // Scope outer border
+    canvas.drawCircle(center, radius,
+        Paint()..color = dotColor.withOpacity(0.35)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+    // Dot
     final dotPos = Offset(dotX, dotY);
-    final glow = Paint()..color = const Color.fromRGBO(64, 128, 255, 0.75)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    final dotP = Paint()..color = const Color.fromRGBO(64, 128, 255, 0.75);
-    canvas.drawCircle(dotPos, 8, glow);
-    canvas.drawCircle(dotPos, 8, dotP);
+    canvas.drawCircle(dotPos, 14,
+        Paint()..color = dotColor.withOpacity(0.18)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+    canvas.drawCircle(dotPos, 8,
+        Paint()..color = dotColor.withOpacity(0.85));
+    canvas.drawCircle(dotPos, 3.5,
+        Paint()..color = Colors.white);
+    // Cross-hair on dot
+    final cp = Paint()..color = dotColor.withOpacity(0.6)..strokeWidth = 1.5;
+    canvas.drawLine(dotPos.translate(-14, 0), dotPos.translate(14, 0), cp);
+    canvas.drawLine(dotPos.translate(0, -14), dotPos.translate(0, 14), cp);
   }
   @override
-  bool shouldRepaint(covariant _LeanScopePainter old) => old.dotX != dotX || old.dotY != dotY;
+  bool shouldRepaint(covariant _ScopePainter o) =>
+      o.dotX != dotX || o.dotY != dotY || o.riskLevel != riskLevel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FLOATING ALERT BANNER
+// MAIN CAR PAINTER — enlarged car (65% height, 0.52 aspect), corrected lane lines
 // ─────────────────────────────────────────────────────────────────────────────
-class _FloatingAlertBanner extends StatelessWidget {
-  final String title;
-  final String message;
-  final VoidCallback? onDismiss;
+class _CarPainter extends CustomPainter {
 
-  const _FloatingAlertBanner({required this.title, required this.message, this.onDismiss});
+  _CarPainter({required this.pulse, required this.alertFlash,
+    required this.signal, required this.lanePulse, required this.data});
+  final double pulse, alertFlash, signal, lanePulse;
+  final DrivoraSensorData data;
+
+  int    _waves(int s)  => s == 2 ? 6 : s == 1 ? 5 : 3;
+  double _sw(int s)     => s == 2 ? 5.0 : s == 1 ? 3.5 : 2.0;
+  double _spread(int s) => s == 2 ? 200 : s == 1 ? 165 : 130;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 420,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFF1744),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 40, spreadRadius: 5)],
-        border: Border.all(color: Colors.white30, width: 1.5),
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final cx = w / 2, cy = h / 2;
+
+    // ── ENLARGED car: 65% height, wider aspect 0.52 ──────────────────────
+    final carH = h * 0.65;
+    final carW = carH * 0.52;
+    final carRect = Rect.fromCenter(center: Offset(cx, cy), width: carW, height: carH);
+
+    final fSensorY = cy - carH / 2 - 18;
+    final rSensorY = cy + carH / 2 + 18;
+
+    // ── LANE LINES — positioned flush to car sides, accounting for new carW ─
+    _paintLaneLines(canvas, size, cx, cy, carW, carH);
+
+    // ── FRONT SONAR ──────────────────────────────────────────────────────
+    if (data.frontOnline) {
+      _paintSonar(canvas, cx, fSensorY, data.frontState, data.frontColor, true);
+      if (data.frontDistance >= 0) {
+        _distLabel(canvas, Offset(cx, fSensorY - 28), '${data.frontDistance.toStringAsFixed(1)} CM', data.frontColor);
+      }
+    }
+
+    // ── REAR SONAR ───────────────────────────────────────────────────────
+    if (data.rearOnline) {
+      _paintSonar(canvas, cx, rSensorY, data.rearState, data.rearColor, false);
+      if (data.rearDistance >= 0) {
+        _distLabel(canvas, Offset(cx, rSensorY + 28), '${data.rearDistance.toStringAsFixed(1)} CM', data.rearColor);
+      }
+    }
+
+    // ── BODY GLOW ─────────────────────────────────────────────────────────
+    final crit = data.frontState == 2 || data.rearState == 2;
+    final warn = data.frontState == 1 || data.rearState == 1;
+    if (crit || warn) {
+      final gc = crit ? _kRed : _kAmber;
+      final gi = crit ? 0.28 + alertFlash * 0.32 : 0.14;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(carRect.inflate(18), Radius.circular(carW * 0.35)),
+        Paint()..color = gc.withOpacity(gi)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22),
+      );
+    }
+
+    // ── ROAD SURFACE BENEATH CAR ──────────────────────────────────────────
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(carRect.inflate(6), Radius.circular(carW * 0.32)),
+      Paint()..color = const Color(0xFF080C18),
+    );
+
+    // ── CAR BODY ──────────────────────────────────────────────────────────
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(cx, cy + carH * 0.08), width: carW * 1.1, height: carH * 0.18),
+      Paint()..color = Colors.black.withOpacity(0.45)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+    );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(carRect, Radius.circular(carW * 0.28)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          colors: [Color(0xFF2C3650), Color(0xFF141824), Color(0xFF1E2840), Color(0xFF0C1018)],
+          stops: [0.0, 0.35, 0.7, 1.0],
+        ).createShader(carRect),
+    );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(carRect, Radius.circular(carW * 0.28)),
+      Paint()..color = const Color(0xFF3A4560).withOpacity(0.9)..style = PaintingStyle.stroke..strokeWidth = 2,
+    );
+
+    // ── ROOF / CABIN ──────────────────────────────────────────────────────
+    final roofRect = Rect.fromCenter(
+      center: Offset(cx, cy - carH * 0.07),
+      width: carW * 0.78, height: carH * 0.42,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(roofRect, Radius.circular(carW * 0.18)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [Color(0xFF1A2A50), Color(0xFF0A1228)],
+        ).createShader(roofRect),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(roofRect, Radius.circular(carW * 0.18)),
+      Paint()..color = _kBlue.withOpacity(0.12)..style = PaintingStyle.stroke..strokeWidth = 1.5,
+    );
+
+    // ── WINDSHIELD ────────────────────────────────────────────────────────
+    final windshieldRect = Rect.fromCenter(
+      center: Offset(cx, cy - carH * 0.23),
+      width: carW * 0.68, height: carH * 0.14,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(windshieldRect, const Radius.circular(8)),
+      Paint()..color = _kBlue.withOpacity(0.18),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(windshieldRect, const Radius.circular(8)),
+      Paint()..color = _kCyan.withOpacity(0.12)..style = PaintingStyle.stroke..strokeWidth = 1,
+    );
+
+    // ── REAR WINDOW ───────────────────────────────────────────────────────
+    final rearWinRect = Rect.fromCenter(
+      center: Offset(cx, cy + carH * 0.17),
+      width: carW * 0.62, height: carH * 0.12,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rearWinRect, const Radius.circular(6)),
+      Paint()..color = const Color(0xFF1A2035).withOpacity(0.7),
+    );
+
+    // ── HOOD LINE ─────────────────────────────────────────────────────────
+    canvas.drawLine(
+      Offset(cx - carW * 0.38, cy - carH * 0.16),
+      Offset(cx + carW * 0.38, cy - carH * 0.16),
+      Paint()..color = const Color(0xFF2A3550).withOpacity(0.8)..strokeWidth = 1.2,
+    );
+
+    // ── TRUNK LINE ────────────────────────────────────────────────────────
+    canvas.drawLine(
+      Offset(cx - carW * 0.35, cy + carH * 0.28),
+      Offset(cx + carW * 0.35, cy + carH * 0.28),
+      Paint()..color = const Color(0xFF2A3550).withOpacity(0.8)..strokeWidth = 1.2,
+    );
+
+    // ── CENTER CONSOLE STRIP ──────────────────────────────────────────────
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cx, cy), width: carW * 0.06, height: carH * 0.28),
+        const Radius.circular(3),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.warning_rounded, color: Colors.white, size: 48),
-          const SizedBox(width: 24),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 1)),
-                const SizedBox(height: 4),
-                Text(message, style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-              ],
-            ),
-          ),
-          if (onDismiss != null) IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30), onPressed: onDismiss),
-        ],
-      ),
+      Paint()..color = const Color(0xFF0A0E18),
+    );
+
+    // ── HEADLIGHTS ────────────────────────────────────────────────────────
+    final fTop = cy - carH / 2;
+    final fLedColor = data.frontOnline ? data.frontColor : Colors.white30;
+    final fGlow = data.frontState == 2 ? 0.55 + alertFlash * 0.45 : 0.85;
+    _paintHeadlight(canvas, Offset(cx - carW * 0.30, fTop + carH * 0.04), fLedColor, fGlow, data.frontState == 2);
+    _paintHeadlight(canvas, Offset(cx + carW * 0.30, fTop + carH * 0.04), fLedColor, fGlow, data.frontState == 2);
+    _paintDRLStrip(canvas, cx, fTop + carH * 0.03, carW * 0.55, fLedColor.withOpacity(0.3));
+
+    // ── TAIL LIGHTS ───────────────────────────────────────────────────────
+    final rTop = cy + carH / 2;
+    final rLedColor = data.rearOnline ? data.rearColor : _kRed.withOpacity(0.5);
+    final rGlow = data.rearState == 2 ? 0.55 + alertFlash * 0.45 : 0.85;
+    _paintTailLight(canvas, Offset(cx - carW * 0.30, rTop - carH * 0.04), rLedColor, rGlow, data.rearState == 2);
+    _paintTailLight(canvas, Offset(cx + carW * 0.30, rTop - carH * 0.04), rLedColor, rGlow, data.rearState == 2);
+    _paintDRLStrip(canvas, cx, rTop - carH * 0.03, carW * 0.50, rLedColor.withOpacity(0.25));
+
+    // ── WHEELS ────────────────────────────────────────────────────────────
+    final wheelW = carW * 0.18, wheelH = carH * 0.14;
+    for (final p in [
+      Offset(cx - carW * 0.50, cy - carH * 0.28),
+      Offset(cx + carW * 0.50, cy - carH * 0.28),
+      Offset(cx - carW * 0.50, cy + carH * 0.28),
+      Offset(cx + carW * 0.50, cy + carH * 0.28),
+    ]) {
+      _paintWheel(canvas, p, wheelW, wheelH);
+    }
+
+    // ── SIGNAL WAVES ──────────────────────────────────────────────────────
+    if (data.frontOnline) {
+      _signalWaves(canvas, Offset(cx - carW * 0.30, fTop + carH * 0.04), data.frontColor, left: true);
+      _signalWaves(canvas, Offset(cx + carW * 0.30, fTop + carH * 0.04), data.frontColor, left: false);
+    }
+    if (data.rearOnline) {
+      _signalWaves(canvas, Offset(cx - carW * 0.30, rTop - carH * 0.04), data.rearColor, left: true);
+      _signalWaves(canvas, Offset(cx + carW * 0.30, rTop - carH * 0.04), data.rearColor, left: false);
+    }
+  }
+
+  void _paintHeadlight(Canvas canvas, Offset pos, Color color, double opacity, bool crit) {
+    if (crit) {
+      canvas.drawCircle(pos, 16,
+          Paint()..color = color.withOpacity(opacity * 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
+    }
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: pos, width: 22, height: 10), const Radius.circular(4)),
+      Paint()..color = color.withOpacity(opacity)..maskFilter = MaskFilter.blur(BlurStyle.normal, crit ? 10 : 6),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: pos, width: 22, height: 10), const Radius.circular(4)),
+      Paint()..color = color.withOpacity(0.9),
     );
   }
+
+  void _paintTailLight(Canvas canvas, Offset pos, Color color, double opacity, bool crit) {
+    if (crit) {
+      canvas.drawCircle(pos, 16,
+          Paint()..color = color.withOpacity(opacity * 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
+    }
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: pos, width: 20, height: 9), const Radius.circular(3)),
+      Paint()..color = color.withOpacity(opacity)..maskFilter = MaskFilter.blur(BlurStyle.normal, crit ? 10 : 5),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: pos, width: 20, height: 9), const Radius.circular(3)),
+      Paint()..color = color.withOpacity(0.85),
+    );
+  }
+
+  void _paintDRLStrip(Canvas canvas, double cx, double y, double w, Color color) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(cx, y), width: w, height: 3), const Radius.circular(2)),
+      Paint()..color = color,
+    );
+  }
+
+  void _paintWheel(Canvas canvas, Offset pos, double w, double h) {
+    canvas.drawOval(Rect.fromCenter(center: pos, width: w, height: h),
+        Paint()..color = const Color(0xFF1A1E2A));
+    canvas.drawOval(Rect.fromCenter(center: pos, width: w, height: h),
+        Paint()..color = const Color(0xFF3A4055)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    canvas.drawOval(Rect.fromCenter(center: pos, width: w * 0.55, height: h * 0.55),
+        Paint()..color = const Color(0xFF2A3045));
+    for (var i = 0; i < 4; i++) {
+      final angle = math.pi / 4 * i;
+      canvas.drawLine(
+        pos + Offset(math.cos(angle) * w * 0.1, math.sin(angle) * h * 0.1),
+        pos + Offset(math.cos(angle) * w * 0.25, math.sin(angle) * h * 0.25),
+        Paint()..color = const Color(0xFF4A5570)..strokeWidth = 1.5,
+      );
+    }
+  }
+
+  // ── LANE LINES — recalculated to sit just outside enlarged car edges ────
+  // Car half-width = carW/2 = (carH*0.52)/2. Lane lines get +26 px gap.
+  // Stroke width bumped to ~3.8 px (≈ 0.5 cm equivalent on screen).
+  void _paintLaneLines(Canvas canvas, Size size, double cx, double cy, double carW, double carH) {
+    // carW is passed in so positions always track the actual car width
+    final lx = cx - carW / 2 - 26;
+    final rx = cx + carW / 2 + 26;
+    final top    = cy - carH / 2 - 40;
+    final bottom = cy + carH / 2 + 40;
+
+    final leftOn  = data.laneState == 1;
+    final rightOn = data.laneState == 2;
+
+    // Increased dash stroke width: active = 6.0, idle = 3.8
+    _drawDash(canvas, lx, top, bottom, leftOn  ? _kAmber : Colors.white.withOpacity(0.1), leftOn  ? 6.0 : 3.8, leftOn  ? (0.6 + lanePulse * 0.4) : 1.0);
+    _drawDash(canvas, rx, top, bottom, rightOn ? _kAmber : Colors.white.withOpacity(0.1), rightOn ? 6.0 : 3.8, rightOn ? (0.6 + lanePulse * 0.4) : 1.0);
+
+    // Lane glow bloom
+    if (leftOn) {
+      canvas.drawLine(Offset(lx, top), Offset(lx, bottom),
+          Paint()..color = _kAmber.withOpacity(0.18 * lanePulse)..strokeWidth = 24..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+    }
+    if (rightOn) {
+      canvas.drawLine(Offset(rx, top), Offset(rx, bottom),
+          Paint()..color = _kAmber.withOpacity(0.18 * lanePulse)..strokeWidth = 24..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+    }
+
+    // Crossing arrows
+    if (leftOn)  _crossArrow(canvas, Offset(lx - 28, cy), false, _kAmber.withOpacity(0.7 + lanePulse * 0.3));
+    if (rightOn) _crossArrow(canvas, Offset(rx + 28, cy), true,  _kAmber.withOpacity(0.7 + lanePulse * 0.3));
+  }
+
+  void _drawDash(Canvas canvas, double x, double top, double bottom, Color color, double sw, double opacity) {
+    final p = Paint()..color = color.withOpacity(opacity)..strokeWidth = sw..strokeCap = StrokeCap.round;
+    const dash = 16.0, gap = 12.0;
+    var y = top;
+    while (y < bottom) {
+      canvas.drawLine(Offset(x, y), Offset(x, math.min(y + dash, bottom)), p);
+      y += dash + gap;
+    }
+  }
+
+  void _crossArrow(Canvas canvas, Offset pos, bool right, Color color) {
+    final d = right ? 1.0 : -1.0;
+    final path = Path()
+      ..moveTo(pos.dx - d * 10, pos.dy - 10)
+      ..lineTo(pos.dx + d * 10, pos.dy)
+      ..lineTo(pos.dx - d * 10, pos.dy + 10);
+    canvas.drawPath(path, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 2.5..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round);
+  }
+
+  void _paintSonar(Canvas canvas, double cx, double focusY, int state, Color color, bool front) {
+    final wc = _waves(state), sp = _spread(state), sw = _sw(state);
+    for (var i = 0; i < wc; i++) {
+      final t = (pulse + i / wc) % 1.0;
+      final op = (state == 2 ? (0.9 - t * 0.65) * (0.55 + alertFlash * 0.45) : (0.8 - t * 0.70)).clamp(0.0, 1.0);
+      final ew = 60 + t * sp, eh = 28 + t * (sp * 0.45);
+
+      if (state == 2) {
+        canvas.drawArc(Rect.fromCenter(center: Offset(cx, focusY), width: ew + 10, height: eh + 10),
+            front ? -math.pi : 0, math.pi, false,
+            Paint()..color = color.withOpacity(op * 0.3)..style = PaintingStyle.stroke..strokeWidth = sw + 7..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+      }
+      canvas.drawArc(Rect.fromCenter(center: Offset(cx, focusY), width: ew, height: eh),
+          front ? -math.pi : 0, math.pi, false,
+          Paint()..color = color.withOpacity(op)..style = PaintingStyle.stroke..strokeWidth = sw..strokeCap = StrokeCap.round);
+    }
+  }
+
+  void _signalWaves(Canvas canvas, Offset o, Color color, {required bool left}) {
+    final dir = left ? -1.0 : 1.0;
+    for (var i = 0; i < 3; i++) {
+      final phase = (signal + i * 0.33) % 1.0;
+      final x = o.dx + dir * phase * 26;
+      final op = (1.0 - phase) * 0.75;
+      final path = Path()
+        ..moveTo(x, o.dy - 6)
+        ..quadraticBezierTo(x + dir * 5, o.dy, x, o.dy + 6);
+      canvas.drawPath(path, Paint()..color = color.withOpacity(op)..style = PaintingStyle.stroke..strokeWidth = 2.5..strokeCap = StrokeCap.round);
+    }
+  }
+
+  void _distLabel(Canvas canvas, Offset pos, String text, Color color) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: TextStyle(
+        color: color, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1,
+        shadows: [Shadow(color: color.withOpacity(0.85), blurRadius: 8)],
+      )),
+      textDirection: TextDirection.ltr, textAlign: TextAlign.center,
+    )..layout();
+    tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter _) => true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMMAND CENTER
+// COMMAND BUTTON
 // ─────────────────────────────────────────────────────────────────────────────
-class _CommandCenter extends StatelessWidget {
+class _CmdBtn extends StatelessWidget {
+  const _CmdBtn({required this.svc});
   final WiFiSensorService svc;
-  const _CommandCenter({required this.svc});
 
   @override
   Widget build(BuildContext context) {
     final active = svc.isConnected;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
       child: GestureDetector(
         onTap: svc.toggleSafetyShield,
         child: Container(
-          height: 62,
+          height: 58,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: active ? [const Color(0xFFFF1744), const Color(0xFFD50000)] : [const Color(0xFF2979FF), const Color(0xFF1565C0)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: (active ? Colors.red : Colors.blue).withOpacity(0.25), blurRadius: 15, offset: const Offset(0, 5))],
+            gradient: LinearGradient(colors: active
+                ? [const Color(0xFFFF1744), const Color(0xFFB71C1C)]
+                : [const Color(0xFF2979FF), const Color(0xFF1A237E)]),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(color: (active ? _kRed : _kBlue).withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6)),
+            ],
           ),
           alignment: Alignment.center,
-          child: Text(
-            active ? 'TERMINATE HUB CONNECTION' : 'ESTABLISH ADAS BRAIN LINK',
-            style: GoogleFonts.orbitron(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 2),
-          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(active ? Icons.power_settings_new : Icons.link, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Text(active ? 'TERMINATE HUB CONNECTION' : 'ESTABLISH ADAS BRAIN LINK',
+                style: GoogleFonts.orbitron(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 2)),
+          ]),
         ),
       ),
     );
@@ -615,516 +1215,56 @@ class _CommandCenter extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HEADER STATUS PILL
+// ALERT BANNER
 // ─────────────────────────────────────────────────────────────────────────────
-class _HeaderStatusPill extends StatelessWidget {
-  final String label;
-  final bool active;
-  final bool isTappable;
-  const _HeaderStatusPill(this.label, this.active, {this.isTappable = false});
+class _AlertBanner extends StatelessWidget {
+  const _AlertBanner({required this.title, required this.message, this.onDismiss});
+  final String title, message;
+  final VoidCallback? onDismiss;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(color: const Color(0xFF1E2535), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white.withOpacity(0.05))),
-      child: Text(label, style: TextStyle(color: active ? const Color(0xFF00E676) : Colors.white60, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    width: 460,
+    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+    decoration: BoxDecoration(
+      color: _kRed,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: Colors.white24, width: 1.5),
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 40, spreadRadius: 4)],
+    ),
+    child: Row(children: [
+      const Icon(Icons.warning_rounded, color: Colors.white, size: 42),
+      const SizedBox(width: 18),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Text(title, style: GoogleFonts.orbitron(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 1)),
+        const SizedBox(height: 3),
+        Text(message, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+      ])),
+      if (onDismiss != null)
+        IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white, size: 26), onPressed: onDismiss),
+    ]),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STATUS LIGHT
+// KEPT FOR EXTERNAL COMPATIBILITY
 // ─────────────────────────────────────────────────────────────────────────────
 class _StatusLight extends StatelessWidget {
-  final bool online;
   const _StatusLight({required this.online});
-
+  final bool online;
   @override
   Widget build(BuildContext context) {
-    final color = online ? const Color(0xFF00E676) : Colors.red;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 9, height: 9,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color, boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 6)]),
-        ),
-        const SizedBox(width: 8),
-        Text(online ? 'ONLINE' : 'OFFLINE', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900)),
-      ],
-    );
+    final c = online ? _kGreen : _kRed;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: c,
+          boxShadow: [BoxShadow(color: c.withOpacity(0.6), blurRadius: 6)])),
+      const SizedBox(width: 6),
+      Text(online ? 'ONLINE' : 'OFFLINE', style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.w900)),
+    ]);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// METRIC DATA
-// ─────────────────────────────────────────────────────────────────────────────
 class _MetricData {
-  final String label;
-  final String value;
   _MetricData(this.label, this.value);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MERGED 3D CAR VISUAL — NOW WITH ANIMATED SIGNAL WAVES INSTEAD OF STATE CHIPS
-// ─────────────────────────────────────────────────────────────────────────────
-class _Merged3DCarVisual extends StatefulWidget {
-  final int frontState, rearState;
-  final Color frontColor, rearColor;
-  final bool frontActive, rearActive;
-  final double frontDistance, rearDistance;
-
-  const _Merged3DCarVisual({
-    required this.frontState,
-    required this.rearState,
-    required this.frontColor,
-    required this.rearColor,
-    required this.frontActive,
-    required this.rearActive,
-    required this.frontDistance,
-    required this.rearDistance,
-  });
-
-  @override
-  State<_Merged3DCarVisual> createState() => _Merged3DCarVisualState();
-}
-
-class _Merged3DCarVisualState extends State<_Merged3DCarVisual>
-    with TickerProviderStateMixin {
-  late AnimationController _pulseCtrl;
-  late AnimationController _alertCtrl;
-  late AnimationController _signalCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    // Primary radar pulse — speed adapts to proximity
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
-    // Alert flash for critical state
-    _alertCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 400))..repeat(reverse: true);
-    // Signal wave animation
-    _signalCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))..repeat();
-  }
-
-  @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    _alertCtrl.dispose();
-    _signalCtrl.dispose();
-    super.dispose();
-  }
-
-  /// Map distance to pulse speed: closer = faster pulses
-  Duration _pulseDuration(double dist) {
-    if (dist < 0) return const Duration(milliseconds: 1200);
-    if (dist < 20) return const Duration(milliseconds: 300);
-    if (dist < 50) return const Duration(milliseconds: 600);
-    if (dist < 100) return const Duration(milliseconds: 900);
-    return const Duration(milliseconds: 1400);
-  }
-
-  @override
-  void didUpdateWidget(covariant _Merged3DCarVisual old) {
-    super.didUpdateWidget(old);
-    // Dynamically adjust pulse speed based on closest threat
-    final minDist = [
-      if (widget.frontDistance >= 0) widget.frontDistance,
-      if (widget.rearDistance >= 0) widget.rearDistance,
-    ].fold<double>(9999, (a, b) => a < b ? a : b);
-    final dur = _pulseDuration(minDist);
-    if (_pulseCtrl.duration != dur) {
-      _pulseCtrl.duration = dur;
-      _pulseCtrl.repeat();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([_pulseCtrl, _alertCtrl, _signalCtrl]),
-      builder: (context, _) => CustomPaint(
-        size: Size.infinite,
-        painter: _MergedCarRadarPainter(
-          pulse: _pulseCtrl.value,
-          alertFlash: _alertCtrl.value,
-          signal: _signalCtrl.value,
-          fColor: widget.frontColor,
-          rColor: widget.rearColor,
-          fActive: widget.frontActive,
-          rActive: widget.rearActive,
-          fState: widget.frontState,
-          rState: widget.rearState,
-          fDist: widget.frontDistance,
-          rDist: widget.rearDistance,
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MERGED CAR RADAR PAINTER — WITH ANIMATED SIGNAL WAVES
-// ─────────────────────────────────────────────────────────────────────────────
-class _MergedCarRadarPainter extends CustomPainter {
-  final double pulse;
-  final double alertFlash;
-  final double signal;
-  final Color fColor, rColor;
-  final bool fActive, rActive;
-  final int fState, rState;
-  final double fDist, rDist;
-
-  _MergedCarRadarPainter({
-    required this.pulse,
-    required this.alertFlash,
-    required this.signal,
-    required this.fColor,
-    required this.rColor,
-    required this.fActive,
-    required this.rActive,
-    required this.fState,
-    required this.rState,
-    required this.fDist,
-    required this.rDist,
-  });
-
-  /// Number of wave rings — more rings for closer/danger states
-  int _waveCount(int state) {
-    if (state == 2) return 5; // CRITICAL
-    if (state == 1) return 4; // WARNING
-    return 3;                 // SAFE / IDLE
-  }
-
-  /// Wave thickness — danger gets bolder waves
-  double _strokeWidth(int state) {
-    if (state == 2) return 4.5;
-    if (state == 1) return 3.0;
-    return 2.0;
-  }
-
-  /// Max spread of waves — larger spread for critical
-  double _maxSpread(int state) {
-    if (state == 2) return 160;
-    if (state == 1) return 130;
-    return 110;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final center = Offset(cx, cy);
-
-    // ── FRONT SONAR WAVES ────────────────────────────────────────────────────
-    if (fActive) {
-      final wCount = _waveCount(fState);
-      final spread = _maxSpread(fState);
-      final sw = _strokeWidth(fState);
-      final focusY = cy - 72; // front sensor focal point above car
-
-      for (int i = 0; i < wCount; i++) {
-        final t = (pulse + i / wCount) % 1.0;
-        final baseOpacity = fState == 2
-            ? (0.9 - t * 0.7) * (0.6 + alertFlash * 0.4)
-            : (0.75 - t * 0.65);
-        final opacity = baseOpacity.clamp(0.0, 1.0);
-        final w = 50 + t * spread;
-        final h = 24 + t * (spread * 0.5);
-
-        final wavePaint = Paint()
-          ..color = fColor.withOpacity(opacity)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = sw
-          ..strokeCap = StrokeCap.round;
-
-        // Add glow for critical state
-        if (fState == 2) {
-          final glowPaint = Paint()
-            ..color = fColor.withOpacity(opacity * 0.4)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = sw + 6
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-          canvas.drawArc(
-            Rect.fromCenter(center: Offset(cx, focusY), width: w, height: h),
-            -math.pi, math.pi, false, glowPaint,
-          );
-        }
-
-        canvas.drawArc(
-          Rect.fromCenter(center: Offset(cx, focusY), width: w, height: h),
-          -math.pi, math.pi, false, wavePaint,
-        );
-      }
-
-      // Distance label above waves
-      if (fDist >= 0) {
-        _drawDistLabel(canvas, Offset(cx, focusY - 18), '${fDist.toStringAsFixed(1)} CM', fColor);
-      }
-    }
-
-    // ── REAR SONAR WAVES ─────────────────────────────────────────────────────
-    if (rActive) {
-      final wCount = _waveCount(rState);
-      final spread = _maxSpread(rState);
-      final sw = _strokeWidth(rState);
-      final focusY = cy + 72; // rear sensor focal point below car
-
-      for (int i = 0; i < wCount; i++) {
-        final t = (pulse + i / wCount) % 1.0;
-        final baseOpacity = rState == 2
-            ? (0.9 - t * 0.7) * (0.6 + alertFlash * 0.4)
-            : (0.75 - t * 0.65);
-        final opacity = baseOpacity.clamp(0.0, 1.0);
-        final w = 50 + t * spread;
-        final h = 24 + t * (spread * 0.5);
-
-        final wavePaint = Paint()
-          ..color = rColor.withOpacity(opacity)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = sw
-          ..strokeCap = StrokeCap.round;
-
-        if (rState == 2) {
-          final glowPaint = Paint()
-            ..color = rColor.withOpacity(opacity * 0.4)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = sw + 6
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-          canvas.drawArc(
-            Rect.fromCenter(center: Offset(cx, focusY), width: w, height: h),
-            0, math.pi, false, glowPaint,
-          );
-        }
-
-        canvas.drawArc(
-          Rect.fromCenter(center: Offset(cx, focusY), width: w, height: h),
-          0, math.pi, false, wavePaint,
-        );
-      }
-
-      // Distance label below waves
-      if (rDist >= 0) {
-        _drawDistLabel(canvas, Offset(cx, focusY + 18), '${rDist.toStringAsFixed(1)} CM', rColor);
-      }
-    }
-
-    // ── CAR BODY — with alert glow overlay if any sensor is critical ─────────
-    final isCritical = fState == 2 || rState == 2;
-    final isWarning = fState == 1 || rState == 1;
-    final bodyGlowColor = isCritical
-        ? const Color(0xFFFF1744)
-        : isWarning
-        ? const Color(0xFFFFAB00)
-        : Colors.transparent;
-
-    // Outer alert glow on body
-    if (isCritical || isWarning) {
-      final glowIntensity = isCritical ? (0.3 + alertFlash * 0.35) : 0.18;
-      final bodyGlowPaint = Paint()
-        ..color = bodyGlowColor.withOpacity(glowIntensity)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 92, height: 170), const Radius.circular(26)),
-        bodyGlowPaint,
-      );
-    }
-
-    // Metallic car body
-    final bP = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [const Color(0xFF34495E), Colors.black, const Color(0xFF34495E)],
-      ).createShader(Rect.fromCenter(center: center, width: 100, height: 200));
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 80, height: 160), const Radius.circular(22)),
-      bP,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 80, height: 160), const Radius.circular(22)),
-      Paint()..color = Colors.white12..style = PaintingStyle.stroke..strokeWidth = 2,
-    );
-
-    // Glass windshield
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: center.translate(0, -20), width: 65, height: 55), const Radius.circular(12)),
-      Paint()..color = const Color(0xFF2979FF).withOpacity(0.2),
-    );
-
-    // Front headlights — color-coded to front sensor state
-    final fLedColor = fActive ? fColor : Colors.white38;
-    final fLed = Paint()
-      ..color = fLedColor.withOpacity(fState == 2 ? (0.6 + alertFlash * 0.4) : 0.9)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, fState == 2 ? 14 : 8);
-    canvas.drawCircle(center.translate(-30, -75), fState == 2 ? 13 : 10, fLed);
-    canvas.drawCircle(center.translate(30, -75), fState == 2 ? 13 : 10, fLed);
-
-    // Rear tail lights — color-coded to rear sensor state
-    final rLedColor = rActive ? rColor : Colors.red.withOpacity(0.6);
-    final rLed = Paint()
-      ..color = rLedColor.withOpacity(rState == 2 ? (0.6 + alertFlash * 0.4) : 0.9)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, rState == 2 ? 14 : 8);
-    canvas.drawCircle(center.translate(-30, 75), rState == 2 ? 13 : 10, rLed);
-    canvas.drawCircle(center.translate(30, 75), rState == 2 ? 13 : 10, rLed);
-
-    // ── ANIMATED SIGNAL WAVES (FRONT) ────────────────────────────────────────
-    if (fActive) {
-      _drawSignalWaves(canvas, Offset(cx - 30, cy - 75), fColor, signal, left: true);
-      _drawSignalWaves(canvas, Offset(cx + 30, cy - 75), fColor, signal, left: false);
-    }
-
-    // ── ANIMATED SIGNAL WAVES (REAR) ─────────────────────────────────────────
-    if (rActive) {
-      _drawSignalWaves(canvas, Offset(cx - 30, cy + 75), rColor, signal, left: true);
-      _drawSignalWaves(canvas, Offset(cx + 30, cy + 75), rColor, signal, left: false);
-    }
-  }
-
-  void _drawSignalWaves(Canvas canvas, Offset origin, Color color, double t, {required bool left}) {
-    final direction = left ? -1.0 : 1.0;
-
-    for (int i = 0; i < 3; i++) {
-      final phase = (t + i * 0.33) % 1.0;
-      final x = origin.dx + direction * phase * 25;
-      final y = origin.dy;
-      final opacity = (1.0 - phase) * 0.8;
-
-      final wavePaint = Paint()
-        ..color = color.withOpacity(opacity)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round;
-
-      // Draw curved signal wave
-      final path = Path();
-      path.moveTo(x, y - 6);
-      path.quadraticBezierTo(x + direction * 4, y, x, y + 6);
-      canvas.drawPath(path, wavePaint);
-    }
-  }
-
-  void _drawDistLabel(Canvas canvas, Offset pos, String text, Color color) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          color: color,
-          fontSize: 13,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1,
-          shadows: [Shadow(color: color.withOpacity(0.8), blurRadius: 8)],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )..layout();
-    tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => true;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LANE VISUAL (unchanged)
-// ─────────────────────────────────────────────────────────────────────────────
-class _LaneVisual extends StatefulWidget {
-  final int laneState;
-  const _LaneVisual({required this.laneState});
-  @override
-  State<_LaneVisual> createState() => _LaneVisualState();
-}
-
-class _LaneVisualState extends State<_LaneVisual> with SingleTickerProviderStateMixin {
-  late AnimationController _pulse;
-  @override
-  void initState() { super.initState(); _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true); }
-  @override
-  void dispose() { _pulse.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulse,
-      builder: (context, _) => CustomPaint(
-        size: Size.infinite,
-        painter: _LanePainter(state: widget.laneState, pulse: _pulse.value),
-      ),
-    );
-  }
-}
-
-class _LanePainter extends CustomPainter {
-  final int state;
-  final double pulse;
-  _LanePainter({required this.state, required this.pulse});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-
-    final lP = Paint()..strokeWidth = 12..strokeCap = StrokeCap.round;
-    final rP = Paint()..strokeWidth = 12..strokeCap = StrokeCap.round;
-
-    if (state == 1) {
-      lP.color = const Color(0xFFFFAB00).withOpacity(0.6 + pulse * 0.4);
-      lP.maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-    } else {
-      lP.color = Colors.white12;
-    }
-    canvas.drawLine(Offset(size.width * 0.3, size.height * 0.05), Offset(size.width * 0.3, size.height * 0.95), lP);
-
-    if (state == 2) {
-      rP.color = const Color(0xFFFFAB00).withOpacity(0.6 + pulse * 0.4);
-      rP.maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-    } else {
-      rP.color = Colors.white12;
-    }
-    canvas.drawLine(Offset(size.width * 0.7, size.height * 0.05), Offset(size.width * 0.7, size.height * 0.95), rP);
-
-    final bodyPaint = Paint()
-      ..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [const Color(0xFF2C3E50), Colors.black])
-          .createShader(Rect.fromCenter(center: center, width: 40, height: 80));
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 35, height: 75), const Radius.circular(8)), bodyPaint);
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: 35, height: 75), const Radius.circular(8)),
-        Paint()..color = Colors.white10..style = PaintingStyle.stroke..strokeWidth = 1);
-
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center.translate(0, -10), width: 30, height: 25), const Radius.circular(4)),
-        Paint()..color = const Color(0xFF2979FF).withOpacity(0.1));
-  }
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => true;
-}
-
-class _TacticalScopePainter extends CustomPainter {
-  final double dotX, dotY;
-  _TacticalScopePainter({required this.dotX, required this.dotY});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final rad = math.min(size.width, size.height) / 2;
-    final gP = Paint()..color = Colors.white.withOpacity(0.12)..style = PaintingStyle.stroke..strokeWidth = 1;
-
-    for (int i = 1; i <= 5; i++) { canvas.drawCircle(center, (rad / 5) * i, gP); }
-    canvas.drawLine(Offset(0, center.dy), Offset(size.width, center.dy), gP);
-    canvas.drawLine(Offset(center.dx, 0), Offset(center.dx, size.height), gP);
-
-    // Zones
-    canvas.drawCircle(center, rad * 0.78, Paint()..color = const Color(0xFFFFAB00).withOpacity(0.1)..style = PaintingStyle.stroke..strokeWidth = 2);
-    canvas.drawCircle(center, rad * 0.90, Paint()..color = const Color(0xFFFF1744).withOpacity(0.1)..style = PaintingStyle.stroke..strokeWidth = 2);
-
-    final dot = Offset(dotX, dotY);
-    const dotColor = Color(0xFF00E5FF);
-    canvas.drawCircle(dot, 16, Paint()..color = dotColor.withOpacity(0.2)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
-    canvas.drawCircle(dot, 9, Paint()..color = dotColor);
-    canvas.drawCircle(dot, 5, Paint()..color = Colors.white);
-
-    final ret = Paint()..color = dotColor.withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 2;
-    canvas.drawLine(dot.translate(-20, 0), dot.translate(20, 0), ret);
-    canvas.drawLine(dot.translate(0, -20), dot.translate(0, 20), ret);
-  }
-  @override
-  bool shouldRepaint(covariant _TacticalScopePainter old) => old.dotX != dotX || old.dotY != dotY;
+  final String label, value;
 }

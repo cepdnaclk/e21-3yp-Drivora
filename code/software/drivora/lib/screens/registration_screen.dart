@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/wifi_sensor_service.dart';
 import '../services/cloud_service.dart';
+import '../providers/user_provider.dart';
 import 'dashboard_screen.dart';
 import 'dart:math' as math;
 
 class RegistrationScreen extends StatefulWidget {
-  const RegistrationScreen({Key? key}) : super(key: key);
+  const RegistrationScreen({super.key});
 
   @override
   State<RegistrationScreen> createState() => _RegistrationScreenState();
@@ -41,8 +42,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => Scaffold(
       backgroundColor: AppTheme.background,
       body: Stack(
         children: [
@@ -50,17 +50,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
           Positioned.fill(
             child: AnimatedBuilder(
               animation: _animationController,
-              builder: (context, child) {
-                return CustomPaint(
+              builder: (context, child) => CustomPaint(
                   painter: _TechArtPainter(rotation: _animationController.value),
-                );
-              },
+                ),
             ),
           ),
 
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 32.0),
+              padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Form(
                 key: _formKey,
                 child: Column(
@@ -100,10 +98,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ],
       ),
     );
-  }
 
-  Widget _buildHeader() {
-    return Column(
+  Widget _buildHeader() => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
@@ -136,10 +132,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ),
       ],
     );
-  }
 
-  Widget _buildInputLabel(String label) {
-    return Padding(
+  Widget _buildInputLabel(String label) => Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         label,
@@ -151,10 +145,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ),
       ),
     );
-  }
 
-  Widget _buildTextField(String hint, IconData icon, TextEditingController controller, {bool isNumber = false}) {
-    return Container(
+  Widget _buildTextField(String hint, IconData icon, TextEditingController controller, {bool isNumber = false}) => Container(
       decoration: BoxDecoration(
         color: AppTheme.panel,
         borderRadius: BorderRadius.circular(16),
@@ -181,10 +173,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         validator: (value) => value!.isEmpty ? 'FIELD REQUIRED' : null,
       ),
     );
-  }
 
-  Widget _buildCreateAccountButton() {
-    return Container(
+  Widget _buildCreateAccountButton() => Container(
       width: double.infinity,
       height: 64,
       decoration: BoxDecoration(
@@ -203,9 +193,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
       child: ElevatedButton(
         onPressed: () async {
           if (_formKey.currentState!.validate()) {
-            // 1. Save user data to Firebase Cloud with default calibration values
             final cloud = CloudService();
-            await cloud.registerUserFirebase(
+            final success = await cloud.registerUserFirebase(
               name: _nameController.text,
               email: _emailController.text,
               carModel: _carModelController.text,
@@ -213,17 +202,31 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
               width: 1.8,
             );
 
-            // 2. Send Calibration directly to ESP32 Hardware (fire and forget)
+            if (!mounted) {
+              return;
+            }
+
+            if (!success) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Unable to save your profile. Please try again.')),
+              );
+              return;
+            }
+
+            final userProvider = Provider.of<UserProvider>(context, listen: false);
+            await userProvider.initializeUser();
+
             final sensorService = Provider.of<WiFiSensorService>(context, listen: false);
-            sensorService.sendCalibrationToHardware(
+            await sensorService.sendCalibrationToHardware(
               height: 1.5,
               width: 1.8,
             );
 
-            // 3. Always navigate to Dashboard
-            if (mounted) {
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const DashboardScreen()));
+            if (!mounted) {
+              return;
             }
+
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const DashboardScreen()));
           }
         },
         style: ElevatedButton.styleFrom(
@@ -242,12 +245,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ),
       ),
     );
-  }
 }
 
 class _TechArtPainter extends CustomPainter {
-  final double rotation;
   _TechArtPainter({required this.rotation});
+  final double rotation;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -266,7 +268,7 @@ class _TechArtPainter extends CustomPainter {
       // Draw markers on rings
       final angle = (rotation * 2 * math.pi) + (i * math.pi / 4);
       final markerPos = center + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
-      canvas.drawCircle(markerPos, 4.0, Paint()..color = AppTheme.accentBlue.withOpacity(0.1));
+      canvas.drawCircle(markerPos, 4, Paint()..color = AppTheme.accentBlue.withOpacity(0.1));
     }
 
     // Draw grid lines
