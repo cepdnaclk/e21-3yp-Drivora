@@ -10,6 +10,7 @@ static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 const uint32_t REAR_MAIN_ID  = 0x300;
 const uint32_t REAR_DEBUG_ID = 0x301;
 const uint32_t REAR_DIST_ID  = 0x302;
+const uint32_t REAR_CFG_ID   = 0x310;
 
 unsigned long lastMainSendMs = 0;
 const unsigned long MAIN_SEND_MS = 50;
@@ -43,29 +44,34 @@ const unsigned long SENSOR_GAP_MS = 3;
 const float MIN_VALID_CM = 23.0f;
 const float MAX_VALID_CM = 250.0f;
 
-const float OBJECT_DETECTED_CM = 120.0f;
-const float CAUTION_CM         = 50.0f;
-const float WARNING_CM         = 30.0f;
+// -------- Preset-controlled thresholds --------
+float OBJECT_DETECTED_CM = 120.0f;
+float CAUTION_CM         = 50.0f;
+float WARNING_CM         = 30.0f;
 
 // ================= STATE HYSTERESIS =================
-const float OBJECT_DETECTED_EXIT_CM = 128.0f;
-const float CAUTION_EXIT_CM         = 56.0f;
+float OBJECT_DETECTED_EXIT_CM = 128.0f;
+float CAUTION_EXIT_CM         = 56.0f;
 
 // ================= REAR WARNING LATCH =================
-const float WARNING_LATCH_ENTRY_CM   = 30.0f;
-const float WARNING_LATCH_RELEASE_CM = 34.0f;
+float WARNING_LATCH_ENTRY_CM   = 30.0f;
+float WARNING_LATCH_RELEASE_CM = 34.0f;
 const int   WARNING_LATCH_RELEASE_CONFIRM = 3;
-const float FAST_WARNING_RELEASE_CM  = 37.0f;
+float FAST_WARNING_RELEASE_CM  = 37.0f;
 const int   FAST_WARNING_RELEASE_CONFIRM = 2;
 
 // ================= FAST WARNING ENTRY =================
-const float FAST_WARNING_ARM_CM   = 45.0f;
+float FAST_WARNING_ARM_CM   = 45.0f;
 const float FAST_ENTRY_JUMP_CM    = 12.0f;
 const unsigned long FAST_WARNING_MEMORY_MS = 800;
 
 // ================= CORE STABILITY =================
 const float RELEASE_SUSPICIOUS_JUMP_CM = 18.0f;
 const unsigned long RECENT_VALID_MEMORY_MS = 800;
+
+// ================= REAR PRESET =================
+uint8_t rearSensitivityPreset = 1; // 0 Near, 1 Normal, 2 Far
+uint8_t lastRearCfgCounter = 0xFF;
 
 // ================= SAMPLING =================
 const int sampleSize = 2;
@@ -127,6 +133,72 @@ const char* stateName(RearState s) {
     case WARNING: return "WARNING";
     default: return "CLEAR";
   }
+}
+
+const char* rearPresetName(uint8_t p) {
+  switch (p) {
+    case 0: return "Near";
+    case 1: return "Normal";
+    case 2: return "Far";
+    default: return "Normal";
+  }
+}
+
+void applyRearSensitivityPreset(uint8_t preset) {
+  rearSensitivityPreset = constrain((int)preset, 0, 2);
+
+  if (rearSensitivityPreset == 0) {
+    // Near
+    OBJECT_DETECTED_CM       = 100.0f;
+    CAUTION_CM               = 42.0f;
+    WARNING_CM               = 26.0f;
+
+    OBJECT_DETECTED_EXIT_CM  = 108.0f;
+    CAUTION_EXIT_CM          = 47.0f;
+
+    WARNING_LATCH_ENTRY_CM   = 26.0f;
+    WARNING_LATCH_RELEASE_CM = 30.0f;
+    FAST_WARNING_RELEASE_CM  = 33.0f;
+    FAST_WARNING_ARM_CM      = 38.0f;
+  } else if (rearSensitivityPreset == 2) {
+    // Far
+    OBJECT_DETECTED_CM       = 140.0f;
+    CAUTION_CM               = 58.0f;
+    WARNING_CM               = 35.0f;
+
+    OBJECT_DETECTED_EXIT_CM  = 148.0f;
+    CAUTION_EXIT_CM          = 64.0f;
+
+    WARNING_LATCH_ENTRY_CM   = 35.0f;
+    WARNING_LATCH_RELEASE_CM = 39.0f;
+    FAST_WARNING_RELEASE_CM  = 42.0f;
+    FAST_WARNING_ARM_CM      = 52.0f;
+  } else {
+    // Normal
+    OBJECT_DETECTED_CM       = 120.0f;
+    CAUTION_CM               = 50.0f;
+    WARNING_CM               = 30.0f;
+
+    OBJECT_DETECTED_EXIT_CM  = 128.0f;
+    CAUTION_EXIT_CM          = 56.0f;
+
+    WARNING_LATCH_ENTRY_CM   = 30.0f;
+    WARNING_LATCH_RELEASE_CM = 34.0f;
+    FAST_WARNING_RELEASE_CM  = 37.0f;
+    FAST_WARNING_ARM_CM      = 45.0f;
+  }
+
+  Serial.print("Applied rear preset: ");
+  Serial.println(rearPresetName(rearSensitivityPreset));
+  Serial.print("OBJECT_DETECTED_CM = "); Serial.println(OBJECT_DETECTED_CM, 1);
+  Serial.print("CAUTION_CM = "); Serial.println(CAUTION_CM, 1);
+  Serial.print("WARNING_CM = "); Serial.println(WARNING_CM, 1);
+  Serial.print("OBJECT_DETECTED_EXIT_CM = "); Serial.println(OBJECT_DETECTED_EXIT_CM, 1);
+  Serial.print("CAUTION_EXIT_CM = "); Serial.println(CAUTION_EXIT_CM, 1);
+  Serial.print("WARNING_LATCH_ENTRY_CM = "); Serial.println(WARNING_LATCH_ENTRY_CM, 1);
+  Serial.print("WARNING_LATCH_RELEASE_CM = "); Serial.println(WARNING_LATCH_RELEASE_CM, 1);
+  Serial.print("FAST_WARNING_RELEASE_CM = "); Serial.println(FAST_WARNING_RELEASE_CM, 1);
+  Serial.print("FAST_WARNING_ARM_CM = "); Serial.println(FAST_WARNING_ARM_CM, 1);
 }
 
 void initWatchdog() {
@@ -210,6 +282,26 @@ bool initCAN() {
 
   Serial.println("TWAI started on rear node");
   return true;
+}
+
+void receiveCANFrames() {
+  twai_message_t msg;
+
+  while (twai_receive(&msg, 0) == ESP_OK) {
+    if (msg.extd || msg.rtr) continue;
+
+    if (msg.identifier == REAR_CFG_ID && msg.data_length_code >= 8) {
+      uint8_t counter = msg.data[7];
+      if (counter == lastRearCfgCounter) continue;
+      lastRearCfgCounter = counter;
+
+      uint8_t preset = msg.data[0];
+      applyRearSensitivityPreset(preset);
+
+      Serial.print("RX RearCfg | preset=");
+      Serial.println(rearSensitivityPreset);
+    }
+  }
 }
 
 void sendRearMainFrame(unsigned long nowMs) {
@@ -575,6 +667,7 @@ void setup() {
 
   initCAN();
   initWatchdog();
+  applyRearSensitivityPreset(rearSensitivityPreset);
 
   lastLoopMs = millis();
   leftSensor.lastValidSeenMs = millis();
@@ -590,6 +683,7 @@ void setup() {
 // ================= LOOP =================
 void loop() {
   feedWatchdog();
+  receiveCANFrames();
 
   unsigned long nowMs = millis();
 
@@ -612,7 +706,10 @@ void loop() {
   float loopMs = (float)(nowMs - lastLoopMs);
   lastLoopMs = nowMs;
 
-  Serial.print("L raw=");
+  Serial.print("Preset=");
+  Serial.print(rearPresetName(rearSensitivityPreset));
+
+  Serial.print(" | L raw=");
   if (leftSensor.rawDistance < 0) Serial.print("Invalid");
   else Serial.print(leftSensor.rawDistance, 1);
   Serial.print(" filt=");
