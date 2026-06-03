@@ -15,8 +15,11 @@ static const int I2C_SCL = 9;
 static const gpio_num_t CAN_TX_PIN = GPIO_NUM_6;
 static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 
-const uint32_t LEAN_MAIN_ID  = 0x100;
-const uint32_t LEAN_DEBUG_ID = 0x101;
+const uint32_t LEAN_MAIN_ID   = 0x100;
+const uint32_t LEAN_DEBUG_ID  = 0x101;
+const uint32_t LEAN_CFG_A_ID  = 0x110;
+const uint32_t LEAN_CMD_ID    = 0x111;
+const uint32_t LEAN_CFG_B_ID  = 0x112;
 
 unsigned long lastCanSendMs = 0;
 const unsigned long CAN_SEND_MS = 50;
@@ -37,7 +40,7 @@ MPU6050 mpu;
 bool calibrated = false;
 
 // ================= VEHICLE MODEL =================
-// Controllable from the UI
+// Controllable from brain config
 int vehicleType = 3;           // 1 = Compact / low profile, 2 = Passenger vehicle, 3 = Tall vehicle / SUV
 float trackWidth_m = 1.56f;    // meters
 float wheelBase_m = 2.67f;     // meters
@@ -46,6 +49,20 @@ int loadCondition = 1;         // 0 = Light, 1 = Normal, 2 = Heavy
 
 float criticalRollDeg = 30.0f;
 float criticalPitchDeg = 20.0f;
+
+// ================= PENDING CONFIG FROM BRAIN =================
+bool cfgAReceived = false;
+bool cfgBReceived = false;
+
+uint8_t pendingVehicleType = 3;
+uint8_t pendingLoadCondition = 1;
+float pendingTrackWidth_m = 1.56f;
+float pendingWheelBase_m = 2.67f;
+float pendingVehicleHeight_m = 1.57f;
+
+uint8_t lastCfgACounter = 0xFF;
+uint8_t lastCfgBCounter = 0xFF;
+uint8_t lastCmdCounter  = 0xFF;
 
 // ================= CALIBRATION / REFERENCE =================
 float axBias = 0, ayBias = 0, azBias = 0;
@@ -155,6 +172,30 @@ void computeVehicle() {
 
   criticalRollDeg  = atan(trackWidth_m / (2.0f * cogH)) * 180.0f / PI;
   criticalPitchDeg = atan(wheelBase_m  / (2.0f * cogH)) * 180.0f / PI;
+}
+
+void applyPendingVehicleConfigIfReady() {
+  if (!cfgAReceived || !cfgBReceived) return;
+
+  vehicleType = constrain((int)pendingVehicleType, 1, 3);
+  loadCondition = constrain((int)pendingLoadCondition, 0, 2);
+  trackWidth_m = clampf(pendingTrackWidth_m, 0.80f, 4.00f);
+  wheelBase_m = clampf(pendingWheelBase_m, 1.50f, 6.00f);
+  vehicleHeight_m = clampf(pendingVehicleHeight_m, 0.50f, 6.00f);
+
+  computeVehicle();
+
+  Serial.println("Applied vehicle config from brain");
+  Serial.print("vehicleType = "); Serial.println(vehicleType);
+  Serial.print("loadCondition = "); Serial.println(loadCondition);
+  Serial.print("trackWidth_m = "); Serial.println(trackWidth_m, 3);
+  Serial.print("wheelBase_m = "); Serial.println(wheelBase_m, 3);
+  Serial.print("vehicleHeight_m = "); Serial.println(vehicleHeight_m, 3);
+  Serial.print("criticalRollDeg = "); Serial.println(criticalRollDeg, 2);
+  Serial.print("criticalPitchDeg = "); Serial.println(criticalPitchDeg, 2);
+
+  cfgAReceived = false;
+  cfgBReceived = false;
 }
 
 // UPSIDE frame behavior, always active.
@@ -309,6 +350,74 @@ bool initCAN() {
   return true;
 }
 
+void receiveCANFrames() {
+  twai_message_t msg;
+
+  while (twai_receive(&msg, 0) == ESP_OK) {
+    if (msg.extd || msg.rtr) continue;
+
+    if (msg.identifier == LEAN_CFG_A_ID && msg.data_length_code >= 8) {
+      uint8_t counter = msg.data[7];
+      if (counter == lastCfgACounter) continue;
+      lastCfgACounter = counter;
+
+      pendingVehicleType = msg.data[0];
+      pendingLoadCondition = msg.data[1];
+
+      uint16_t track_mm = (uint16_t)msg.data[2] | ((uint16_t)msg.data[3] << 8);
+      uint16_t wheel_mm = (uint16_t)msg.data[4] | ((uint16_t)msg.data[5] << 8);
+
+      pendingTrackWidth_m = track_mm / 1000.0f;
+      pendingWheelBase_m = wheel_mm / 1000.0f;
+
+      cfgAReceived = true;
+
+      Serial.print("RX LeanCfgA | type=");
+      Serial.print(pendingVehicleType);
+      Serial.print(" load=");
+      Serial.print(pendingLoadCondition);
+      Serial.print(" track=");
+      Serial.print(pendingTrackWidth_m, 3);
+      Serial.print(" wheel=");
+      Serial.println(pendingWheelBase_m, 3);
+
+      applyPendingVehicleConfigIfReady();
+    }
+    else if (msg.identifier == LEAN_CFG_B_ID && msg.data_length_code >= 8) {
+      uint8_t counter = msg.data[7];
+      if (counter == lastCfgBCounter) continue;
+      lastCfgBCounter = counter;
+
+      uint16_t height_mm = (uint16_t)msg.data[0] | ((uint16_t)msg.data[1] << 8);
+      pendingVehicleHeight_m = height_mm / 1000.0f;
+
+      cfgBReceived = true;
+
+      Serial.print("RX LeanCfgB | height=");
+      Serial.println(pendingVehicleHeight_m, 3);
+
+      applyPendingVehicleConfigIfReady();
+    }
+    else if (msg.identifier == LEAN_CMD_ID && msg.data_length_code >= 8) {
+      uint8_t counter = msg.data[7];
+      if (counter == lastCmdCounter) continue;
+      lastCmdCounter = counter;
+
+      uint8_t cmdBits = msg.data[0];
+
+      if (cmdBits & (1 << 0)) {
+        Serial.println("RX LeanCmd | CALIBRATE");
+        calibrate();
+      }
+
+      if (cmdBits & (1 << 1)) {
+        Serial.println("RX LeanCmd | CLEAR CALIBRATION");
+        calibrated = false;
+      }
+    }
+  }
+}
+
 void sendLeanMainFrame(unsigned long nowMs, float rollOut, float pitchOut, float confidence) {
   if (nowMs - lastCanSendMs < CAN_SEND_MS) return;
   lastCanSendMs = nowMs;
@@ -416,6 +525,8 @@ void setup() {
 // ================= LOOP =================
 void loop() {
   feedWatchdog();
+
+  receiveCANFrames();
 
   int16_t axR, ayR, azR, gxR, gyR, gzR;
   mpu.getMotion6(&axR, &ayR, &azR, &gxR, &gyR, &gzR);
