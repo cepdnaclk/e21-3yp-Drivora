@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
+#include <Preferences.h>
 #include <math.h>
 #include "driver/twai.h"
 
@@ -10,6 +11,7 @@ const char* password = "12345678";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
+Preferences prefs;
 
 // ================= CAN / TWAI =================
 static const gpio_num_t CAN_TX_PIN = GPIO_NUM_17;
@@ -17,16 +19,48 @@ static const gpio_num_t CAN_RX_PIN = GPIO_NUM_16;
 
 const uint32_t LEAN_MAIN_ID   = 0x100;
 const uint32_t LEAN_DEBUG_ID  = 0x101;
+const uint32_t LEAN_CFG_A_ID  = 0x110;
+const uint32_t LEAN_CMD_ID    = 0x111;
+const uint32_t LEAN_CFG_B_ID  = 0x112;
+
 const uint32_t FRONT_MAIN_ID  = 0x200;
 const uint32_t FRONT_DEBUG_ID = 0x201;
+const uint32_t FRONT_CFG_ID   = 0x210;
+
 const uint32_t REAR_MAIN_ID   = 0x300;
 const uint32_t REAR_DEBUG_ID  = 0x301;
 const uint32_t REAR_DIST_ID   = 0x302;
+const uint32_t REAR_CFG_ID    = 0x310;
 
 // ================= LANE UART =================
 static const int LANE_RX_PIN = 21;
 static const int LANE_TX_PIN = 22;   // reserved for future use
 String laneRxBuffer = "";
+
+// ================= CONFIG MODEL =================
+struct BrainConfig {
+  bool setupCompleted = false;
+  String profileName = "My Vehicle";
+
+  uint8_t vehicleType = 3;          // 1 compact, 2 passenger, 3 tall/SUV
+  float trackWidth_m = 1.56f;
+  float wheelBase_m = 2.67f;
+  float vehicleHeight_m = 1.57f;
+  uint8_t loadCondition = 1;        // 0 light, 1 normal, 2 heavy
+
+  uint8_t frontSensitivityPreset = 1; // 0 near, 1 normal, 2 far
+  uint8_t rearSensitivityPreset  = 1; // 0 near, 1 normal, 2 far
+
+  bool centerCalibrated = false;
+};
+
+BrainConfig brainConfig;
+
+// ================= COUNTERS =================
+uint8_t leanCfgCounter  = 0;
+uint8_t leanCmdCounter  = 0;
+uint8_t frontCfgCounter = 0;
+uint8_t rearCfgCounter  = 0;
 
 // ================= DATA STRUCTS =================
 struct LeanData {
@@ -114,10 +148,14 @@ LaneData laneData;
 
 // ================= TIMING =================
 unsigned long lastBroadcastMs = 0;
+unsigned long lastConfigBroadcastMs = 0;
+bool forceConfigBroadcast = true;
+bool centerCalibrationRequested = false;
 
-const unsigned long UI_BROADCAST_MS = 50;
-const unsigned long STALE_MS        = 300;
-const unsigned long OFFLINE_MS      = 1000;
+const unsigned long UI_BROADCAST_MS     = 50;
+const unsigned long CONFIG_BROADCAST_MS = 1000;
+const unsigned long STALE_MS            = 300;
+const unsigned long OFFLINE_MS          = 1000;
 
 // ================= HELPERS =================
 const char* leanRiskName(uint8_t level) {
@@ -177,6 +215,33 @@ const char* laneStateColor(uint8_t state) {
   }
 }
 
+const char* vehicleTypeName(uint8_t v) {
+  switch (v) {
+    case 1: return "Compact";
+    case 2: return "Passenger";
+    case 3: return "Tall / SUV";
+    default: return "Tall / SUV";
+  }
+}
+
+const char* loadConditionName(uint8_t v) {
+  switch (v) {
+    case 0: return "Light";
+    case 1: return "Normal";
+    case 2: return "Heavy";
+    default: return "Normal";
+  }
+}
+
+const char* presetName(uint8_t v) {
+  switch (v) {
+    case 0: return "Near";
+    case 1: return "Normal";
+    case 2: return "Far";
+    default: return "Normal";
+  }
+}
+
 String payloadToString(uint8_t* payload, size_t length) {
   String s;
   s.reserve(length);
@@ -223,6 +288,61 @@ String trimLine(const String& s) {
   return out;
 }
 
+float clampf(float x, float lo, float hi) {
+  if (x < lo) return lo;
+  if (x > hi) return hi;
+  return x;
+}
+
+// ================= PREFERENCES =================
+void loadConfig() {
+  prefs.begin("drivora", true);
+
+  brainConfig.setupCompleted = prefs.getBool("setupDone", false);
+  brainConfig.profileName = prefs.getString("profile", "My Vehicle");
+
+  brainConfig.vehicleType = prefs.getUChar("vehType", 3);
+  brainConfig.trackWidth_m = prefs.getFloat("trackW", 1.56f);
+  brainConfig.wheelBase_m = prefs.getFloat("wheelB", 2.67f);
+  brainConfig.vehicleHeight_m = prefs.getFloat("vehH", 1.57f);
+  brainConfig.loadCondition = prefs.getUChar("load", 1);
+
+  brainConfig.frontSensitivityPreset = prefs.getUChar("frontPre", 1);
+  brainConfig.rearSensitivityPreset = prefs.getUChar("rearPre", 1);
+
+  brainConfig.centerCalibrated = prefs.getBool("centerCal", false);
+
+  prefs.end();
+
+  brainConfig.vehicleType = constrain(brainConfig.vehicleType, 1, 3);
+  brainConfig.trackWidth_m = clampf(brainConfig.trackWidth_m, 0.80f, 4.00f);
+  brainConfig.wheelBase_m = clampf(brainConfig.wheelBase_m, 1.50f, 6.00f);
+  brainConfig.vehicleHeight_m = clampf(brainConfig.vehicleHeight_m, 0.50f, 6.00f);
+  brainConfig.loadCondition = constrain(brainConfig.loadCondition, 0, 2);
+  brainConfig.frontSensitivityPreset = constrain(brainConfig.frontSensitivityPreset, 0, 2);
+  brainConfig.rearSensitivityPreset = constrain(brainConfig.rearSensitivityPreset, 0, 2);
+}
+
+void saveConfig() {
+  prefs.begin("drivora", false);
+
+  prefs.putBool("setupDone", brainConfig.setupCompleted);
+  prefs.putString("profile", brainConfig.profileName);
+
+  prefs.putUChar("vehType", brainConfig.vehicleType);
+  prefs.putFloat("trackW", brainConfig.trackWidth_m);
+  prefs.putFloat("wheelB", brainConfig.wheelBase_m);
+  prefs.putFloat("vehH", brainConfig.vehicleHeight_m);
+  prefs.putUChar("load", brainConfig.loadCondition);
+
+  prefs.putUChar("frontPre", brainConfig.frontSensitivityPreset);
+  prefs.putUChar("rearPre", brainConfig.rearSensitivityPreset);
+
+  prefs.putBool("centerCal", brainConfig.centerCalibrated);
+
+  prefs.end();
+}
+
 // ================= CAN / TWAI =================
 bool initCAN() {
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_PIN, CAN_RX_PIN, TWAI_MODE_NORMAL);
@@ -245,11 +365,121 @@ bool initCAN() {
   return true;
 }
 
+bool sendCANFrame(uint32_t id, const uint8_t* data, uint8_t len = 8) {
+  twai_message_t message = {};
+  message.identifier = id;
+  message.extd = 0;
+  message.rtr = 0;
+  message.data_length_code = len;
+  for (uint8_t i = 0; i < len; i++) message.data[i] = data[i];
+
+  esp_err_t err = twai_transmit(&message, pdMS_TO_TICKS(10));
+  return err == ESP_OK;
+}
+
+void sendLeanConfig() {
+  uint16_t track_mm = (uint16_t)roundf(brainConfig.trackWidth_m * 1000.0f);
+  uint16_t wheel_mm = (uint16_t)roundf(brainConfig.wheelBase_m * 1000.0f);
+  uint16_t height_mm = (uint16_t)roundf(brainConfig.vehicleHeight_m * 1000.0f);
+
+  uint8_t dataA[8] = {0};
+  dataA[0] = brainConfig.vehicleType;
+  dataA[1] = brainConfig.loadCondition;
+  dataA[2] = (uint8_t)(track_mm & 0xFF);
+  dataA[3] = (uint8_t)((track_mm >> 8) & 0xFF);
+  dataA[4] = (uint8_t)(wheel_mm & 0xFF);
+  dataA[5] = (uint8_t)((wheel_mm >> 8) & 0xFF);
+  dataA[6] = 0x01; // apply now
+  dataA[7] = leanCfgCounter++;
+
+  uint8_t dataB[8] = {0};
+  dataB[0] = (uint8_t)(height_mm & 0xFF);
+  dataB[1] = (uint8_t)((height_mm >> 8) & 0xFF);
+  dataB[2] = 0x01; // apply now
+  dataB[7] = leanCfgCounter++;
+
+  sendCANFrame(LEAN_CFG_A_ID, dataA, 8);
+  delay(4);
+  sendCANFrame(LEAN_CFG_B_ID, dataB, 8);
+
+  Serial.printf("TX LeanCfg | type=%u load=%u track=%.2f wheel=%.2f height=%.2f\n",
+                brainConfig.vehicleType,
+                brainConfig.loadCondition,
+                brainConfig.trackWidth_m,
+                brainConfig.wheelBase_m,
+                brainConfig.vehicleHeight_m);
+}
+
+void sendFrontConfig() {
+  uint8_t data[8] = {0};
+  data[0] = brainConfig.frontSensitivityPreset;
+  data[7] = frontCfgCounter++;
+
+  sendCANFrame(FRONT_CFG_ID, data, 8);
+  Serial.printf("TX FrontCfg | preset=%u\n", brainConfig.frontSensitivityPreset);
+}
+
+void sendRearConfig() {
+  uint8_t data[8] = {0};
+  data[0] = brainConfig.rearSensitivityPreset;
+  data[7] = rearCfgCounter++;
+
+  sendCANFrame(REAR_CFG_ID, data, 8);
+  Serial.printf("TX RearCfg | preset=%u\n", brainConfig.rearSensitivityPreset);
+}
+
+void sendLeanCalibrateCommand() {
+  // App/wizard calibration is considered incomplete until this requested calibration completes.
+  // This prevents the center unit's automatic startup calibration from marking setup as completed.
+  brainConfig.centerCalibrated = false;
+  centerCalibrationRequested = true;
+  saveConfig();
+  forceConfigBroadcast = true;
+
+  uint8_t data[8] = {0};
+  data[0] = 0x01; // bit0 calibrate
+  data[7] = leanCmdCounter++;
+
+  sendCANFrame(LEAN_CMD_ID, data, 8);
+  Serial.println("TX LeanCmd | CALIBRATE");
+}
+
+void sendAllConfigs() {
+  sendLeanConfig();
+  delay(5);
+  sendFrontConfig();
+  delay(5);
+  sendRearConfig();
+}
+
+void resetConfigToDefaults() {
+  brainConfig.setupCompleted = false;
+  brainConfig.profileName = "My Vehicle";
+  brainConfig.vehicleType = 3;
+  brainConfig.trackWidth_m = 1.56f;
+  brainConfig.wheelBase_m = 2.67f;
+  brainConfig.vehicleHeight_m = 1.57f;
+  brainConfig.loadCondition = 1;
+  brainConfig.frontSensitivityPreset = 1;
+  brainConfig.rearSensitivityPreset = 1;
+  brainConfig.centerCalibrated = false;
+  centerCalibrationRequested = false;
+  saveConfig();
+  forceConfigBroadcast = true;
+  sendAllConfigs();
+  Serial.println("Settings reset to defaults");
+}
+
 void receiveCANFrames(unsigned long nowMs) {
   twai_message_t message;
 
   while (twai_receive(&message, 0) == ESP_OK) {
     if (message.extd || message.rtr) continue;
+
+    Serial.print("CAN RX ID: 0x");
+    Serial.print(message.identifier, HEX);
+    Serial.print(" DLC=");
+    Serial.println(message.data_length_code);
 
     if (message.identifier == LEAN_MAIN_ID && message.data_length_code >= 8) {
       leanData.riskLevel = message.data[0];
@@ -264,16 +494,12 @@ void receiveCANFrames(unsigned long nowMs) {
       leanData.online = true;
       leanData.lastUpdateMs = nowMs;
 
-      Serial.print("CAN Lean Main | risk=");
-      Serial.print(leanData.riskLevel);
-      Serial.print(" roll=");
-      Serial.print(leanData.rollDeg, 2);
-      Serial.print(" pitch=");
-      Serial.print(leanData.pitchDeg, 2);
-      Serial.print(" conf=");
-      Serial.print(leanData.confidence, 2);
-      Serial.print(" calibrated=");
-      Serial.println(leanData.calibrated ? "YES" : "NO");
+      if (centerCalibrationRequested && leanData.calibrated) {
+        brainConfig.centerCalibrated = true;
+        centerCalibrationRequested = false;
+        saveConfig();
+        forceConfigBroadcast = true;
+      }
     }
     else if (message.identifier == LEAN_DEBUG_ID && message.data_length_code >= 8) {
       uint16_t criticalRoll_x100  = packU16FromBytes(message.data[0], message.data[1]);
@@ -286,15 +512,6 @@ void receiveCANFrames(unsigned long nowMs) {
       leanData.debugFlags2 = message.data[6];
       leanData.debugCounter = message.data[7];
       leanData.lastDebugUpdateMs = nowMs;
-
-      Serial.print("CAN Lean Debug | criticalRoll=");
-      Serial.print(leanData.criticalRollDeg, 2);
-      Serial.print(" criticalPitch=");
-      Serial.print(leanData.criticalPitchDeg, 2);
-      Serial.print(" vehicleType=");
-      Serial.print(leanData.vehicleType);
-      Serial.print(" load=");
-      Serial.println(leanData.loadCondition);
     }
     else if (message.identifier == FRONT_MAIN_ID && message.data_length_code >= 8) {
       frontData.state = message.data[0];
@@ -308,15 +525,6 @@ void receiveCANFrames(unsigned long nowMs) {
       frontData.rawDistanceCm      = unpackDistanceCm(raw_x10);
       frontData.online             = true;
       frontData.lastUpdateMs       = nowMs;
-
-      Serial.print("CAN Front Main | state=");
-      Serial.print(frontData.state);
-      Serial.print(" filtered=");
-      Serial.print(frontData.filteredDistanceCm, 1);
-      Serial.print(" raw=");
-      Serial.print(frontData.rawDistanceCm, 1);
-      Serial.print(" speed=");
-      Serial.println(frontData.closingSpeedCmS, 1);
     }
     else if (message.identifier == FRONT_DEBUG_ID && message.data_length_code >= 8) {
       frontData.debugFlags          = message.data[0];
@@ -326,17 +534,6 @@ void receiveCANFrames(unsigned long nowMs) {
       frontData.invalidStreak       = message.data[4];
       frontData.debugCounter        = message.data[7];
       frontData.lastDebugUpdateMs   = nowMs;
-
-      Serial.print("CAN Front Debug | flags=0x");
-      Serial.print(frontData.debugFlags, HEX);
-      Serial.print(" approach=");
-      Serial.print(frontData.approachCounter);
-      Serial.print(" warning=");
-      Serial.print(frontData.warningCounter);
-      Serial.print(" blindRelease=");
-      Serial.print(frontData.blindReleaseCounter);
-      Serial.print(" invalid=");
-      Serial.println(frontData.invalidStreak);
     }
     else if (message.identifier == REAR_MAIN_ID && message.data_length_code >= 8) {
       rearData.leftState    = message.data[0];
@@ -350,15 +547,6 @@ void receiveCANFrames(unsigned long nowMs) {
 
       rearData.online       = true;
       rearData.lastUpdateMs = nowMs;
-
-      Serial.print("CAN Rear Main | L=");
-      Serial.print(rearData.leftState);
-      Serial.print(" C=");
-      Serial.print(rearData.centerState);
-      Serial.print(" R=");
-      Serial.print(rearData.rightState);
-      Serial.print(" overall=");
-      Serial.println(rearData.overallState);
     }
     else if (message.identifier == REAR_DEBUG_ID && message.data_length_code >= 8) {
       rearData.leftWarningReleaseCounter        = message.data[0];
@@ -370,21 +558,6 @@ void receiveCANFrames(unsigned long nowMs) {
       rearData.maxInvalidStreak                 = message.data[6];
       rearData.debugCounter                     = message.data[7];
       rearData.lastDebugUpdateMs                = nowMs;
-
-      Serial.print("CAN Rear Debug | rel(L/C/R)=");
-      Serial.print(rearData.leftWarningReleaseCounter);
-      Serial.print("/");
-      Serial.print(rearData.centerWarningReleaseCounter);
-      Serial.print("/");
-      Serial.print(rearData.rightWarningReleaseCounter);
-      Serial.print(" fast(L/C/R)=");
-      Serial.print(rearData.leftFastWarningReleaseCounter);
-      Serial.print("/");
-      Serial.print(rearData.centerFastWarningReleaseCounter);
-      Serial.print("/");
-      Serial.print(rearData.rightFastWarningReleaseCounter);
-      Serial.print(" invalidMax=");
-      Serial.println(rearData.maxInvalidStreak);
     }
     else if (message.identifier == REAR_DIST_ID && message.data_length_code >= 8) {
       uint16_t left_x10   = packU16FromBytes(message.data[0], message.data[1]);
@@ -399,15 +572,6 @@ void receiveCANFrames(unsigned long nowMs) {
       rearData.lastDistUpdateMs         = nowMs;
 
       if (!rearData.online) rearData.online = true;
-
-      Serial.print("CAN Rear Dist | L=");
-      Serial.print(rearData.leftFilteredDistanceCm, 1);
-      Serial.print(" C=");
-      Serial.print(rearData.centerFilteredDistanceCm, 1);
-      Serial.print(" R=");
-      Serial.print(rearData.rightFilteredDistanceCm, 1);
-      Serial.print(" nearest=");
-      Serial.println(rearData.nearestSensor);
     }
   }
 }
@@ -415,11 +579,6 @@ void receiveCANFrames(unsigned long nowMs) {
 // ================= LANE UART RECEIVE =================
 void applyLaneStateLine(const String& line, unsigned long nowMs) {
   String msg = trimLine(line);
-
-  Serial.print("RAW LANE LINE: [");
-  Serial.print(msg);
-  Serial.println("]");
-
   if (msg.length() == 0) return;
 
   int newState = -1;
@@ -437,9 +596,6 @@ void applyLaneStateLine(const String& line, unsigned long nowMs) {
   laneData.state = (uint8_t)newState;
   laneData.online = true;
   laneData.lastUpdateMs = nowMs;
-
-  Serial.print("LANE UART | state=");
-  Serial.println(laneStateName(laneData.state));
 }
 
 void receiveLaneUART(unsigned long nowMs) {
@@ -461,17 +617,224 @@ void receiveLaneUART(unsigned long nowMs) {
   }
 }
 
+// ================= COMMANDS FROM WEB UI =================
+void handleIncomingCommand(const String& msg) {
+  Serial.print("WS RX: ");
+  Serial.println(msg);
+
+  if (msg == "PING") return;
+
+  if (msg == "CAL_CENTER") {
+    sendLeanCalibrateCommand();
+    return;
+  }
+
+  if (msg == "PUSH_ALL_CONFIG") {
+    sendAllConfigs();
+    return;
+  }
+
+  if (msg == "RESET_DEFAULTS") {
+    resetConfigToDefaults();
+    return;
+  }
+
+  if (msg == "START_WIZARD") {
+    brainConfig.setupCompleted = false;
+    brainConfig.centerCalibrated = false;
+    centerCalibrationRequested = false;
+    saveConfig();
+    Serial.println("Setup wizard started; dashboard locked until setup completion");
+    return;
+  }
+
+  // Very small JSON parser via Arduino String handling to avoid bringing extra JSON lib here
+  if (msg.startsWith("{") && msg.endsWith("}")) {
+    auto readNumber = [&](const String& key, float fallback)->float {
+      String token = "\"" + key + "\":";
+      int idx = msg.indexOf(token);
+      if (idx < 0) return fallback;
+      idx += token.length();
+      int end = idx;
+      while (end < (int)msg.length() && (isdigit(msg[end]) || msg[end] == '.' || msg[end] == '-')) end++;
+      return msg.substring(idx, end).toFloat();
+    };
+
+    auto readInt = [&](const String& key, int fallback)->int {
+      return (int)roundf(readNumber(key, (float)fallback));
+    };
+
+    auto readBool = [&](const String& key, bool fallback)->bool {
+      String token = "\"" + key + "\":";
+      int idx = msg.indexOf(token);
+      if (idx < 0) return fallback;
+      idx += token.length();
+      String rem = msg.substring(idx);
+      if (rem.startsWith("true")) return true;
+      if (rem.startsWith("false")) return false;
+      return fallback;
+    };
+
+    if (msg.indexOf("\"cmd\":\"saveVehicle\"") >= 0) {
+      brainConfig.vehicleType = constrain(readInt("vehicleType", brainConfig.vehicleType), 1, 3);
+      brainConfig.trackWidth_m = clampf(readNumber("trackWidth_m", brainConfig.trackWidth_m), 0.80f, 4.00f);
+      brainConfig.wheelBase_m = clampf(readNumber("wheelBase_m", brainConfig.wheelBase_m), 1.50f, 6.00f);
+      brainConfig.vehicleHeight_m = clampf(readNumber("vehicleHeight_m", brainConfig.vehicleHeight_m), 0.50f, 6.00f);
+      brainConfig.loadCondition = constrain(readInt("loadCondition", brainConfig.loadCondition), 0, 2);
+      brainConfig.setupCompleted = readBool("setupCompleted", true);
+      saveConfig();
+      forceConfigBroadcast = true;
+      sendLeanConfig();
+      return;
+    }
+
+    if (msg.indexOf("\"cmd\":\"saveFrontPreset\"") >= 0) {
+      brainConfig.frontSensitivityPreset = constrain(readInt("frontPreset", brainConfig.frontSensitivityPreset), 0, 2);
+      brainConfig.setupCompleted = true;
+      saveConfig();
+      forceConfigBroadcast = true;
+      sendFrontConfig();
+      return;
+    }
+
+    if (msg.indexOf("\"cmd\":\"saveRearPreset\"") >= 0) {
+      brainConfig.rearSensitivityPreset = constrain(readInt("rearPreset", brainConfig.rearSensitivityPreset), 0, 2);
+      brainConfig.setupCompleted = true;
+      saveConfig();
+      forceConfigBroadcast = true;
+      sendRearConfig();
+      return;
+    }
+
+    if (msg.indexOf("\"cmd\":\"saveAllSetup\"") >= 0) {
+      brainConfig.vehicleType = constrain(readInt("vehicleType", brainConfig.vehicleType), 1, 3);
+      brainConfig.trackWidth_m = clampf(readNumber("trackWidth_m", brainConfig.trackWidth_m), 0.80f, 4.00f);
+      brainConfig.wheelBase_m = clampf(readNumber("wheelBase_m", brainConfig.wheelBase_m), 1.50f, 6.00f);
+      brainConfig.vehicleHeight_m = clampf(readNumber("vehicleHeight_m", brainConfig.vehicleHeight_m), 0.50f, 6.00f);
+      brainConfig.loadCondition = constrain(readInt("loadCondition", brainConfig.loadCondition), 0, 2);
+      brainConfig.frontSensitivityPreset = constrain(readInt("frontPreset", brainConfig.frontSensitivityPreset), 0, 2);
+      brainConfig.rearSensitivityPreset = constrain(readInt("rearPreset", brainConfig.rearSensitivityPreset), 0, 2);
+      brainConfig.setupCompleted = true;
+      saveConfig();
+      forceConfigBroadcast = true;
+      sendAllConfigs();
+      return;
+    }
+  }
+}
+
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
-  data.reserve(2200);
+  data.reserve(3200);
 
   bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
   bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
   bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
   bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
 
+  String fusedType = "NONE";
+  String fusedTitle = "All Clear";
+  String fusedMessage = "No active safety warnings.";
+  String fusedColor = "#1db954";
+  uint8_t fusedSeverity = 0; // 0 clear, 1 info, 2 caution, 3 warning
+
+  if (!leanOffline && leanData.riskLevel == 2) {
+    fusedType = "LEAN_HIGH";
+    fusedTitle = "High Lean Risk";
+    fusedMessage = "Vehicle lean angle is high. Reduce speed and stabilize the vehicle.";
+    fusedColor = "#ff3b30";
+    fusedSeverity = 3;
+  } else if (!frontOffline && frontData.state == 3) {
+    fusedType = "FRONT_WARNING";
+    fusedTitle = "Front Collision Warning";
+    fusedMessage = "Obstacle ahead with high risk. Brake or slow down.";
+    fusedColor = "#ff3b30";
+    fusedSeverity = 3;
+  } else if (!rearOffline && rearData.overallState == 3) {
+    fusedType = "REAR_WARNING";
+    fusedTitle = "Rear Blindspot Warning";
+    fusedMessage = "Very close object detected behind the vehicle.";
+    fusedColor = "#ff3b30";
+    fusedSeverity = 3;
+  } else if (!laneOffline && laneData.state == 1) {
+    fusedType = "LANE_LEFT";
+    fusedTitle = "Left Lane Departure";
+    fusedMessage = "Vehicle is drifting toward the left lane marking.";
+    fusedColor = "#ffb020";
+    fusedSeverity = 2;
+  } else if (!laneOffline && laneData.state == 2) {
+    fusedType = "LANE_RIGHT";
+    fusedTitle = "Right Lane Departure";
+    fusedMessage = "Vehicle is drifting toward the right lane marking.";
+    fusedColor = "#ffb020";
+    fusedSeverity = 2;
+  } else if (!leanOffline && leanData.riskLevel == 1) {
+    fusedType = "LEAN_CAUTION";
+    fusedTitle = "Lean Caution";
+    fusedMessage = "Vehicle lean is increasing. Drive carefully.";
+    fusedColor = "#ffb020";
+    fusedSeverity = 2;
+  } else if (!frontOffline && frontData.state == 2) {
+    fusedType = "FRONT_APPROACHING";
+    fusedTitle = "Object Approaching";
+    fusedMessage = "Object ahead is getting closer.";
+    fusedColor = "#ff7230";
+    fusedSeverity = 2;
+  } else if (!rearOffline && rearData.overallState == 2) {
+    fusedType = "REAR_CAUTION";
+    fusedTitle = "Rear Caution";
+    fusedMessage = "Object detected close to the rear blindspot area.";
+    fusedColor = "#ffb020";
+    fusedSeverity = 2;
+  } else if (!frontOffline && frontData.state == 1) {
+    fusedType = "FRONT_OBJECT";
+    fusedTitle = "Object Ahead";
+    fusedMessage = "Object detected in front.";
+    fusedColor = "#f5c542";
+    fusedSeverity = 1;
+  } else if (!rearOffline && rearData.overallState == 1) {
+    fusedType = "REAR_OBJECT";
+    fusedTitle = "Rear Object Detected";
+    fusedMessage = "Object detected behind the vehicle.";
+    fusedColor = "#f5c542";
+    fusedSeverity = 1;
+  }
+
+  bool includeConfig = forceConfigBroadcast || ((nowMs - lastConfigBroadcastMs) >= CONFIG_BROADCAST_MS);
+  if (includeConfig) {
+    lastConfigBroadcastMs = nowMs;
+    forceConfigBroadcast = false;
+  }
+
   data += "{";
+
+  if (includeConfig) {
+    data += "\"config\":{";
+  data += "\"setupCompleted\":" + String(brainConfig.setupCompleted ? 1 : 0) + ",";
+  data += "\"profileName\":\"" + brainConfig.profileName + "\",";
+  data += "\"vehicleType\":" + String(brainConfig.vehicleType) + ",";
+  data += "\"vehicleTypeName\":\"" + String(vehicleTypeName(brainConfig.vehicleType)) + "\",";
+  data += "\"trackWidth_m\":" + String(brainConfig.trackWidth_m, 2) + ",";
+  data += "\"wheelBase_m\":" + String(brainConfig.wheelBase_m, 2) + ",";
+  data += "\"vehicleHeight_m\":" + String(brainConfig.vehicleHeight_m, 2) + ",";
+  data += "\"loadCondition\":" + String(brainConfig.loadCondition) + ",";
+  data += "\"loadConditionName\":\"" + String(loadConditionName(brainConfig.loadCondition)) + "\",";
+  data += "\"frontPreset\":" + String(brainConfig.frontSensitivityPreset) + ",";
+  data += "\"frontPresetName\":\"" + String(presetName(brainConfig.frontSensitivityPreset)) + "\",";
+  data += "\"rearPreset\":" + String(brainConfig.rearSensitivityPreset) + ",";
+  data += "\"rearPresetName\":\"" + String(presetName(brainConfig.rearSensitivityPreset)) + "\",";
+  data += "\"centerCalibrated\":" + String(brainConfig.centerCalibrated ? 1 : 0);
+  data += "},";
+  }
+
+  data += "\"fused\":{";
+  data += "\"type\":\"" + fusedType + "\",";
+  data += "\"title\":\"" + fusedTitle + "\",";
+  data += "\"message\":\"" + fusedMessage + "\",";
+  data += "\"color\":\"" + fusedColor + "\",";
+  data += "\"severity\":" + String(fusedSeverity);
+  data += "},";
 
   data += "\"lean\":{";
   data += "\"online\":" + String(leanOffline ? 0 : 1) + ",";
@@ -522,9 +885,6 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"leftFilteredDistanceCm\":" + String(rearData.leftFilteredDistanceCm, 1) + ",";
   data += "\"centerFilteredDistanceCm\":" + String(rearData.centerFilteredDistanceCm, 1) + ",";
   data += "\"rightFilteredDistanceCm\":" + String(rearData.rightFilteredDistanceCm, 1) + ",";
-  data += "\"leftFlags\":" + String(rearData.leftFlags) + ",";
-  data += "\"centerFlags\":" + String(rearData.centerFlags) + ",";
-  data += "\"rightFlags\":" + String(rearData.rightFlags) + ",";
   data += "\"nearestSensor\":" + String(rearData.nearestSensor) + ",";
   data += "\"leftWarningReleaseCounter\":" + String(rearData.leftWarningReleaseCounter) + ",";
   data += "\"centerWarningReleaseCounter\":" + String(rearData.centerWarningReleaseCounter) + ",";
@@ -556,476 +916,266 @@ const char webpage[] PROGMEM = R"rawliteral(
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ADAS Brain</title>
 <style>
-  :root{
-    --bg:#0f1115;
-    --card:#171a21;
-    --text:#f2f4f8;
-    --muted:#b6bcc8;
-    --border:#262b35;
-  }
+  :root{--bg:#0f1115;--card:#171a21;--text:#f2f4f8;--muted:#b6bcc8;--border:#262b35;--btn:#2b2f38;}
   *{box-sizing:border-box}
-  html, body{
-    margin:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family:Arial,Helvetica,sans-serif;
-  }
-  body{
-    padding:10px;
-  }
-  .wrap{
-    max-width:1600px;
-    margin:0 auto;
-  }
-  .topTitle{
-    font-size:18px;
-    font-weight:700;
-    margin-bottom:8px;
-  }
-  .statusRow{
-    display:flex;
-    gap:6px;
-    flex-wrap:wrap;
-    margin-bottom:10px;
-    align-items:center;
-  }
-  .badge{
-    display:inline-block;
-    padding:5px 8px;
-    border-radius:999px;
-    background:#2b2f38;
-    font-size:11px;
-  }
-  button{
-    padding:10px 12px;
-    border:0;
-    border-radius:10px;
-    background:#2b2f38;
-    color:white;
-    font-size:13px;
-  }
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif;}
+  body{padding:10px;}
+  .wrap{max-width:1600px;margin:0 auto;}
+  .topTitle{font-size:18px;font-weight:700;margin-bottom:8px;}
+  .statusRow,.navRow,.settingsButtons{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#2b2f38;font-size:11px;}
+  button,select,input{padding:10px 12px;border:0;border-radius:10px;background:var(--btn);color:white;font-size:13px;}
+  button{cursor:pointer;}
+  input[type="number"],select{width:100%;background:#20242c;}
+  .navBtn{flex:1;font-weight:700;}.navBtn.active{background:#3a4250;}
+  .hidden{display:none!important;}
+  .banner{background:#1b2330;border:1px solid #2c3b56;border-radius:14px;padding:12px;margin-bottom:10px;}
+  .cards{display:flex;flex-direction:column;gap:10px;}
+  .panel,.settingsSection{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:10px;min-width:0;}
+  .sensorPanel{display:flex;flex-direction:column;}.sensorPanel .stateBox{flex:1 1 auto;}.sensorPanel .grid{margin-top:auto;}
+  .panelHead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
+  .panelTitle,.settingsTitle{font-size:15px;font-weight:700;min-width:0;margin-bottom:8px;}
+  .stateBox{width:100%;border-radius:14px;min-height:72px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:22px;font-weight:800;color:white;margin-bottom:10px;transition:background-color 120ms linear;}
+  .grid,.settingsGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .cell{background:#11151b;border:1px solid #232933;border-radius:12px;padding:8px;min-width:0;}.cell.full{grid-column:1/-1;}
+  .label{color:var(--muted);font-size:11px;margin-bottom:4px;}.value{font-size:18px;font-weight:700;word-break:break-word;line-height:1.15;}
+  .help{color:var(--muted);font-size:12px;line-height:1.5;margin-top:4px;}
+  .settingsWrap{display:grid;gap:10px;}
+  #frontPanel .grid,#leanPanel .grid,#rearPanel .grid{grid-template-columns:1fr 1fr 1fr;}
+  #frontPanel .grid{grid-template-columns:1fr 1fr;}
+  .rearMiniState{width:100%;border-radius:10px;min-height:40px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;font-weight:800;color:white;margin-bottom:6px;padding:4px;}
+  .mainWarning{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px;margin-bottom:10px;}
+  .mainWarningTitle{font-size:20px;font-weight:800;margin-bottom:6px;}
+  .mainWarningMsg{color:var(--muted);font-size:13px;line-height:1.35;}
+  #leanVisual{position:relative;width:100%;height:250px;background:#000;overflow:hidden;border-radius:16px;margin-bottom:10px;}
+  #leanField{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+  .circle{position:absolute;border:1px solid #555;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;}
+  #c1{width:88%;height:88%;}#c2{width:70%;height:70%;}#c3{width:52%;height:52%;}#c4{width:34%;height:34%;}#c5{width:16%;height:16%;}
+  .line{position:absolute;background:#555;}#lineV{width:2px;height:100%;left:50%;top:0;}#lineH{width:100%;height:2px;top:50%;left:0;}
+  #leanDot{width:16px;height:16px;border-radius:50%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(64,128,255,.75);box-shadow:0 0 12px rgba(64,128,255,.75);}
+  #laneVisual{width:100%;height:220px;background:#0b0d12;border-radius:16px;position:relative;overflow:hidden;margin-bottom:10px;border:1px solid #232933;}
+  #laneRoadCenter{position:absolute;left:50%;top:0;transform:translateX(-50%);width:70%;height:100%;}.laneMark{position:absolute;top:8%;width:8px;height:84%;border-radius:999px;background:#9aa3b2;opacity:.95;transition:background-color 120ms linear,box-shadow 120ms linear;}
+  #laneLeftMark{left:30%;transform:translateX(-50%) rotate(8deg);}#laneRightMark{left:70%;transform:translateX(-50%) rotate(-8deg);}.laneAlert{background:#ffb020!important;box-shadow:0 0 18px rgba(255,176,32,.65);}
+  .wizardBox{border:1px solid #2c3b56;background:#111824;border-radius:14px;padding:12px;margin-top:10px;}
+  .wizardStepTitle{font-size:16px;font-weight:800;margin-bottom:8px;}.wizardProgress{color:var(--muted);font-size:12px;margin-bottom:10px;}.danger{background:#513033;}
+  @media (orientation:landscape) and (max-width:1400px){body{padding:8px}.cards{flex-direction:row;align-items:stretch;gap:8px;flex-wrap:wrap}.panel{flex:1 1 calc(50% - 8px);padding:8px}.stateBox{min-height:52px;font-size:16px;margin-bottom:8px;border-radius:12px}#frontPanel .stateBox,#rearPanel .stateBox{min-height:120px}#leanVisual,#laneVisual{height:164px;margin-bottom:8px;border-radius:12px}.grid{gap:6px}.cell{padding:6px 7px;border-radius:10px}.value{font-size:14px;line-height:1.05}.label{font-size:10px;margin-bottom:2px}}
+  @media (min-width:1401px){.cards{flex-direction:row;align-items:stretch;flex-wrap:wrap}.panel{flex:1 1 calc(25% - 10px)}}
+  @media (max-width:900px){.settingsGrid{grid-template-columns:1fr}}
 
-  .cards{
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-  }
-
-  .panel{
-    background:var(--card);
-    border:1px solid var(--border);
-    border-radius:16px;
-    padding:10px;
-    min-width:0;
-  }
-
-  .sensorPanel{
-    display:flex;
-    flex-direction:column;
-  }
-
-  .sensorPanel .stateBox{
-    flex:1 1 auto;
-  }
-
-  .sensorPanel .grid{
-    margin-top:auto;
-  }
-
-  .panelHead{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    gap:8px;
-    margin-bottom:8px;
-  }
-
-  .panelTitle{
-    font-size:15px;
-    font-weight:700;
-    min-width:0;
-  }
-
-  .stateBox{
-    width:100%;
-    border-radius:14px;
-    min-height:72px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    text-align:center;
-    font-size:22px;
-    font-weight:800;
-    color:white;
-    margin-bottom:10px;
-    transition:background-color 120ms linear;
-  }
-
-  .grid{
+  .wizardHealth{
     display:grid;
     grid-template-columns:1fr 1fr;
     gap:8px;
+    margin-top:10px;
   }
-
-  .cell{
+  .unitCheck{
     background:#11151b;
     border:1px solid #232933;
     border-radius:12px;
-    padding:8px;
-    min-width:0;
+    padding:10px;
   }
-
-  .cell.full{
-    grid-column:1 / -1;
-  }
-
-  .label{
+  .unitCheckName{
+    font-size:12px;
     color:var(--muted);
-    font-size:11px;
-    margin-bottom:4px;
-  }
-
-  .value{
-    font-size:18px;
-    font-weight:700;
-    word-break:break-word;
-    line-height:1.15;
-  }
-
-  #frontPanel .grid{
-    grid-template-columns:1fr 1fr;
-  }
-
-  #leanPanel .grid{
-    grid-template-columns:1fr 1fr 1fr;
-  }
-  #leanPanel .cell.confidenceCell{
-    grid-column:auto;
-  }
-
-  #rearPanel .grid{
-    grid-template-columns:1fr 1fr 1fr;
-  }
-
-  .rearMiniState{
-    width:100%;
-    border-radius:10px;
-    min-height:40px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    text-align:center;
-    font-size:11px;
-    font-weight:800;
-    color:white;
     margin-bottom:6px;
-    transition:background-color 120ms linear;
-    padding:4px;
+  }
+  .unitCheckStatus{
+    font-size:16px;
+    font-weight:800;
+  }
+  .okText{color:#1db954;}
+  .warnText{color:#ffb020;}
+  .badText{color:#ff3b30;}
+  .wizardCleanNote{
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.45;
+  }
+  @media (max-width: 650px){
+    .wizardHealth{grid-template-columns:1fr;}
   }
 
-  #leanVisual {
-    position: relative;
-    width: 100%;
-    height: 250px;
-    background: #000;
-    overflow: hidden;
-    border-radius: 16px;
-    margin-bottom: 10px;
-  }
-  #leanField {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .circle {
-    position: absolute;
-    border: 1px solid #555;
-    border-radius: 50%;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    box-sizing: border-box;
-  }
-  #c1 { width: 88%; height: 88%; }
-  #c2 { width: 70%; height: 70%; }
-  #c3 { width: 52%; height: 52%; }
-  #c4 { width: 34%; height: 34%; }
-  #c5 { width: 16%; height: 16%; }
-  .line {
-    position: absolute;
-    background: #555;
-  }
-  #lineV {
-    width: 2px;
-    height: 100%;
-    left: 50%;
-    top: 0;
-  }
-  #lineH {
-    width: 100%;
-    height: 2px;
-    top: 50%;
-    left: 0;
-  }
-  #leanDot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(64, 128, 255, 0.75);
-    box-shadow: 0 0 12px rgba(64, 128, 255, 0.75);
-  }
-
-  #laneVisual {
-    width: 100%;
-    height: 220px;
-    background: #0b0d12;
-    border-radius: 16px;
-    position: relative;
-    overflow: hidden;
-    margin-bottom: 10px;
-    border: 1px solid #232933;
-  }
-
-  #laneRoadCenter {
-    position: absolute;
-    left: 50%;
-    top: 0;
-    transform: translateX(-50%);
-    width: 70%;
-    height: 100%;
-  }
-
-  .laneMark {
-    position: absolute;
-    top: 8%;
-    width: 8px;
-    height: 84%;
-    border-radius: 999px;
-    background: #9aa3b2;
-    opacity: 0.95;
-    transition: background-color 120ms linear, box-shadow 120ms linear;
-  }
-
-  #laneLeftMark {
-    left: 30%;
-    transform: translateX(-50%) rotate(8deg);
-  }
-
-  #laneRightMark {
-    left: 70%;
-    transform: translateX(-50%) rotate(-8deg);
-  }
-
-  .laneAlert {
-    background: #ffb020 !important;
-    box-shadow: 0 0 18px rgba(255,176,32,0.65);
-  }
-
-  @media (orientation: landscape) and (max-width: 1400px) {
-    body{
-      padding:8px;
-    }
-    .topTitle{
-      font-size:16px;
-      margin-bottom:6px;
-    }
-    .statusRow{
-      gap:5px;
-      margin-bottom:8px;
-    }
-    button{
-      padding:8px 10px;
-      font-size:12px;
-    }
-
-    .cards{
-      flex-direction:row;
-      align-items:stretch;
-      gap:8px;
-      flex-wrap:wrap;
-    }
-    .panel{
-      flex:1 1 calc(50% - 8px);
-      padding:8px;
-    }
-
-    .panelHead{
-      margin-bottom:6px;
-      gap:6px;
-    }
-    .panelTitle{
-      font-size:13px;
-    }
-    .badge{
-      padding:4px 7px;
-      font-size:10px;
-    }
-    .stateBox{
-      min-height:52px;
-      font-size:16px;
-      margin-bottom:8px;
-      border-radius:12px;
-    }
-    #frontPanel .stateBox,
-    #rearPanel .stateBox{
-      min-height:120px;
-    }
-    .rearMiniState{
-      min-height:32px;
-      font-size:10px;
-      margin-bottom:4px;
-      border-radius:8px;
-    }
-    #leanVisual{
-      height:164px;
-      margin-bottom:8px;
-      border-radius:12px;
-    }
-    #laneVisual{
-      height:164px;
-      margin-bottom:8px;
-      border-radius:12px;
-    }
-    .grid{
-      grid-template-columns:1fr;
-      gap:6px;
-    }
-
-    #frontPanel .grid{
-      grid-template-columns:1fr 1fr;
-      gap:6px;
-    }
-
-    #leanPanel .grid{
-      grid-template-columns:1fr 1fr 1fr;
-      gap:6px;
-    }
-    #leanPanel .cell.confidenceCell{
-      grid-column:auto;
-    }
-
-    #rearPanel .grid{
-      grid-template-columns:1fr 1fr 1fr;
-      gap:6px;
-    }
-
-    .cell{
-      padding:6px 7px;
-      border-radius:10px;
-    }
-    .label{
-      font-size:10px;
-      margin-bottom:2px;
-    }
-    .value{
-      font-size:14px;
-      line-height:1.05;
-    }
-  }
-
-  @media (min-width: 1401px) {
-    .cards{
-      flex-direction:row;
-      align-items:stretch;
-      flex-wrap:wrap;
-    }
-    .panel{
-      flex:1 1 calc(25% - 10px);
-    }
-  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="topTitle">ADAS Brain Monitor</div>
+  <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="enableAudio()">Enable Sound</button></div>
+  <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
 
-  <div class="statusRow">
-    <span class="badge">Brain AP: ADASBrain</span>
-    <button id="audioBtn" onclick="enableAudio()">Enable Sound</button>
-  </div>
-
-  <div class="cards">
-    <div class="panel sensorPanel" id="frontPanel">
-      <div class="panelHead">
-        <div class="panelTitle">Front Collision Warning</div>
-        <span class="badge" id="frontBadge">Offline</span>
-      </div>
-      <div id="frontStateBox" class="stateBox" style="background:#1db954;">CLEAR</div>
-      <div class="grid">
-        <div class="cell"><div class="label">Distance</div><div id="frontDist" class="value">--</div></div>
-        <div class="cell"><div class="label">Speed</div><div id="frontSpeed" class="value">--</div></div>
-      </div>
+  <div id="dashboardTab">
+    <div id="setupBanner" class="banner hidden"><div style="font-weight:700;margin-bottom:6px;">Setup required</div><div class="help">Complete the guided setup before normal use.</div><div class="settingsButtons"><button onclick="openSetupWizard()">Open Setup Wizard</button></div></div>
+    <div class="mainWarning" id="mainWarningBox">
+      <div id="mainWarningTitle" class="mainWarningTitle">All Clear</div>
+      <div id="mainWarningMsg" class="mainWarningMsg">No active safety warnings.</div>
     </div>
-
-    <div class="panel" id="leanPanel">
-      <div class="panelHead">
-        <div class="panelTitle">Lean Monitor</div>
-        <span class="badge" id="leanBadge">Offline</span>
-      </div>
-      <div id="leanVisual">
-        <div id="leanField">
-          <div id="c1" class="circle"></div>
-          <div id="c2" class="circle"></div>
-          <div id="c3" class="circle"></div>
-          <div id="c4" class="circle"></div>
-          <div id="c5" class="circle"></div>
-          <div id="lineV" class="line"></div>
-          <div id="lineH" class="line"></div>
-          <div id="leanDot"></div>
-        </div>
-      </div>
-      <div id="leanStateBox" class="stateBox" style="background:#1db954;">SAFE</div>
-      <div class="grid">
-        <div class="cell"><div class="label">Roll</div><div id="leanRoll" class="value">0.00°</div></div>
-        <div class="cell"><div class="label">Pitch</div><div id="leanPitch" class="value">0.00°</div></div>
-        <div class="cell confidenceCell"><div class="label">Conf</div><div id="leanConf" class="value">1.00</div></div>
-      </div>
-    </div>
-
-    <div class="panel sensorPanel" id="rearPanel">
-      <div class="panelHead">
-        <div class="panelTitle">Rear Blindspot</div>
-        <span class="badge" id="rearBadge">Offline</span>
-      </div>
-      <div id="rearStateBox" class="stateBox" style="background:#1db954;">CLEAR</div>
-      <div class="grid">
-        <div class="cell">
-          <div class="label">Left</div>
-          <div id="rearLeftStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
-          <div id="rearLeftDist" class="value">--</div>
-        </div>
-        <div class="cell">
-          <div class="label">Center</div>
-          <div id="rearCenterStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
-          <div id="rearCenterDist" class="value">--</div>
-        </div>
-        <div class="cell">
-          <div class="label">Right</div>
-          <div id="rearRightStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div>
-          <div id="rearRightDist" class="value">--</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel sensorPanel" id="lanePanel">
-      <div class="panelHead">
-        <div class="panelTitle">Lane Departure Warning</div>
-        <span class="badge" id="laneBadge">Offline</span>
-      </div>
-      <div id="laneVisual">
-        <div id="laneRoadCenter">
-          <div id="laneLeftMark" class="laneMark"></div>
-          <div id="laneRightMark" class="laneMark"></div>
-        </div>
-      </div>
-      <div id="laneStateBox" class="stateBox" style="background:#1db954;">SAFE</div>
+    <div class="cards">
+      <div class="panel sensorPanel" id="frontPanel"><div class="panelHead"><div class="panelTitle">Front Collision Warning</div><span class="badge" id="frontBadge">Offline</span></div><div id="frontStateBox" class="stateBox" style="background:#1db954;">CLEAR</div><div class="grid"><div class="cell"><div class="label">Distance</div><div id="frontDist" class="value">--</div></div><div class="cell"><div class="label">Speed</div><div id="frontSpeed" class="value">--</div></div></div></div>
+      <div class="panel" id="leanPanel"><div class="panelHead"><div class="panelTitle">Lean Monitor</div><span class="badge" id="leanBadge">Offline</span></div><div id="leanVisual"><div id="leanField"><div id="c1" class="circle"></div><div id="c2" class="circle"></div><div id="c3" class="circle"></div><div id="c4" class="circle"></div><div id="c5" class="circle"></div><div id="lineV" class="line"></div><div id="lineH" class="line"></div><div id="leanDot"></div></div></div><div id="leanStateBox" class="stateBox" style="background:#1db954;">SAFE</div><div class="grid"><div class="cell"><div class="label">Roll</div><div id="leanRoll" class="value">0.00°</div></div><div class="cell"><div class="label">Pitch</div><div id="leanPitch" class="value">0.00°</div></div><div class="cell"><div class="label">Conf</div><div id="leanConf" class="value">1.00</div></div></div></div>
+      <div class="panel sensorPanel" id="rearPanel"><div class="panelHead"><div class="panelTitle">Rear Blindspot</div><span class="badge" id="rearBadge">Offline</span></div><div id="rearStateBox" class="stateBox" style="background:#1db954;">CLEAR</div><div class="grid"><div class="cell"><div class="label">Left</div><div id="rearLeftStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearLeftDist" class="value">--</div></div><div class="cell"><div class="label">Center</div><div id="rearCenterStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearCenterDist" class="value">--</div></div><div class="cell"><div class="label">Right</div><div id="rearRightStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearRightDist" class="value">--</div></div></div></div>
+      <div class="panel sensorPanel" id="lanePanel"><div class="panelHead"><div class="panelTitle">Lane Departure Warning</div><span class="badge" id="laneBadge">Offline</span></div><div id="laneVisual"><div id="laneRoadCenter"><div id="laneLeftMark" class="laneMark"></div><div id="laneRightMark" class="laneMark"></div></div></div><div id="laneStateBox" class="stateBox" style="background:#1db954;">SAFE</div></div>
     </div>
   </div>
+
+  <div id="settingsTab" class="hidden">
+  <div class="settingsWrap">
+
+    <div class="settingsSection">
+      <div class="settingsTitle">Command Status</div>
+      <div id="cmdStatus" class="help">Waiting for WebSocket connection...</div>
+    </div>
+
+    <div id="wizardHeader" class="settingsSection hidden">
+      <div id="wizardProgress" class="wizardProgress">Step 1 of 7</div>
+      <div id="wizardTitle" class="wizardStepTitle">Welcome</div>
+      <div id="wizardBody" class="wizardCleanNote">Set up Drivora for this vehicle.</div>
+    </div>
+
+    <div id="vehicleSection" class="settingsSection configSection wizardStepSection" data-step="1">
+      <div class="settingsTitle">Vehicle Profile</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Vehicle Type</div>
+          <select id="cfgVehicleType">
+            <option value="1">Compact</option>
+            <option value="2">Passenger</option>
+            <option value="3">Tall / SUV</option>
+          </select>
+        </div>
+        <div>
+          <div class="label">Load Condition</div>
+          <select id="cfgLoadCondition">
+            <option value="0">Light</option>
+            <option value="1">Normal</option>
+            <option value="2">Heavy</option>
+          </select>
+        </div>
+        <div>
+          <div class="label">Track Width (m)</div>
+          <input id="cfgTrackWidth" type="number" step="0.01" min="0.80" max="4.00">
+        </div>
+        <div>
+          <div class="label">Wheelbase (m)</div>
+          <input id="cfgWheelBase" type="number" step="0.01" min="1.50" max="6.00">
+        </div>
+        <div>
+          <div class="label">Vehicle Height (m)</div>
+          <input id="cfgVehicleHeight" type="number" step="0.01" min="0.50" max="6.00">
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveVehicleSettings()">Save Vehicle Settings</button>
+      </div>
+    </div>
+
+    <div id="frontSection" class="settingsSection configSection wizardStepSection" data-step="2">
+      <div class="settingsTitle">Front Sensitivity</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Front preset</div>
+          <select id="cfgFrontPreset">
+            <option value="0">Near</option>
+            <option value="1">Normal</option>
+            <option value="2">Far</option>
+          </select>
+          <div class="help">Near gives shorter warning range. Far gives earlier warnings.</div>
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveFrontPreset()">Apply Front Sensitivity</button>
+      </div>
+    </div>
+
+    <div id="rearSection" class="settingsSection configSection wizardStepSection" data-step="3">
+      <div class="settingsTitle">Rear Sensitivity</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Rear preset</div>
+          <select id="cfgRearPreset">
+            <option value="0">Near</option>
+            <option value="1">Normal</option>
+            <option value="2">Far</option>
+          </select>
+          <div class="help">Near gives a tighter rear zone. Far gives earlier rear warnings.</div>
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveRearPreset()">Apply Rear Sensitivity</button>
+      </div>
+    </div>
+
+    <div id="calibrationSection" class="settingsSection configSection wizardStepSection" data-step="4">
+      <div class="settingsTitle">Center Calibration</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Calibration Status</div>
+          <div id="cfgCenterCalStatus" class="value">Not calibrated</div>
+        </div>
+      </div>
+      <div class="help">Park on level ground and keep the vehicle still.</div>
+      <div class="settingsButtons">
+        <button onclick="calibrateCenter()">Calibrate Center Unit</button>
+      </div>
+      <div id="wizardCalibrationStatus" class="help hidden">Calibration is required before continuing.</div>
+    </div>
+
+    <div id="testSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="5">
+      <div class="settingsTitle">Installation Test</div>
+      <div class="help">Check that each unit is online before finishing setup.</div>
+      <div class="wizardHealth">
+        <div class="unitCheck">
+          <div class="unitCheckName">Front Unit</div>
+          <div id="wizardFrontStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Center Unit</div>
+          <div id="wizardCenterStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Rear Unit</div>
+          <div id="wizardRearStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Lane Unit</div>
+          <div id="wizardLaneStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+      </div>
+      <div id="wizardTestHint" class="help">You can continue after confirming the required units are responding.</div>
+    </div>
+
+    <div id="finishSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="6">
+      <div class="settingsTitle">Save and Finish</div>
+      <div class="help">Save this setup and unlock the dashboard.</div>
+      <div class="settingsButtons">
+        <button onclick="finishWizardSetup()">Save and Finish Setup</button>
+      </div>
+    </div>
+
+    <div id="wizardControls" class="settingsSection hidden">
+      <div class="settingsButtons">
+        <button id="wizardBackBtn" onclick="wizardBack()">Back</button>
+        <button id="wizardNextBtn" onclick="wizardNext()">Next</button>
+      </div>
+    </div>
+
+    <div id="normalSetupWizardSection" class="settingsSection normalOnly">
+      <div class="settingsTitle">Guided Setup Wizard</div>
+      <div class="help">Run the full setup again after reinstalling, remounting, or moving the system to another vehicle.</div>
+      <div class="settingsButtons">
+        <button onclick="openSetupWizard()">Open Setup Wizard</button>
+      </div>
+    </div>
+
+    <div id="systemSection" class="settingsSection normalOnly">
+      <div class="settingsTitle">System / Reset</div>
+      <div class="help">Reset returns vehicle dimensions and sensitivity presets to defaults. Setup must be completed again afterwards.</div>
+      <div class="settingsButtons">
+        <button class="danger" onclick="resetDefaults()">Reset Settings to Defaults</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 </div>
 
 <script>
@@ -1043,47 +1193,106 @@ let leanDotTargetX = 0;
 let leanDotTargetY = 0;
 let leanDotInitialized = false;
 
-function enableAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let latestConfig = null;
+let latestHealth = {
+  front: {online:false, stale:true},
+  lean:  {online:false, stale:true},
+  rear:  {online:false, stale:true},
+  lane:  {online:false, stale:true}
+};
+
+let settingsUiInitialized = false;
+let settingsDirty = false;
+let wizardStep = 0;
+let wizardMode = false;
+let forceFormRefresh = false;
+let wizardCalibrationRequested = false;
+let wizardCalibrationStartedAt = 0;
+
+const DEFAULT_CFG = {
+  setupCompleted: 0,
+  vehicleType: 3,
+  loadCondition: 1,
+  trackWidth_m: 1.56,
+  wheelBase_m: 2.67,
+  vehicleHeight_m: 1.57,
+  frontPreset: 1,
+  rearPreset: 1,
+  centerCalibrated: 0
+};
+
+function $(id){ return document.getElementById(id); }
+
+function isSetupLocked(){
+  return wizardMode || !latestConfig || !latestConfig.setupCompleted;
+}
+
+function showTab(tab){
+  if (tab === "dashboard" && isSetupLocked()) {
+    $("dashboardTab").classList.add("hidden");
+    $("settingsTab").classList.remove("hidden");
+    $("tabDashboardBtn").classList.add("hidden");
+    $("tabSettingsBtn").classList.add("active");
+    $("tabSettingsBtn").innerText = "Setup";
+    setCmdStatus("Complete setup to unlock the dashboard.");
+    return;
   }
+
+  $("dashboardTab").classList.toggle("hidden", tab !== "dashboard");
+  $("settingsTab").classList.toggle("hidden", tab !== "settings");
+  $("tabDashboardBtn").classList.toggle("active", tab === "dashboard");
+  $("tabSettingsBtn").classList.toggle("active", tab === "settings");
+}
+
+function setCmdStatus(msg){
+  const el = $("cmdStatus");
+  if (el) el.innerText = msg;
+}
+
+ws.onopen = () => setCmdStatus("WebSocket connected.");
+ws.onclose = () => setCmdStatus("WebSocket disconnected. Refresh the page.");
+ws.onerror = () => setCmdStatus("WebSocket error. Refresh the page.");
+
+function enableAudio(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   audioCtx.resume().then(() => {
     audioEnabled = true;
-    document.getElementById("audioBtn").innerText = "Sound Enabled";
+    $("audioBtn").innerText = "Sound Enabled";
   });
 }
 
-function playBeep(freq = 900, durationMs = 80, volume = 0.08) {
+function playBeep(freq = 900, durationMs = 80, volume = 0.08){
   if (!audioEnabled || !audioCtx) return;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-
   osc.type = "sine";
   osc.frequency.value = freq;
   gain.gain.value = volume;
-
   osc.connect(gain);
   gain.connect(audioCtx.destination);
-
-  const now = audioCtx.currentTime;
-  osc.start(now);
-  osc.stop(now + durationMs / 1000);
-  gain.gain.setValueAtTime(volume, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+  const n = audioCtx.currentTime;
+  osc.start(n);
+  osc.stop(n + durationMs / 1000);
+  gain.gain.setValueAtTime(volume, n);
+  gain.gain.exponentialRampToValueAtTime(0.0001, n + durationMs / 1000);
 }
 
-function resizeLeanField() {
-  const visual = document.getElementById("leanVisual");
+function resizeLeanField(){
+  const visual = $("leanVisual");
   const rect = visual.getBoundingClientRect();
   const side = Math.min(rect.width, rect.height) * 0.92;
-  const field = document.getElementById("leanField");
+  const field = $("leanField");
   field.style.width = side + "px";
   field.style.height = side + "px";
 }
-window.addEventListener("resize", resizeLeanField);
-window.addEventListener("load", resizeLeanField);
 
-function softAxisPosition(valueDeg, criticalDeg, radiusPx) {
+window.addEventListener("resize", resizeLeanField);
+window.addEventListener("load", () => {
+  resizeLeanField();
+  markSettingsDirtyHandlers();
+});
+
+function softAxisPosition(valueDeg, criticalDeg, radiusPx){
   const INNER_RATIO = 0.78;
   const OUTER_RATIO = 0.90;
   const HEADROOM = 2.85;
@@ -1107,67 +1316,359 @@ function softAxisPosition(valueDeg, criticalDeg, radiusPx) {
   return sign * magRatio * radiusPx;
 }
 
-function animateLeanDot() {
-  if (!leanDotInitialized) {
-    requestAnimationFrame(animateLeanDot);
-    return;
+function animateLeanDot(){
+  if (leanDotInitialized) {
+    const dot = $("leanDot");
+    const SMOOTH = 0.35;
+    leanDotCurrentX += (leanDotTargetX - leanDotCurrentX) * SMOOTH;
+    leanDotCurrentY += (leanDotTargetY - leanDotCurrentY) * SMOOTH;
+    dot.style.left = leanDotCurrentX + "px";
+    dot.style.top = leanDotCurrentY + "px";
   }
-
-  const leanDot = document.getElementById("leanDot");
-  const SMOOTH = 0.35;
-
-  leanDotCurrentX += (leanDotTargetX - leanDotCurrentX) * SMOOTH;
-  leanDotCurrentY += (leanDotTargetY - leanDotCurrentY) * SMOOTH;
-
-  leanDot.style.left = leanDotCurrentX + "px";
-  leanDot.style.top = leanDotCurrentY + "px";
-
   requestAnimationFrame(animateLeanDot);
 }
-
 requestAnimationFrame(animateLeanDot);
 
-function fmtCm(v){
-  if (v < 0) return "Invalid";
-  return v.toFixed(1) + " cm";
-}
-function fmtSpeed(v){
-  return (v >= 0 ? "+" : "") + v.toFixed(1) + " cm/s";
-}
-
-function statusText(obj){
-  if (!obj.online) return "Offline";
-  if (obj.stale) return "Stale";
+function fmtCm(v){ return v < 0 ? "Invalid" : v.toFixed(1) + " cm"; }
+function fmtSpeed(v){ return (v >= 0 ? "+" : "") + v.toFixed(1) + " cm/s"; }
+function statusText(o){
+  if (!o.online) return "Offline";
+  if (o.stale) return "Stale";
   return "Online";
 }
 
-function nearestSensorText(v) {
-  if (v === 1) return "Left";
-  if (v === 2) return "Center";
-  if (v === 3) return "Right";
-  return "None";
+function setUnitStatus(el, obj){
+  const text = statusText(obj);
+  el.innerText = text;
+  el.classList.remove("okText", "warnText", "badText");
+  if (!obj.online) el.classList.add("badText");
+  else if (obj.stale) el.classList.add("warnText");
+  else el.classList.add("okText");
+}
+
+function safeSend(msg){
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return false;
+  }
+
+  ws.send(msg);
+  setCmdStatus("Command sent: " + msg);
+  return true;
+}
+
+function sendObj(obj){
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return false;
+  }
+
+  ws.send(JSON.stringify(obj));
+  settingsDirty = false;
+  setCmdStatus("Settings command sent.");
+  return true;
+}
+
+function getSetupObj(cmd){
+  return {
+    cmd: cmd,
+    vehicleType: parseInt($("cfgVehicleType").value),
+    loadCondition: parseInt($("cfgLoadCondition").value),
+    trackWidth_m: parseFloat($("cfgTrackWidth").value),
+    wheelBase_m: parseFloat($("cfgWheelBase").value),
+    vehicleHeight_m: parseFloat($("cfgVehicleHeight").value),
+    frontPreset: parseInt($("cfgFrontPreset").value),
+    rearPreset: parseInt($("cfgRearPreset").value),
+    setupCompleted: true
+  };
+}
+
+function saveVehicleSettings(){
+  sendObj({
+    cmd: "saveVehicle",
+    vehicleType: parseInt($("cfgVehicleType").value),
+    loadCondition: parseInt($("cfgLoadCondition").value),
+    trackWidth_m: parseFloat($("cfgTrackWidth").value),
+    wheelBase_m: parseFloat($("cfgWheelBase").value),
+    vehicleHeight_m: parseFloat($("cfgVehicleHeight").value),
+    setupCompleted: true
+  });
+}
+
+function saveFrontPreset(){
+  sendObj({cmd:"saveFrontPreset", frontPreset:parseInt($("cfgFrontPreset").value)});
+}
+
+function saveRearPreset(){
+  sendObj({cmd:"saveRearPreset", rearPreset:parseInt($("cfgRearPreset").value)});
+}
+
+function saveAllSetup(){
+  return sendObj(getSetupObj("saveAllSetup"));
+}
+
+function calibrateCenter(){
+  wizardCalibrationRequested = true;
+  wizardCalibrationStartedAt = Date.now();
+  latestConfig.centerCalibrated = 0;
+  $("cfgCenterCalStatus").innerText = "Calibrating...";
+  $("wizardCalibrationStatus").innerText = "Calibrating... keep the vehicle still.";
+  safeSend("CAL_CENTER");
+  renderWizard();
+}
+
+function resetDefaults(){
+  if (confirm("Reset Drivora settings to defaults? Setup must be completed again afterwards.")) {
+    settingsDirty = false;
+    settingsUiInitialized = false;
+    wizardMode = true;
+    wizardStep = 0;
+    wizardCalibrationRequested = false;
+    wizardCalibrationStartedAt = 0;
+    latestConfig = Object.assign({}, DEFAULT_CFG);
+    applyConfigToForm(DEFAULT_CFG, true);
+    refreshSettingsMode(DEFAULT_CFG);
+    safeSend("RESET_DEFAULTS");
+    setCmdStatus("Reset command sent. Defaults loaded in UI.");
+  }
+}
+
+function markSettingsDirtyHandlers(){
+  ["cfgVehicleType","cfgLoadCondition","cfgTrackWidth","cfgWheelBase","cfgVehicleHeight","cfgFrontPreset","cfgRearPreset"].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener("input", () => settingsDirty = true);
+      el.addEventListener("change", () => settingsDirty = true);
+    }
+  });
+}
+
+function applyConfigToForm(cfg, force = false){
+  if (!force && settingsDirty) return;
+
+  $("cfgVehicleType").value = cfg.vehicleType;
+  $("cfgLoadCondition").value = cfg.loadCondition;
+  $("cfgTrackWidth").value = Number(cfg.trackWidth_m).toFixed(2);
+  $("cfgWheelBase").value = Number(cfg.wheelBase_m).toFixed(2);
+  $("cfgVehicleHeight").value = Number(cfg.vehicleHeight_m).toFixed(2);
+  $("cfgFrontPreset").value = cfg.frontPreset;
+  $("cfgRearPreset").value = cfg.rearPreset;
+
+  settingsUiInitialized = true;
+}
+
+function refreshNavigation(cfg){
+  const locked = wizardMode || !cfg.setupCompleted;
+
+  $("tabDashboardBtn").classList.toggle("hidden", locked);
+  $("tabSettingsBtn").innerText = locked ? "Setup" : "Settings";
+
+  if (locked) {
+    $("dashboardTab").classList.add("hidden");
+    $("settingsTab").classList.remove("hidden");
+    $("tabDashboardBtn").classList.remove("active");
+    $("tabSettingsBtn").classList.add("active");
+  }
+}
+
+function refreshSettingsMode(cfg){
+  const setupDone = !!cfg.setupCompleted;
+  const wizardActive = wizardMode || !setupDone;
+
+  refreshNavigation(cfg);
+
+  $("wizardHeader").classList.toggle("hidden", !wizardActive);
+  $("wizardControls").classList.toggle("hidden", !wizardActive);
+  $("wizardCalibrationStatus").classList.toggle("hidden", !wizardActive);
+
+  document.querySelectorAll(".normalOnly").forEach(el => {
+    el.classList.toggle("hidden", wizardActive);
+  });
+
+  document.querySelectorAll(".wizardStepSection").forEach(el => {
+    if (wizardActive) {
+      const step = parseInt(el.dataset.step);
+      el.classList.toggle("hidden", step !== wizardStep);
+    } else {
+      el.classList.toggle("hidden", el.classList.contains("wizardOnly"));
+    }
+  });
+
+  if (wizardActive) renderWizard();
+}
+
+function updateSettingsUI(cfg){
+  latestConfig = cfg;
+
+  if (forceFormRefresh || !settingsUiInitialized) {
+    applyConfigToForm(cfg, true);
+    forceFormRefresh = false;
+  } else {
+    applyConfigToForm(cfg, false);
+  }
+
+  $("cfgCenterCalStatus").innerText = cfg.centerCalibrated ? "Calibrated" : (wizardCalibrationRequested ? "Calibrating..." : "Not calibrated");
+  $("setupBanner").classList.toggle("hidden", !!cfg.setupCompleted);
+  refreshSettingsMode(cfg);
+}
+
+function openSetupWizard(){
+  if (latestConfig && latestConfig.setupCompleted) {
+    if (!confirm("Run the setup wizard again? The dashboard will be locked until the setup is completed.")) {
+      return;
+    }
+  }
+
+  showTab("settings");
+  wizardMode = true;
+  wizardStep = 0;
+  settingsDirty = false;
+  wizardCalibrationRequested = false;
+  wizardCalibrationStartedAt = 0;
+
+  if (latestConfig) {
+    latestConfig.setupCompleted = 0;
+    latestConfig.centerCalibrated = 0;
+    applyConfigToForm(latestConfig, true);
+  }
+
+  safeSend("START_WIZARD");
+  refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function wizardBack(){
+  if (wizardStep > 0) {
+    wizardStep--;
+    refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  }
+}
+
+function wizardNext(){
+  if (wizardStep < 6) {
+    wizardStep++;
+    refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  }
+}
+
+function calibrationReadyForNext(){
+  if (!wizardCalibrationRequested) return false;
+  if (!latestConfig || !latestConfig.centerCalibrated) return false;
+  return (Date.now() - wizardCalibrationStartedAt) > 2000;
+}
+
+function finishWizardSetup(){
+  if (saveAllSetup()) {
+    wizardMode = false;
+    wizardCalibrationRequested = false;
+    wizardCalibrationStartedAt = 0;
+    settingsDirty = false;
+    forceFormRefresh = true;
+
+    if (latestConfig) latestConfig.setupCompleted = 1;
+
+    setCmdStatus("Setup saved. Dashboard unlocked.");
+    showTab("dashboard");
+  }
+}
+
+function renderWizard(){
+  const titles = [
+    "Welcome",
+    "Vehicle Information",
+    "Front Sensitivity",
+    "Rear Sensitivity",
+    "Center Calibration",
+    "Installation Test",
+    "Save and Finish"
+  ];
+
+  const bodies = [
+    "Set up Drivora for this vehicle.",
+    "Enter the vehicle dimensions used by the center unit.",
+    "Choose how early the front warning should respond.",
+    "Choose how early the rear warning should respond.",
+    "Calibrate the center unit on level ground.",
+    "Confirm that the installed units are responding.",
+    "Save the setup and unlock the dashboard."
+  ];
+
+  $("wizardProgress").innerText = "Step " + (wizardStep + 1) + " of 7";
+  $("wizardTitle").innerText = titles[wizardStep];
+  $("wizardBody").innerText = bodies[wizardStep];
+
+  $("wizardBackBtn").style.display = wizardStep === 0 ? "none" : "inline-block";
+  $("wizardNextBtn").style.display = wizardStep === 6 ? "none" : "inline-block";
+  $("wizardNextBtn").innerText = "Next";
+
+  if (wizardStep === 4) {
+    const ready = calibrationReadyForNext();
+
+    if (!wizardCalibrationRequested) {
+      $("wizardCalibrationStatus").innerText = "Press Calibrate to continue.";
+    } else if (!ready) {
+      $("wizardCalibrationStatus").innerText = "Waiting for calibration to complete...";
+    } else {
+      $("wizardCalibrationStatus").innerText = "Calibration completed. You can continue.";
+    }
+
+    $("wizardNextBtn").style.display = ready ? "inline-block" : "none";
+  }
+
+  if (wizardStep === 5) {
+    updateWizardHealth();
+  }
+}
+
+function updateWizardHealth(){
+  setUnitStatus($("wizardFrontStatus"), latestHealth.front);
+  setUnitStatus($("wizardCenterStatus"), latestHealth.lean);
+  setUnitStatus($("wizardRearStatus"), latestHealth.rear);
+  setUnitStatus($("wizardLaneStatus"), latestHealth.lane);
+
+  const requiredOk =
+    latestHealth.front.online && !latestHealth.front.stale &&
+    latestHealth.lean.online && !latestHealth.lean.stale &&
+    latestHealth.rear.online && !latestHealth.rear.stale;
+
+  $("wizardTestHint").innerText = requiredOk
+    ? "Core units are responding. Lane unit can be checked if installed."
+    : "Waiting for Front, Center, and Rear units to respond.";
 }
 
 ws.onmessage = (evt) => {
   const d = JSON.parse(evt.data);
 
+  latestHealth.front = d.front;
+  latestHealth.lean = d.lean;
+  latestHealth.rear = d.rear;
+  latestHealth.lane = d.lane;
+
+  if (d.config) updateSettingsUI(d.config);
+
+  // Fused main warning
+  if (d.fused) {
+    $("mainWarningBox").style.borderColor = d.fused.color;
+    $("mainWarningTitle").innerText = d.fused.title;
+    $("mainWarningTitle").style.color = d.fused.color;
+    $("mainWarningMsg").innerText = d.fused.message;
+  }
+
   // Lean
   const lean = d.lean;
-  document.getElementById("leanBadge").innerText = statusText(lean);
-  document.getElementById("leanStateBox").innerText = lean.riskName;
-  document.getElementById("leanStateBox").style.backgroundColor = lean.riskLevel === 2 ? "#ff3b30" : (lean.riskLevel === 1 ? "#ffb020" : "#1db954");
-  document.getElementById("leanRoll").innerText = lean.roll.toFixed(2) + "°";
-  document.getElementById("leanPitch").innerText = lean.pitch.toFixed(2) + "°";
-  document.getElementById("leanConf").innerText = lean.confidence.toFixed(2);
+  $("leanBadge").innerText = statusText(lean);
+  $("leanStateBox").innerText = lean.riskName;
+  $("leanStateBox").style.backgroundColor = lean.riskLevel === 2 ? "#ff3b30" : (lean.riskLevel === 1 ? "#ffb020" : "#1db954");
+  $("leanRoll").innerText = lean.roll.toFixed(2) + "°";
+  $("leanPitch").innerText = lean.pitch.toFixed(2) + "°";
+  $("leanConf").innerText = lean.confidence.toFixed(2);
 
-  const field = document.getElementById("leanField");
-  const rect = field.getBoundingClientRect();
-  const centerX = rect.width / 2;
-  const centerY = rect.height / 2;
-  const radius = Math.min(rect.width, rect.height) / 2 - 12;
-
-  const px = centerX + softAxisPosition(lean.roll, lean.criticalRollDeg, radius);
-  const py = centerY + softAxisPosition(lean.pitch, lean.criticalPitchDeg, radius);
+  const rect = $("leanField").getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  const r = Math.min(rect.width, rect.height) / 2 - 12;
+  const px = cx + softAxisPosition(lean.roll, lean.criticalRollDeg, r);
+  const py = cy + softAxisPosition(lean.pitch, lean.criticalPitchDeg, r);
 
   leanDotTargetX = px;
   leanDotTargetY = py;
@@ -1180,86 +1681,69 @@ ws.onmessage = (evt) => {
 
   // Front
   const front = d.front;
-  document.getElementById("frontBadge").innerText = statusText(front);
-  document.getElementById("frontStateBox").innerText = front.stateName;
-  document.getElementById("frontStateBox").style.backgroundColor = front.stateColor;
-  document.getElementById("frontDist").innerText = fmtCm(front.filteredDistanceCm);
-  document.getElementById("frontSpeed").innerText = fmtSpeed(front.closingSpeedCmS);
+  $("frontBadge").innerText = statusText(front);
+  $("frontStateBox").innerText = front.stateName;
+  $("frontStateBox").style.backgroundColor = front.stateColor;
+  $("frontDist").innerText = fmtCm(front.filteredDistanceCm);
+  $("frontSpeed").innerText = fmtSpeed(front.closingSpeedCmS);
 
   // Rear
   const rear = d.rear;
-  document.getElementById("rearBadge").innerText = statusText(rear);
-  document.getElementById("rearStateBox").innerText = rear.overallStateName;
-  document.getElementById("rearStateBox").style.backgroundColor = rear.overallStateColor;
+  $("rearBadge").innerText = statusText(rear);
+  $("rearStateBox").innerText = rear.overallStateName;
+  $("rearStateBox").style.backgroundColor = rear.overallStateColor;
 
-  document.getElementById("rearLeftStateBox").innerText = rear.leftStateName;
-  document.getElementById("rearLeftStateBox").style.backgroundColor = rear.leftStateColor;
-  document.getElementById("rearLeftDist").innerText = fmtCm(rear.leftFilteredDistanceCm);
+  $("rearLeftStateBox").innerText = rear.leftStateName;
+  $("rearLeftStateBox").style.backgroundColor = rear.leftStateColor;
+  $("rearLeftDist").innerText = fmtCm(rear.leftFilteredDistanceCm);
 
-  document.getElementById("rearCenterStateBox").innerText = rear.centerStateName;
-  document.getElementById("rearCenterStateBox").style.backgroundColor = rear.centerStateColor;
-  document.getElementById("rearCenterDist").innerText = fmtCm(rear.centerFilteredDistanceCm);
+  $("rearCenterStateBox").innerText = rear.centerStateName;
+  $("rearCenterStateBox").style.backgroundColor = rear.centerStateColor;
+  $("rearCenterDist").innerText = fmtCm(rear.centerFilteredDistanceCm);
 
-  document.getElementById("rearRightStateBox").innerText = rear.rightStateName;
-  document.getElementById("rearRightStateBox").style.backgroundColor = rear.rightStateColor;
-  document.getElementById("rearRightDist").innerText = fmtCm(rear.rightFilteredDistanceCm);
+  $("rearRightStateBox").innerText = rear.rightStateName;
+  $("rearRightStateBox").style.backgroundColor = rear.rightStateColor;
+  $("rearRightDist").innerText = fmtCm(rear.rightFilteredDistanceCm);
 
   // Lane
   const lane = d.lane;
-  document.getElementById("laneBadge").innerText = statusText(lane);
-  document.getElementById("laneStateBox").innerText = lane.stateName;
-  document.getElementById("laneStateBox").style.backgroundColor = lane.stateColor;
+  $("laneBadge").innerText = statusText(lane);
+  $("laneStateBox").innerText = lane.stateName;
+  $("laneStateBox").style.backgroundColor = lane.stateColor;
 
-  const leftMark = document.getElementById("laneLeftMark");
-  const rightMark = document.getElementById("laneRightMark");
+  $("laneLeftMark").classList.remove("laneAlert");
+  $("laneRightMark").classList.remove("laneAlert");
 
-  leftMark.classList.remove("laneAlert");
-  rightMark.classList.remove("laneAlert");
+  if (lane.state === 1) $("laneLeftMark").classList.add("laneAlert");
+  else if (lane.state === 2) $("laneRightMark").classList.add("laneAlert");
 
-  if (lane.state === 1) {
-    leftMark.classList.add("laneAlert");
-  } else if (lane.state === 2) {
-    rightMark.classList.add("laneAlert");
-  }
+  if (wizardStep === 5) updateWizardHealth();
 
-  // Brain-generated beeps
+  // Beeps
   const now = Date.now();
-
   if (audioEnabled) {
-    if (front.state === 2) {
-      if (now - lastFrontBeepMs > 700) {
-        playBeep(850, 70, 0.07);
-        lastFrontBeepMs = now;
-      }
-    } else if (front.state === 3) {
-      if (now - lastFrontBeepMs > 250) {
-        playBeep(1250, 90, 0.09);
-        lastFrontBeepMs = now;
-      }
+    if (front.state === 2 && now - lastFrontBeepMs > 700) {
+      playBeep(850, 70, 0.07);
+      lastFrontBeepMs = now;
+    } else if (front.state === 3 && now - lastFrontBeepMs > 250) {
+      playBeep(1250, 90, 0.09);
+      lastFrontBeepMs = now;
     }
 
-    if (rear.overallState === 1) {
-      if (now - lastRearBeepMs > 900) {
-        playBeep(820, 70, 0.06);
-        lastRearBeepMs = now;
-      }
-    } else if (rear.overallState === 2) {
-      if (now - lastRearBeepMs > 450) {
-        playBeep(980, 80, 0.07);
-        lastRearBeepMs = now;
-      }
-    } else if (rear.overallState === 3) {
-      if (now - lastRearBeepMs > 180) {
-        playBeep(1250, 90, 0.09);
-        lastRearBeepMs = now;
-      }
+    if (rear.overallState === 1 && now - lastRearBeepMs > 900) {
+      playBeep(820, 70, 0.06);
+      lastRearBeepMs = now;
+    } else if (rear.overallState === 2 && now - lastRearBeepMs > 450) {
+      playBeep(980, 80, 0.07);
+      lastRearBeepMs = now;
+    } else if (rear.overallState === 3 && now - lastRearBeepMs > 180) {
+      playBeep(1250, 90, 0.09);
+      lastRearBeepMs = now;
     }
 
-    if (lane.state === 1 || lane.state === 2) {
-      if (now - lastLaneBeepMs > 220) {
-        playBeep(1100, 80, 0.08);
-        lastLaneBeepMs = now;
-      }
+    if ((lane.state === 1 || lane.state === 2) && now - lastLaneBeepMs > 220) {
+      playBeep(1100, 80, 0.08);
+      lastLaneBeepMs = now;
     }
   }
 };
@@ -1268,11 +1752,12 @@ ws.onmessage = (evt) => {
 </html>
 )rawliteral";
 
+
 // ================= WEBSOCKET =================
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
   if (type == WStype_TEXT) {
     String msg = payloadToString(payload, length);
-    if (msg == "PING") return;
+    handleIncomingCommand(msg);
   }
 }
 
@@ -1280,6 +1765,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t lengt
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  loadConfig();
 
   Serial2.begin(115200, SERIAL_8N1, LANE_RX_PIN, LANE_TX_PIN);
 
@@ -1301,8 +1788,10 @@ void setup() {
   webSocket.onEvent(onWebSocketEvent);
 
   initCAN();
+  delay(50);
+  sendAllConfigs();
 
-  Serial.println("ADAS Brain UI skeleton ready");
+  Serial.println("ADAS Brain UI + Settings ready");
 }
 
 // ================= LOOP =================
