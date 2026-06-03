@@ -9,6 +9,7 @@ static const gpio_num_t CAN_RX_PIN = GPIO_NUM_7;
 
 const uint32_t FRONT_MAIN_ID  = 0x200;
 const uint32_t FRONT_DEBUG_ID = 0x201;
+const uint32_t FRONT_CFG_ID   = 0x210;
 
 unsigned long lastCanSendMs = 0;
 const unsigned long CAN_SEND_MS = 50;
@@ -35,13 +36,14 @@ const unsigned long SENSOR_GAP_MS = 6;
 const float MIN_VALID_CM = 23.0f;
 const float MAX_VALID_CM = 250.0f;
 
-const float OBJECT_ZONE_CM   = 180.0f;
-const float WARNING_ZONE_CM  = 80.0f;
+// -------- Preset-controlled thresholds --------
+float OBJECT_ZONE_CM   = 180.0f;
+float WARNING_ZONE_CM  = 80.0f;
 
 // Close / blind-zone related thresholds
-const float VERY_CLOSE_ZONE_CM      = 25.0f;
-const float BLIND_ENTRY_TRIGGER_CM  = 24.0f;
-const float CLEAR_DISTANCE_CM       = 205.0f;
+float VERY_CLOSE_ZONE_CM      = 25.0f;
+float BLIND_ENTRY_TRIGGER_CM  = 24.0f;
+float CLEAR_DISTANCE_CM       = 205.0f;
 
 // Suspicious reading logic
 const float SUSPICIOUS_JUMP_CM      = 18.0f;
@@ -53,8 +55,12 @@ const float BLIND_RELEASE_MOVING_AWAY_CM_S = -6.0f;
 const float BLIND_RELEASE_MOVING_AWAY_MIN_CM = 25.0f;
 
 // Fast blind-entry detection
-const float FAST_BLIND_ARM_CM   = 45.0f;
+float FAST_BLIND_ARM_CM   = 45.0f;
 const float FAST_ENTRY_JUMP_CM  = 12.0f;
+
+// ================= FRONT PRESET =================
+uint8_t frontSensitivityPreset = 1; // 0 Near, 1 Normal, 2 Far
+uint8_t lastFrontCfgCounter = 0xFF;
 
 // ================= SAMPLING =================
 const int sampleSize = 2;
@@ -129,6 +135,54 @@ const char* stateName(FCWState s) {
   }
 }
 
+const char* frontPresetName(uint8_t p) {
+  switch (p) {
+    case 0: return "Near";
+    case 1: return "Normal";
+    case 2: return "Far";
+    default: return "Normal";
+  }
+}
+
+void applyFrontSensitivityPreset(uint8_t preset) {
+  frontSensitivityPreset = constrain((int)preset, 0, 2);
+
+  if (frontSensitivityPreset == 0) {
+    // Near
+    OBJECT_ZONE_CM        = 150.0f;
+    WARNING_ZONE_CM       = 65.0f;
+    VERY_CLOSE_ZONE_CM    = 23.0f;
+    BLIND_ENTRY_TRIGGER_CM = 23.0f;
+    CLEAR_DISTANCE_CM     = 175.0f;
+    FAST_BLIND_ARM_CM     = 38.0f;
+  } else if (frontSensitivityPreset == 2) {
+    // Far
+    OBJECT_ZONE_CM        = 210.0f;
+    WARNING_ZONE_CM       = 95.0f;
+    VERY_CLOSE_ZONE_CM    = 28.0f;
+    BLIND_ENTRY_TRIGGER_CM = 25.0f;
+    CLEAR_DISTANCE_CM     = 235.0f;
+    FAST_BLIND_ARM_CM     = 55.0f;
+  } else {
+    // Normal
+    OBJECT_ZONE_CM        = 180.0f;
+    WARNING_ZONE_CM       = 80.0f;
+    VERY_CLOSE_ZONE_CM    = 25.0f;
+    BLIND_ENTRY_TRIGGER_CM = 24.0f;
+    CLEAR_DISTANCE_CM     = 205.0f;
+    FAST_BLIND_ARM_CM     = 45.0f;
+  }
+
+  Serial.print("Applied front preset: ");
+  Serial.println(frontPresetName(frontSensitivityPreset));
+  Serial.print("OBJECT_ZONE_CM = "); Serial.println(OBJECT_ZONE_CM, 1);
+  Serial.print("WARNING_ZONE_CM = "); Serial.println(WARNING_ZONE_CM, 1);
+  Serial.print("VERY_CLOSE_ZONE_CM = "); Serial.println(VERY_CLOSE_ZONE_CM, 1);
+  Serial.print("BLIND_ENTRY_TRIGGER_CM = "); Serial.println(BLIND_ENTRY_TRIGGER_CM, 1);
+  Serial.print("CLEAR_DISTANCE_CM = "); Serial.println(CLEAR_DISTANCE_CM, 1);
+  Serial.print("FAST_BLIND_ARM_CM = "); Serial.println(FAST_BLIND_ARM_CM, 1);
+}
+
 void initWatchdog() {
 #if ESP_IDF_VERSION_MAJOR >= 5
   esp_task_wdt_config_t twdt_config = {
@@ -191,6 +245,26 @@ bool initCAN() {
 
   Serial.println("TWAI started on front node");
   return true;
+}
+
+void receiveCANFrames() {
+  twai_message_t msg;
+
+  while (twai_receive(&msg, 0) == ESP_OK) {
+    if (msg.extd || msg.rtr) continue;
+
+    if (msg.identifier == FRONT_CFG_ID && msg.data_length_code >= 8) {
+      uint8_t counter = msg.data[7];
+      if (counter == lastFrontCfgCounter) continue;
+      lastFrontCfgCounter = counter;
+
+      uint8_t preset = msg.data[0];
+      applyFrontSensitivityPreset(preset);
+
+      Serial.print("RX FrontCfg | preset=");
+      Serial.println(frontSensitivityPreset);
+    }
+  }
 }
 
 uint8_t buildFrontDebugFlags(
@@ -270,7 +344,7 @@ void sendFrontDebugFrame(
   msg.data[2] = (uint8_t)max(s1.warningCounter, s2.warningCounter);
   msg.data[3] = (uint8_t)max(s1.blindReleaseCounter, s2.blindReleaseCounter);
   msg.data[4] = (uint8_t)max(s1.invalidStreak, s2.invalidStreak);
-  msg.data[5] = 0;
+  msg.data[5] = frontSensitivityPreset; // helpful debug
   msg.data[6] = 0;
   msg.data[7] = frontDebugCounter++;
 
@@ -285,7 +359,9 @@ void sendFrontDebugFrame(
     Serial.print(" blindRelease=");
     Serial.print(max(s1.blindReleaseCounter, s2.blindReleaseCounter));
     Serial.print(" invalid=");
-    Serial.println(max(s1.invalidStreak, s2.invalidStreak));
+    Serial.print(max(s1.invalidStreak, s2.invalidStreak));
+    Serial.print(" preset=");
+    Serial.println(frontSensitivityPreset);
   }
 }
 
@@ -597,6 +673,7 @@ void setup() {
 
   initCAN();
   initWatchdog();
+  applyFrontSensitivityPreset(frontSensitivityPreset);
 
   lastLoopMs = millis();
   sensor1.lastValidDistanceMs = millis();
@@ -608,6 +685,7 @@ void setup() {
 // ================= LOOP =================
 void loop() {
   feedWatchdog();
+  receiveCANFrames();
 
   unsigned long nowMs = millis();
 
@@ -683,7 +761,10 @@ void loop() {
   float loopMs = (float)(nowMs - lastLoopMs);
   lastLoopMs = nowMs;
 
-  Serial.print("S1 raw=");
+  Serial.print("Preset=");
+  Serial.print(frontPresetName(frontSensitivityPreset));
+
+  Serial.print(" | S1 raw=");
   if (rawDistance1 < 0) Serial.print("Invalid");
   else Serial.print(rawDistance1, 1);
 
