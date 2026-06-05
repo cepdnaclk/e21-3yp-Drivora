@@ -6,7 +6,7 @@ import '../services/wifi_sensor_service.dart';
 import '../theme/app_theme.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({Key? key}) : super(key: key);
+  const MapScreen({super.key});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -113,8 +113,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => Scaffold(
       backgroundColor: const Color(0xFFF0F0F5),
       body: Stack(
         children: [
@@ -227,15 +226,10 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
         ],
       ),
     );
-  }
 }
 
 // ── SEARCH BAR ────────────────────────────────
 class _SearchBar extends StatelessWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool focused;
-  final VoidCallback onClear;
 
   const _SearchBar({
     required this.controller,
@@ -243,10 +237,13 @@ class _SearchBar extends StatelessWidget {
     required this.focused,
     required this.onClear,
   });
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool focused;
+  final VoidCallback onClear;
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
+  Widget build(BuildContext context) => AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -312,24 +309,22 @@ class _SearchBar extends StatelessWidget {
         ],
       ),
     );
-  }
 }
 
 // ── QUICK DESTINATIONS ────────────────────────
 class _QuickDest {
+  const _QuickDest(this.icon, this.label, this.distance);
   final IconData icon;
   final String label;
   final String distance;
-  const _QuickDest(this.icon, this.label, this.distance);
 }
 
 class _QuickDestRow extends StatelessWidget {
-  final List<_QuickDest> destinations;
   const _QuickDestRow({required this.destinations});
+  final List<_QuickDest> destinations;
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
+  Widget build(BuildContext context) => SizedBox(
       height: 40,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -339,7 +334,7 @@ class _QuickDestRow extends StatelessWidget {
         itemBuilder: (ctx, i) {
           final d = destinations[i];
           return GestureDetector(
-            onTap: () => HapticFeedback.selectionClick(),
+            onTap: HapticFeedback.selectionClick,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
@@ -380,14 +375,12 @@ class _QuickDestRow extends StatelessWidget {
         },
       ),
     );
-  }
 }
 
 // ── LIVE STATUS BANNER ────────────────────────
 class _LiveStatusBanner extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
+  Widget build(BuildContext context) => Consumer<WiFiSensorService>(
       builder: (ctx, svc, _) {
         if (!svc.isConnected) return const SizedBox.shrink();
         final data = svc.currentData;
@@ -412,9 +405,9 @@ class _LiveStatusBanner extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
+                const Text(
                   'LIVE ADAS',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Orbitron',
                     fontSize: 9,
                     fontWeight: FontWeight.w700,
@@ -439,28 +432,26 @@ class _LiveStatusBanner extends StatelessWidget {
                 ),
                 const Spacer(),
                 if (data.ldwActive)
-                  _MiniChip('LANE', AppTheme.accentAmber)
+                  const _MiniChip('LANE', AppTheme.accentAmber)
                 else if (data.brakeActive)
-                  _MiniChip('AEB', AppTheme.accentRed)
+                  const _MiniChip('AEB', AppTheme.accentRed)
                 else
-                  _MiniChip('SAFE', AppTheme.accentGreen),
+                  const _MiniChip('SAFE', AppTheme.accentGreen),
               ],
             ),
           ),
         );
       },
     );
-  }
 }
 
 class _MiniChip extends StatelessWidget {
+  const _MiniChip(this.label, this.color);
   final String label;
   final Color color;
-  const _MiniChip(this.label, this.color);
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
@@ -478,15 +469,10 @@ class _MiniChip extends StatelessWidget {
         ),
       ),
     );
-  }
 }
 
 // ── MAP FAB ───────────────────────────────────
 class _MapFab extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final String tooltip;
-  final bool active;
 
   const _MapFab({
     required this.icon,
@@ -494,10 +480,13 @@ class _MapFab extends StatelessWidget {
     required this.tooltip,
     this.active = false,
   });
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool active;
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
+  Widget build(BuildContext context) => GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -527,14 +516,12 @@ class _MapFab extends StatelessWidget {
         ),
       ),
     );
-  }
 }
 
 // ── BOTTOM SPEED CARD ─────────────────────────
 class _BottomSpeedCard extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
+  Widget build(BuildContext context) => Consumer<WiFiSensorService>(
       builder: (ctx, svc, _) {
         final data = svc.currentData;
         return Container(
@@ -632,19 +619,17 @@ class _BottomSpeedCard extends StatelessWidget {
         );
       },
     );
-  }
 }
 
 class _InfoItem extends StatelessWidget {
+
+  const _InfoItem(this.label, this.value, this.color);
   final String label;
   final String value;
   final Color color;
 
-  const _InfoItem(this.label, this.value, this.color);
-
   @override
-  Widget build(BuildContext context) {
-    return Column(
+  Widget build(BuildContext context) => Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
@@ -668,5 +653,4 @@ class _InfoItem extends StatelessWidget {
         ),
       ],
     );
-  }
 }

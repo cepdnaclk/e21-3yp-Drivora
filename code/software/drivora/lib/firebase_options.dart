@@ -50,20 +50,20 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyB_mg5pLecgzixdYQEMPWaTabizJzuhfak',
-    appId: '1:714352938417:web:3a13d585b82d6292438190',
-    messagingSenderId: '714352938417',
-    projectId: 'drivora-27ad4',
-    authDomain: 'drivora-27ad4.firebaseapp.com',
-    storageBucket: 'drivora-27ad4.firebasestorage.app',
-    measurementId: 'G-L6N2051DLK',
+    apiKey: 'AIzaSyCelAjPZ6zSujfIi_V2K5FX2_XV8ILIMsk',
+    appId: '1:467697098105:web:a8ef7c2243179f1b6c23a8',
+    messagingSenderId: '467697098105',
+    projectId: 'drivora-adas',
+    authDomain: 'drivora-adas.firebaseapp.com',
+    storageBucket: 'drivora-adas.firebasestorage.app',
+    measurementId: 'G-MPVH5J3XWL',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyASnCcim2NMPcMZTiKPL4hKHEwrihb8bxQ',
-    appId: '1:714352938417:android:615bd31ece96ef2e438190',
-    messagingSenderId: '714352938417',
-    projectId: 'drivora-27ad4',
-    storageBucket: 'drivora-27ad4.firebasestorage.app',
+    apiKey: 'AIzaSyCelAjPZ6zSujfIi_V2K5FX2_XV8ILIMsk',
+    appId: '1:467697098105:android:eeceaee72e85cd026c23a8',
+    messagingSenderId: '467697098105',
+    projectId: 'drivora-adas',
+    storageBucket: 'drivora-adas.firebasestorage.app',
   );
 }

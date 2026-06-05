@@ -1,0 +1,60 @@
+type User @table {
+  displayName: String!
+  email: String!
+  createdAt: Timestamp!
+  photoUrl: String
+  drivingLicenseNumber: String
+}
+
+type Vehicle @table {
+  user: User!
+  make: String!
+  model: String!
+  year: Int!
+  licensePlate: String!
+  createdAt: Timestamp!
+  vin: String
+  fuelType: String
+  odometerReading: Float
+}
+
+type Trip @table {
+  user: User!
+  vehicle: Vehicle!
+  startTime: Timestamp!
+  endTime: Timestamp!
+  startLocation: String!
+  endLocation: String!
+  distance: Float!
+  createdAt: Timestamp!
+  averageSpeed: Float
+  maxSpeed: Float
+  fuelConsumed: Float
+}
+
+type MaintenanceRecord @table {
+  vehicle: Vehicle!
+  serviceDate: Date!
+  description: String!
+  odometerAtService: Float!
+  createdAt: Timestamp!
+  cost: Float
+  mechanicNotes: String
+}
+
+type AlertSetting @table {
+  user: User!
+  alertType: String!
+  isEnabled: Boolean!
+  createdAt: Timestamp!
+  thresholdValue: Float
+}
+
+type Location @table {
+  user: User!
+  name: String!
+  latitude: Float!
+  longitude: Float!
+  createdAt: Timestamp!
+  address: String
+}

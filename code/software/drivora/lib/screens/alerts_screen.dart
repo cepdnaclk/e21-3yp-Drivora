@@ -6,7 +6,7 @@ import '../models/sensor_data.dart';
 import '../theme/app_theme.dart';
 
 class AlertsScreen extends StatefulWidget {
-  const AlertsScreen({Key? key}) : super(key: key);
+  const AlertsScreen({super.key});
 
   @override
   State<AlertsScreen> createState() => _AlertsScreenState();
@@ -24,6 +24,13 @@ class _AlertsScreenState extends State<AlertsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     )..repeat(reverse: true);
+
+    // Load cloud alert history on open
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Provider.of<WiFiSensorService>(context, listen: false).loadAlertHistory();
+      }
+    });
   }
 
   @override
@@ -33,10 +40,10 @@ class _AlertsScreenState extends State<AlertsScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
+  Widget build(BuildContext context) => Consumer<WiFiSensorService>(
       builder: (context, svc, _) {
-        final all = svc.activeAlerts;
+        // Show session history (deduped, newest first) — includes cloud fetched entries
+        final all = svc.alertHistory;
         final filtered = _filterSeverity == null
             ? all
             : all.where((a) => a.severity == _filterSeverity).toList();
@@ -49,12 +56,7 @@ class _AlertsScreenState extends State<AlertsScreen>
               children: [
                 _AlertsTopBar(
                   alertCount: all.length,
-                  onClear: all.isEmpty
-                      ? null
-                      : () {
-                    HapticFeedback.mediumImpact();
-                    svc.clearAlerts();
-                  },
+                  hasActive: svc.activeAlerts.isNotEmpty,
                 ),
                 _FilterRow(
                   selected: _filterSeverity,
@@ -64,11 +66,7 @@ class _AlertsScreenState extends State<AlertsScreen>
                 Expanded(
                   child: filtered.isEmpty
                       ? _EmptyState(anim: _emptyAnim, filtered: _filterSeverity != null)
-                      : _AlertList(alerts: filtered, onDismiss: (alert) {
-                    HapticFeedback.lightImpact();
-                    // Individual dismiss — just clear all for now since model only has clearAll
-                    svc.clearAlerts();
-                  }),
+                      : _AlertList(alerts: filtered),
                 ),
               ],
             ),
@@ -76,19 +74,17 @@ class _AlertsScreenState extends State<AlertsScreen>
         );
       },
     );
-  }
 }
 
-// ── TOP BAR ──────────────────────────────────
+// ── TOP BAR ──────────────────────────────────────────────────────────────────
 class _AlertsTopBar extends StatelessWidget {
-  final int alertCount;
-  final VoidCallback? onClear;
 
-  const _AlertsTopBar({required this.alertCount, this.onClear});
+  const _AlertsTopBar({required this.alertCount, required this.hasActive});
+  final int alertCount;
+  final bool hasActive;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 16, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -110,79 +106,51 @@ class _AlertsTopBar extends StatelessWidget {
                 ),
               ),
               Text(
-                alertCount == 0 ? 'No active events' : '$alertCount event${alertCount > 1 ? 's' : ''} detected',
-                style: const TextStyle(
+                alertCount == 0
+                    ? 'No events recorded'
+                    : '$alertCount event${alertCount > 1 ? 's' : ''} · ${hasActive ? "ACTIVE" : "all clear"}',
+                style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF6E6E73),
+                  color: hasActive ? AppTheme.accentRed : const Color(0xFF6E6E73),
                 ),
               ),
             ],
           ),
           const Spacer(),
-          if (onClear != null)
-            _ActionButton(
-              icon: Icons.delete_sweep_rounded,
-              label: 'CLEAR ALL',
-              color: AppTheme.accentRed,
-              onTap: onClear!,
+          if (hasActive)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.accentRed.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.accentRed.withOpacity(0.3)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 7, height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.accentRed,
+                    boxShadow: [BoxShadow(color: AppTheme.accentRed.withOpacity(0.6), blurRadius: 6)],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text('ACTIVE', style: TextStyle(
+                    fontFamily: 'Orbitron', fontSize: 9,
+                    fontWeight: FontWeight.w900, color: AppTheme.accentRed, letterSpacing: 1)),
+              ]),
             ),
         ],
       ),
     );
-  }
 }
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.25)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Orbitron',
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-                color: color,
-                letterSpacing: 1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── FILTER ROW ────────────────────────────────
+// ── FILTER ROW ────────────────────────────────────────────────────────────────
 class _FilterRow extends StatelessWidget {
-  final AlertSeverity? selected;
-  final ValueChanged<AlertSeverity> onSelect;
 
   const _FilterRow({required this.selected, required this.onSelect});
+  final AlertSeverity? selected;
+  final ValueChanged<AlertSeverity> onSelect;
 
   static const _filters = [
     (AlertSeverity.critical, 'CRITICAL', AppTheme.accentRed),
@@ -192,8 +160,7 @@ class _FilterRow extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       child: SingleChildScrollView(
@@ -236,38 +203,31 @@ class _FilterRow extends StatelessWidget {
         ),
       ),
     );
-  }
 }
 
-// ── ALERT LIST ────────────────────────────────
+// ── ALERT LIST ────────────────────────────────────────────────────────────────
 class _AlertList extends StatelessWidget {
-  final List<SafetyAlert> alerts;
-  final ValueChanged<SafetyAlert> onDismiss;
 
-  const _AlertList({required this.alerts, required this.onDismiss});
+  const _AlertList({required this.alerts});
+  final List<SafetyAlert> alerts;
 
   @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
+  Widget build(BuildContext context) => ListView.builder(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
       itemCount: alerts.length,
-      itemBuilder: (context, i) {
-        return _AlertCard(
-          key: ValueKey(alerts[i].title + alerts[i].message),
+      itemBuilder: (context, i) => _AlertCard(
+          key: ValueKey('${alerts[i].title}${alerts[i].timestamp.millisecondsSinceEpoch}'),
           alert: alerts[i],
           index: i,
-        );
-      },
+        ),
     );
-  }
 }
 
 class _AlertCard extends StatefulWidget {
+
+  const _AlertCard({super.key, required this.alert, required this.index});
   final SafetyAlert alert;
   final int index;
-
-  const _AlertCard({Key? key, required this.alert, required this.index})
-      : super(key: key);
 
   @override
   State<_AlertCard> createState() => _AlertCardState();
@@ -294,7 +254,7 @@ class _AlertCardState extends State<_AlertCard>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _entrance, curve: Curves.easeOutCubic));
 
-    Future.delayed(Duration(milliseconds: widget.index * 60), () {
+    Future.delayed(Duration(milliseconds: widget.index * 40), () {
       if (mounted) _entrance.forward();
     });
   }
@@ -303,6 +263,16 @@ class _AlertCardState extends State<_AlertCard>
   void dispose() {
     _entrance.dispose();
     super.dispose();
+  }
+
+  String _formatTimestamp(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    final hm = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    if (diff.inDays > 0) return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}  $hm';
+    if (diff.inHours > 0) return '${diff.inHours}h ago  $hm';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'Just now';
   }
 
   @override
@@ -345,7 +315,6 @@ class _AlertCardState extends State<_AlertCard>
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      // Severity icon bubble
                       Container(
                         width: 46,
                         height: 46,
@@ -403,6 +372,21 @@ class _AlertCardState extends State<_AlertCard>
                                 color: Color(0xFF6E6E73),
                               ),
                             ),
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              const Icon(Icons.access_time_rounded,
+                                  size: 11, color: Color(0xFFAEAEB2)),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatTimestamp(widget.alert.timestamp),
+                                style: const TextStyle(
+                                  fontFamily: 'Orbitron',
+                                  fontSize: 8,
+                                  color: Color(0xFFAEAEB2),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ]),
                           ],
                         ),
                       ),
@@ -419,7 +403,6 @@ class _AlertCardState extends State<_AlertCard>
                     ],
                   ),
                 ),
-                // Expanded detail panel
                 AnimatedSize(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
@@ -438,40 +421,39 @@ class _AlertCardState extends State<_AlertCard>
   Color _severityColor(AlertSeverity s) {
     switch (s) {
       case AlertSeverity.critical: return AppTheme.accentRed;
-      case AlertSeverity.danger: return AppTheme.accentAmber;
-      case AlertSeverity.warning: return const Color(0xFFFF9F0A);
-      case AlertSeverity.info: return AppTheme.accentBlue;
+      case AlertSeverity.danger:   return AppTheme.accentAmber;
+      case AlertSeverity.warning:  return const Color(0xFFFF9F0A);
+      case AlertSeverity.info:     return AppTheme.accentBlue;
     }
   }
 
   IconData _severityIcon(AlertSeverity s) {
     switch (s) {
       case AlertSeverity.critical: return Icons.report_problem_rounded;
-      case AlertSeverity.danger: return Icons.warning_rounded;
-      case AlertSeverity.warning: return Icons.info_rounded;
-      case AlertSeverity.info: return Icons.notifications_rounded;
+      case AlertSeverity.danger:   return Icons.warning_rounded;
+      case AlertSeverity.warning:  return Icons.info_rounded;
+      case AlertSeverity.info:     return Icons.notifications_rounded;
     }
   }
 
   String _severityLabel(AlertSeverity s) {
     switch (s) {
       case AlertSeverity.critical: return 'CRITICAL';
-      case AlertSeverity.danger: return 'DANGER';
-      case AlertSeverity.warning: return 'WARNING';
-      case AlertSeverity.info: return 'INFO';
+      case AlertSeverity.danger:   return 'DANGER';
+      case AlertSeverity.warning:  return 'WARNING';
+      case AlertSeverity.info:     return 'INFO';
     }
   }
 }
 
 class _AlertDetail extends StatelessWidget {
+
+  const _AlertDetail({required this.alert, required this.color});
   final SafetyAlert alert;
   final Color color;
 
-  const _AlertDetail({required this.alert, required this.color});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -482,25 +464,47 @@ class _AlertDetail extends StatelessWidget {
         children: [
           _DetailChip('SOURCE', alert.unitSource, color),
           const SizedBox(width: 12),
-          _DetailChip('STATUS', 'ACTIVE', AppTheme.accentRed),
+          _DetailChip('SEVERITY', _severityText(alert.severity),
+              _severityColor(alert.severity)),
           const SizedBox(width: 12),
-          _DetailChip('RESPONSE', 'REQUIRED', AppTheme.accentAmber),
+          _DetailChip(
+            'TIME',
+            '${alert.timestamp.hour.toString().padLeft(2, '0')}:'
+            '${alert.timestamp.minute.toString().padLeft(2, '0')}',
+            AppTheme.accentBlue,
+          ),
         ],
       ),
     );
+
+  String _severityText(AlertSeverity s) {
+    switch (s) {
+      case AlertSeverity.critical: return 'CRITICAL';
+      case AlertSeverity.danger:   return 'DANGER';
+      case AlertSeverity.warning:  return 'WARNING';
+      case AlertSeverity.info:     return 'INFO';
+    }
+  }
+
+  Color _severityColor(AlertSeverity s) {
+    switch (s) {
+      case AlertSeverity.critical: return AppTheme.accentRed;
+      case AlertSeverity.danger:   return AppTheme.accentAmber;
+      case AlertSeverity.warning:  return const Color(0xFFFF9F0A);
+      case AlertSeverity.info:     return AppTheme.accentBlue;
+    }
   }
 }
 
 class _DetailChip extends StatelessWidget {
+
+  const _DetailChip(this.label, this.value, this.color);
   final String label;
   final String value;
   final Color color;
 
-  const _DetailChip(this.label, this.value, this.color);
-
   @override
-  Widget build(BuildContext context) {
-    return Column(
+  Widget build(BuildContext context) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -524,19 +528,17 @@ class _DetailChip extends StatelessWidget {
         ),
       ],
     );
-  }
 }
 
-// ── EMPTY STATE ───────────────────────────────
+// ── EMPTY STATE ───────────────────────────────────────────────────────────────
 class _EmptyState extends StatelessWidget {
+
+  const _EmptyState({required this.anim, required this.filtered});
   final AnimationController anim;
   final bool filtered;
 
-  const _EmptyState({required this.anim, required this.filtered});
-
   @override
-  Widget build(BuildContext context) {
-    return Center(
+  Widget build(BuildContext context) => Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -585,5 +587,4 @@ class _EmptyState extends StatelessWidget {
         ],
       ),
     );
-  }
 }

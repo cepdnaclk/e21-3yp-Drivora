@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DRIVORA Admin Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-section">
+                <h1>🛡️ DRIVORA ADMIN DASHBOARD</h1>
+                <p>User & Vehicle Management System</p>
+            </div>
+            <div class="auth-section">
+                <div id="authStatus" class="auth-status"></div>
+                <button id="signInBtn" class="btn-primary" style="display: none;">SIGN IN WITH GOOGLE</button>
+                <button id="signOutBtn" class="btn-secondary" style="display: none;">SIGN OUT</button>
+            </div>
+        </div>
+
+        <!-- Dashboard Content (Hidden until authenticated) -->
+        <div id="dashboardContent" style="display: none;">
+            <!-- Statistics Section -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-info">
+                        <div class="stat-label">TOTAL USERS</div>
+                        <div class="stat-value" id="totalUsers">0</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🚗</div>
+                    <div class="stat-info">
+                        <div class="stat-label">TOTAL VEHICLES</div>
+                        <div class="stat-value" id="totalVehicles">0</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-info">
+                        <div class="stat-label">TODAY'S REGISTRATIONS</div>
+                        <div class="stat-value" id="todayRegistrations">0</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <div class="stat-label">CLOUD SYNCED</div>
+                        <div class="stat-value" id="syncedUsers">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search & Filter Section -->
+            <div class="search-section">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search by name, email, or vehicle...">
+                    <button class="btn-icon">🔍</button>
+                </div>
+                <div class="filter-controls">
+                    <select id="sortBy" class="filter-select">
+                        <option value="date">Sort by Date (Latest)</option>
+                        <option value="name">Sort by Name (A-Z)</option>
+                        <option value="vehicle">Sort by Vehicle</option>
+                    </select>
+                    <button id="exportBtn" class="btn-secondary">📥 EXPORT DATA</button>
+                    <button id="refreshBtn" class="btn-primary">🔄 REFRESH</button>
+                </div>
+            </div>
+
+            <!-- Users List -->
+            <div class="users-section">
+                <h2>REGISTERED USERS</h2>
+                <div class="table-responsive">
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>DRIVER NAME</th>
+                                <th>EMAIL</th>
+                                <th>VEHICLE</th>
+                                <th>DIMENSIONS</th>
+                                <th>SETTINGS</th>
+                                <th>REGISTRATION DATE</th>
+                                <th>STATUS</th>
+                                <th>ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr class="loading-row">
+                                <td colspan="8">Loading user data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" class="pagination"></div>
+            </div>
+        </div>
+
+        <!-- Login Screen -->
+        <div id="loginContainer" class="login-container">
+            <div class="login-box">
+                <h2>DRIVORA ADMIN LOGIN</h2>
+                <p>Access the user management system</p>
+                <button id="googleSignInBtn" class="btn-google">
+                    🔐 Sign in with Google
+                </button>
+                <p class="login-note">Only authorized administrators can access this dashboard</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Detail Modal -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>USER DETAILS</h2>
+            <div id="userDetailsContent"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content small">
+            <h2>CONFIRM ACTION</h2>
+            <p id="confirmMessage"></p>
+            <div class="modal-buttons">
+                <button id="confirmYesBtn" class="btn-primary">YES</button>
+                <button id="confirmNoBtn" class="btn-secondary">NO</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="firebase-config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

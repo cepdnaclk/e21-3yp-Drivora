@@ -6,7 +6,7 @@ import '../services/cloud_service.dart';
 
 class UserProvider extends ChangeNotifier {
   final CloudService _cloudService = CloudService();
-
+  
   // User data
   String? _userName;
   String? _userEmail;
@@ -17,7 +17,7 @@ class UserProvider extends ChangeNotifier {
   String? _vehicleType;
   int? _alertSensitivity;
   int? _audioVolume;
-
+  
   Map<String, dynamic>? _cloudData;
   bool _isLoading = false;
   String? _error;
@@ -35,10 +35,7 @@ class UserProvider extends ChangeNotifier {
   Map<String, dynamic>? get cloudData => _cloudData;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  bool get isUserRegistered =>
-      (_userEmail != null && _userEmail!.isNotEmpty) ||
-      (_userName != null && _userName!.isNotEmpty) ||
-      (_vehicleModel != null && _vehicleModel!.isNotEmpty);
+  bool get isUserRegistered => _userEmail != null && _userEmail!.trim().isNotEmpty;
 
   /// Initialize user data from local storage and Firebase
   Future<void> initializeUser() async {
@@ -48,16 +45,37 @@ class UserProvider extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      _userEmail = prefs.getString('userEmail') ?? prefs.getString('email');
+      
+      // Load from local storage using all possible keys for resilience
+      _userEmail = prefs.getString('userEmail') ??
+          prefs.getString('email') ??
+          prefs.getString('user_mail') ??
+          prefs.getString('registeredEmail');
+          
       _userName = prefs.getString('userName') ?? prefs.getString('driverName');
-      _vehicleModel = prefs.getString('vehicleModel') ?? prefs.getString('carModel');
+      
+      _vehicleModel = prefs.getString('vehicleModel') ?? 
+          prefs.getString('carModel') ?? 
+          prefs.getString('vehicle_model');
+          
+      // Check both naming conventions (vHeight/vehicleHeight)
       _vehicleHeight = prefs.getDouble('vehicleHeight') ?? prefs.getDouble('vHeight');
       _vehicleWidth = prefs.getDouble('vehicleWidth') ?? prefs.getDouble('vWidth');
-      _driverExperience = prefs.getString('driverExperience');
-      _vehicleType = prefs.getString('vehicleType');
-      _alertSensitivity = prefs.getInt('alertSensitivity');
-      _audioVolume = prefs.getInt('audioVolume');
+      
+      _driverExperience = prefs.getString('driverExperience') ?? prefs.getString('experience');
+      _vehicleType = prefs.getString('vehicleType') ?? prefs.getString('vehicle_type');
+      _alertSensitivity = prefs.getInt('alertSensitivity') ?? prefs.getInt('sensitivity');
+      _audioVolume = prefs.getInt('audioVolume') ?? prefs.getInt('volume');
 
+      // Attempt Cloud Recovery if email is missing but UID exists
+      if (_userEmail == null || _userEmail!.isEmpty) {
+        final storedUid = prefs.getString('userUid');
+        if (storedUid != null && storedUid.isNotEmpty) {
+          await _recoverUserByUid(storedUid, prefs);
+        }
+      }
+
+      // Sync with Firebase if we have an identity
       if (_userEmail != null && _userEmail!.isNotEmpty) {
         await _syncWithCloud();
       }
@@ -65,13 +83,34 @@ class UserProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     } catch (e) {
-      _error = 'Failed to initialize user: $e';
+      _error = 'Initialization Error: $e';
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  /// Sync user data with Firebase Cloud
+  /// Recover user email from Firestore using the Firebase Auth UID
+  Future<void> _recoverUserByUid(String uid, SharedPreferences prefs) async {
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('users')
+          .where('uid', isEqualTo: uid)
+          .limit(1)
+          .get();
+          
+      if (query.docs.isNotEmpty) {
+        final doc = query.docs.first;
+        _userEmail = doc.id; // Email is the document ID
+        await prefs.setString('userEmail', _userEmail!);
+        _cloudData = doc.data();
+        _populateFromMap(_cloudData!);
+      }
+    } catch (e) {
+      print('UID Recovery Failed: $e');
+    }
+  }
+
+  /// Sync user data with Firebase Cloud document
   Future<void> _syncWithCloud() async {
     try {
       if (_userEmail == null) return;
@@ -83,29 +122,48 @@ class UserProvider extends ChangeNotifier {
 
       if (doc.exists) {
         _cloudData = doc.data();
-        
-        // Update local variables from cloud data if available
-        final data = _cloudData!;
-        if (data['name'] != null) _userName = data['name'];
-        if (data['carModel'] != null) _vehicleModel = data['carModel'];
-        
-        final calibration = data['calibration'] as Map<String, dynamic>?;
-        if (calibration != null) {
-          if (calibration['height'] != null) _vehicleHeight = calibration['height'];
-          if (calibration['width'] != null) _vehicleWidth = calibration['width'];
-        }
-
-        final onboarding = data['onboarding'] as Map<String, dynamic>?;
-        if (onboarding != null) {
-          if (onboarding['driverExperience'] != null) _driverExperience = onboarding['driverExperience'];
-          if (onboarding['vehicleType'] != null) _vehicleType = onboarding['vehicleType'];
-          if (onboarding['alertSensitivity'] != null) _alertSensitivity = onboarding['alertSensitivity'];
-          if (onboarding['audioVolume'] != null) _audioVolume = onboarding['audioVolume'];
+        if (_cloudData != null) {
+          _populateFromMap(_cloudData!);
         }
       }
     } catch (e) {
-      print('Cloud sync error: $e');
+      print('Cloud Sync Error: $e');
     }
+  }
+
+  /// Map Cloud Firestore fields to local Provider state
+  void _populateFromMap(Map<String, dynamic> data) {
+    if (data['name'] != null) _userName = data['name'];
+    if (data['carModel'] != null) _vehicleModel = data['carModel'];
+    if (data['email'] != null) _userEmail = data['email'];
+    
+    // Check Calibration Map
+    final calibration = data['calibration'] as Map<String, dynamic>?;
+    if (calibration != null) {
+      if (calibration['height'] != null) _vehicleHeight = (calibration['height'] as num).toDouble();
+      if (calibration['width'] != null) _vehicleWidth = (calibration['width'] as num).toDouble();
+    }
+
+    // Check Onboarding Map
+    final onboarding = data['onboarding'] as Map<String, dynamic>?;
+    if (onboarding != null) {
+      if (onboarding['driverExperience'] != null) _driverExperience = onboarding['driverExperience'];
+      if (onboarding['vehicleType'] != null) _vehicleType = onboarding['vehicleType'];
+      if (onboarding['alertSensitivity'] != null) _alertSensitivity = onboarding['alertSensitivity'];
+      if (onboarding['audioVolume'] != null) _audioVolume = onboarding['audioVolume'];
+      
+      // Fallback for dimensions if stored in onboarding map
+      if (_vehicleHeight == null && onboarding['vehicleHeight'] != null) {
+        _vehicleHeight = (onboarding['vehicleHeight'] as num).toDouble();
+      }
+      if (_vehicleWidth == null && onboarding['vehicleWidth'] != null) {
+        _vehicleWidth = (onboarding['vehicleWidth'] as num).toDouble();
+      }
+    }
+    
+    // Check Top-level fallback for onboarding fields
+    if (_driverExperience == null && data['experience'] != null) _driverExperience = data['experience'];
+    if (_vehicleType == null && data['vehicleType'] != null) _vehicleType = data['vehicleType'];
   }
 
   /// Update user profile in both local and cloud storage
@@ -120,11 +178,10 @@ class UserProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Update local storage
+      // 1. Update local state and SharedPreferences
       if (name != null) {
         _userName = name;
         await prefs.setString('userName', name);
-        await prefs.setString('driverName', name);
       }
       if (experience != null) {
         _driverExperience = experience;
@@ -136,19 +193,18 @@ class UserProvider extends ChangeNotifier {
       }
       if (vehicleModel != null) {
         _vehicleModel = vehicleModel;
-        await prefs.setString('vehicleModel', vehicleModel);
         await prefs.setString('carModel', vehicleModel);
       }
       if (vehicleHeight != null) {
         _vehicleHeight = vehicleHeight;
-        await prefs.setDouble('vehicleHeight', vehicleHeight);
+        await prefs.setDouble('vHeight', vehicleHeight);
       }
       if (vehicleWidth != null) {
         _vehicleWidth = vehicleWidth;
-        await prefs.setDouble('vehicleWidth', vehicleWidth);
+        await prefs.setDouble('vWidth', vehicleWidth);
       }
 
-      // Update Firebase if email exists
+      // 2. Sync updates to Firebase Firestore
       if (_userEmail != null && _userEmail!.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('users')
@@ -156,18 +212,12 @@ class UserProvider extends ChangeNotifier {
             .update({
           if (name != null) 'name': name,
           if (vehicleModel != null) 'carModel': vehicleModel,
+          if (experience != null) 'experience': experience,
+          if (vehicleType != null) 'vehicleType': vehicleType,
           if (vehicleHeight != null || vehicleWidth != null)
             'calibration': {
               if (vehicleHeight != null) 'height': vehicleHeight,
               if (vehicleWidth != null) 'width': vehicleWidth,
-            },
-          if (experience != null ||
-              vehicleType != null ||
-              vehicleModel != null)
-            'onboarding': {
-              if (experience != null) 'driverExperience': experience,
-              if (vehicleType != null) 'vehicleType': vehicleType,
-              if (vehicleModel != null) 'vehicleModel': vehicleModel,
             },
           'lastUpdated': FieldValue.serverTimestamp(),
         });
@@ -176,7 +226,7 @@ class UserProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _error = 'Failed to update profile: $e';
+      _error = 'Update Failed: $e';
       notifyListeners();
       return false;
     }
@@ -195,10 +245,15 @@ class UserProvider extends ChangeNotifier {
     _vehicleType = null;
     _cloudData = null;
 
+    // Clear all potential keys
     await prefs.remove('userName');
     await prefs.remove('userEmail');
-    await prefs.remove('vehicleModel');
     await prefs.remove('carModel');
+    await prefs.remove('vHeight');
+    await prefs.remove('vWidth');
+    await prefs.remove('driverExperience');
+    await prefs.remove('vehicleType');
+    await prefs.remove('userUid');
     
     notifyListeners();
   }

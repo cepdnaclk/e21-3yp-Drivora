@@ -9,7 +9,6 @@ import '../services/wifi_sensor_service.dart';
 import '../services/audio_service.dart';
 import '../models/sensor_data.dart';
 import 'alerts_screen.dart';
-import 'alert_history_screen.dart';
 import 'analytics_screen.dart';
 import 'settings_screen.dart';
 import 'account_screen.dart';
@@ -41,7 +40,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     DashboardContent(),
     AnalyticsScreen(),
     AlertsScreen(),
-    AlertHistoryScreen(),
     AccountScreen(),
     SettingsScreen(),
   ];
@@ -73,9 +71,8 @@ class _NavBar extends StatelessWidget {
             _NI(Icons.speed_rounded,                  'DRIVE',   0, current, onTap),
             _NI(Icons.analytics_rounded,              'DATA',    1, current, onTap),
             _NI(Icons.notifications_active_rounded,   'ALERTS',  2, current, onTap),
-            _NI(Icons.history_rounded,                'HISTORY', 3, current, onTap),
-            _NI(Icons.person_rounded,                 'ACCOUNT', 4, current, onTap),
-            _NI(Icons.tune_rounded,                   'SETUP',   5, current, onTap),
+            _NI(Icons.person_rounded,                 'ACCOUNT', 3, current, onTap),
+            _NI(Icons.tune_rounded,                   'SETUP',   4, current, onTap),
           ],
         ),
       ),
@@ -874,9 +871,9 @@ class _CarPainter extends CustomPainter {
       }
     }
 
-    // ── REAR SONAR ───────────────────────────────────────────────────────
+    // ── REAR SONAR (3 sectors: L / C / R) ────────────────────────────────
     if (data.rearOnline) {
-      _paintSonar(canvas, cx, rSensorY, data.rearState, data.rearColor, false);
+      _paintRearSonar(canvas, cx, rSensorY);
       if (data.rearDistance >= 0) {
         _distLabel(canvas, Offset(cx, rSensorY + 28), '${data.rearDistance.toStringAsFixed(1)} CM', data.rearColor);
       }
@@ -1144,6 +1141,54 @@ class _CarPainter extends CustomPainter {
       canvas.drawArc(Rect.fromCenter(center: Offset(cx, focusY), width: ew, height: eh),
           front ? -math.pi : 0, math.pi, false,
           Paint()..color = color.withOpacity(op)..style = PaintingStyle.stroke..strokeWidth = sw..strokeCap = StrokeCap.round);
+    }
+  }
+
+  // ── REAR SONAR — 3 separate 60° sector arcs (right / center / left) ────────
+  // Angles in Flutter canvas: 0=3-o'clock, pi/2=6-o'clock (down), pi=9-o'clock.
+  // For the rear arc (faces downward): sectors span 0→pi going clockwise.
+  //   Sector 0 (car-right):  0      → pi/3
+  //   Sector 1 (center):     pi/3   → 2*pi/3
+  //   Sector 2 (car-left):   2*pi/3 → pi
+  void _paintRearSonar(Canvas canvas, double cx, double focusY) {
+    _paintSonarSector(canvas, cx, focusY,
+        data.rearRightState, data.rearRightColor, 0, math.pi / 3);
+    _paintSonarSector(canvas, cx, focusY,
+        data.rearCenterState, data.rearCenterColor, math.pi / 3, math.pi / 3);
+    _paintSonarSector(canvas, cx, focusY,
+        data.rearLeftState, data.rearLeftColor, 2 * math.pi / 3, math.pi / 3);
+  }
+
+  void _paintSonarSector(Canvas canvas, double cx, double focusY,
+      int state, Color color, double startAngle, double sweepAngle) {
+    final wc = _waves(state), sp = _spread(state), sw = _sw(state);
+    for (var i = 0; i < wc; i++) {
+      final t = (pulse + i / wc) % 1.0;
+      final op = (state == 2
+              ? (0.9 - t * 0.65) * (0.55 + alertFlash * 0.45)
+              : (0.8 - t * 0.70))
+          .clamp(0.0, 1.0);
+      final ew = 60 + t * sp, eh = 28 + t * (sp * 0.45);
+      if (state == 2) {
+        canvas.drawArc(
+          Rect.fromCenter(center: Offset(cx, focusY), width: ew + 10, height: eh + 10),
+          startAngle, sweepAngle, false,
+          Paint()
+            ..color = color.withOpacity(op * 0.3)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = sw + 7
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+        );
+      }
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(cx, focusY), width: ew, height: eh),
+        startAngle, sweepAngle, false,
+        Paint()
+          ..color = color.withOpacity(op)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = sw
+          ..strokeCap = StrokeCap.round,
+      );
     }
   }
 

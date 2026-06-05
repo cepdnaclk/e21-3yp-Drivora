@@ -20,8 +20,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _carModelController = TextEditingController();
-
+  final _vehicleTypeController = TextEditingController();
+  final _heightController = TextEditingController(text: '1.5');
+  final _widthController = TextEditingController(text: '1.8');
+  
   late AnimationController _animationController;
+  bool _isRegistering = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -38,6 +43,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
     _nameController.dispose();
     _emailController.dispose();
     _carModelController.dispose();
+    _vehicleTypeController.dispose();
+    _heightController.dispose();
+    _widthController.dispose();
     super.dispose();
   }
 
@@ -67,14 +75,81 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
                     const SizedBox(height: 40),
                     _buildHeader(),
                     const SizedBox(height: 32),
+                    
+                    // ERROR MESSAGE
+                    if (_errorMessage != null)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentRed.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.accentRed.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: const TextStyle(
+                                  color: AppTheme.accentRed,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    
+                    // DRIVER INFO SECTION
+                    _buildSectionTitle('DRIVER INFORMATION'),
+                    const SizedBox(height: 12),
                     _buildInputLabel('FULL NAME'),
-                    _buildTextField('John Doe', Icons.person_outline, _nameController),
+                    _buildTextField('John Doe', Icons.person_outline, _nameController, validator: _validateName),
                     const SizedBox(height: 16),
                     _buildInputLabel('EMAIL ADDRESS'),
-                    _buildTextField('john@drivora.io', Icons.email_outlined, _emailController),
-                    const SizedBox(height: 16),
+                    _buildTextField('john@example.com', Icons.email_outlined, _emailController, validator: _validateEmail),
+                    const SizedBox(height: 24),
+                    
+                    // VEHICLE INFO SECTION
+                    _buildSectionTitle('VEHICLE CONFIGURATION'),
+                    const SizedBox(height: 12),
                     _buildInputLabel('VEHICLE TYPE'),
-                    _buildTextField('Tesla Model 3 / Truck', Icons.directions_car_filled_outlined, _carModelController),
+                    _buildTextField('Sedan / SUV / Truck', Icons.directions_car_outlined, _vehicleTypeController, validator: _validateRequired),
+                    const SizedBox(height: 16),
+                    _buildInputLabel('VEHICLE MODEL'),
+                    _buildTextField('Tesla Model 3', Icons.build_circle_outlined, _carModelController, validator: _validateRequired),
+                    const SizedBox(height: 16),
+                    
+                    // CALIBRATION SECTION
+                    _buildSectionTitle('VEHICLE CALIBRATION'),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildInputLabel('HEIGHT (meters)'),
+                              _buildTextField('1.5', Icons.height, _heightController, isNumber: true, validator: _validateNumber),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildInputLabel('WIDTH (meters)'),
+                              _buildTextField('1.8', Icons.width_normal, _widthController, isNumber: true, validator: _validateNumber),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 40),
                     _buildCreateAccountButton(),
                     const SizedBox(height: 30),
@@ -98,6 +173,41 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ],
       ),
     );
+
+  String? _validateRequired(String? value) {
+    if (value == null || value.isEmpty) return 'FIELD REQUIRED';
+    return null;
+  }
+
+  String? _validateName(String? value) {
+    if (value == null || value.isEmpty) return 'NAME REQUIRED';
+    if (value.length < 2) return 'NAME TOO SHORT';
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) return 'EMAIL REQUIRED';
+    if (!value.contains('@')) return 'INVALID EMAIL FORMAT';
+    return null;
+  }
+
+  String? _validateNumber(String? value) {
+    if (value == null || value.isEmpty) return 'VALUE REQUIRED';
+    final num = double.tryParse(value);
+    if (num == null) return 'INVALID NUMBER';
+    if (num <= 0) return 'VALUE MUST BE POSITIVE';
+    return null;
+  }
+
+  Widget _buildSectionTitle(String title) => Text(
+    title,
+    style: GoogleFonts.rajdhani(
+      fontWeight: FontWeight.w900,
+      letterSpacing: 1.5,
+      fontSize: 11,
+      color: AppTheme.accentCyan,
+    ),
+  );
 
   Widget _buildHeader() => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,7 +256,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
       ),
     );
 
-  Widget _buildTextField(String hint, IconData icon, TextEditingController controller, {bool isNumber = false}) => Container(
+  Widget _buildTextField(String hint, IconData icon, TextEditingController controller, {bool isNumber = false, String? Function(String?)? validator}) => Container(
       decoration: BoxDecoration(
         color: AppTheme.panel,
         borderRadius: BorderRadius.circular(16),
@@ -170,7 +280,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
           ),
           contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
         ),
-        validator: (value) => value!.isEmpty ? 'FIELD REQUIRED' : null,
+        validator: validator,
       ),
     );
 
@@ -191,60 +301,143 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
         ],
       ),
       child: ElevatedButton(
-        onPressed: () async {
-          if (_formKey.currentState!.validate()) {
-            final cloud = CloudService();
-            final success = await cloud.registerUserFirebase(
-              name: _nameController.text,
-              email: _emailController.text,
-              carModel: _carModelController.text,
-              height: 1.5,
-              width: 1.8,
-            );
-
-            if (!mounted) {
-              return;
-            }
-
-            if (!success) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Unable to save your profile. Please try again.')),
-              );
-              return;
-            }
-
-            final userProvider = Provider.of<UserProvider>(context, listen: false);
-            await userProvider.initializeUser();
-
-            final sensorService = Provider.of<WiFiSensorService>(context, listen: false);
-            await sensorService.sendCalibrationToHardware(
-              height: 1.5,
-              width: 1.8,
-            );
-
-            if (!mounted) {
-              return;
-            }
-
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const DashboardScreen()));
-          }
-        },
+        onPressed: _isRegistering ? null : _handleRegistration,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          disabledBackgroundColor: Colors.transparent,
         ),
-        child: Text(
-          'INITIALIZE SYSTEM',
-          style: GoogleFonts.orbitron(
-            fontSize: 14,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 2,
-            color: Colors.white,
-          ),
-        ),
+        child: _isRegistering
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              )
+            : Text(
+                'INITIALIZE SYSTEM',
+                style: GoogleFonts.orbitron(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                  color: Colors.white,
+                ),
+              ),
       ),
     );
+
+  Future<void> _handleRegistration() async {
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _errorMessage = 'Please fill all fields correctly');
+      return;
+    }
+
+    setState(() {
+      _isRegistering = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final height = double.parse(_heightController.text);
+      final width = double.parse(_widthController.text);
+
+      print('🔴 Registration: Starting registration for ${_emailController.text}...');
+      
+      // 1. Save user data to Firebase Cloud
+      final cloud = CloudService();
+      final registered = await cloud.registerUserFirebase(
+        name: _nameController.text,
+        email: _emailController.text,
+        carModel: _carModelController.text,
+        height: height,
+        width: width,
+      );
+
+      if (!registered) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'Firebase registration failed. Check your connection.';
+            _isRegistering = false;
+          });
+        }
+        return;
+      }
+
+      print('🔴 Registration: Firebase registration successful');
+
+      // 2. Save calibration data to Firebase
+      if (mounted) {
+        final cloud = CloudService();
+        final onboardingSaved = await cloud.saveOnboardingData(
+          driverName: _nameController.text,
+          driverEmail: _emailController.text,
+          driverExperience: 'NOT SET',
+          vehicleType: _vehicleTypeController.text,
+          vehicleModel: _carModelController.text,
+          vehicleHeight: height,
+          vehicleWidth: width,
+          alertSensitivity: 5,
+          audioVolume: 5,
+          soundProfiles: const {
+            'collision': 0,
+            'lane': 1,
+            'prox': 2,
+            'lean': 3,
+          },
+        );
+        print('🔴 Registration: Onboarding saved to Firebase: $onboardingSaved');
+      }
+
+      // 3. Update UserProvider with new registration data
+      if (mounted) {
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        print('🔴 Registration: Calling userProvider.initializeUser()...');
+        await userProvider.initializeUser();
+        print('🔴 Registration: After initializeUser, isUserRegistered=${userProvider.isUserRegistered}, email=${userProvider.userEmail}');
+      }
+
+      // 4. Send Calibration directly to ESP32 Hardware (fire and forget)
+      if (mounted) {
+        final sensorService = Provider.of<WiFiSensorService>(context, listen: false);
+        sensorService.sendCalibrationToHardware(
+          height: height,
+          width: width,
+        );
+      }
+
+      // 5. Navigate to Dashboard
+      if (mounted) {
+        print('🔴 Registration: Navigating to Dashboard...');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ Registration Successful! Welcome ${_nameController.text}'),
+            backgroundColor: AppTheme.accentGreen,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const DashboardScreen()),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      print('🔴 Registration Error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Registration error: ${e.toString().split('\n').first}';
+          _isRegistering = false;
+        });
+      }
+    }
+  }
 }
 
 class _TechArtPainter extends CustomPainter {

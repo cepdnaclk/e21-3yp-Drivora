@@ -6,22 +6,22 @@ import '../theme/app_theme.dart';
 //  STATUS CARD  – glowing metric tile
 // ─────────────────────────────────────────────────────────────────────────────
 class StatusCard extends StatefulWidget {
-  final String title;
-  final String value;
-  final String unit;
-  final IconData icon;
-  final Color? backgroundColor;
-  final Color? accentColor;
 
   const StatusCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.value,
     required this.unit,
     required this.icon,
     this.backgroundColor,
     this.accentColor,
-  }) : super(key: key);
+  });
+  final String title;
+  final String value;
+  final String unit;
+  final IconData icon;
+  final Color? backgroundColor;
+  final Color? accentColor;
 
   @override
   State<StatusCard> createState() => _StatusCardState();
@@ -52,8 +52,7 @@ class _StatusCardState extends State<StatusCard>
 
     return AnimatedBuilder(
       animation: _shimmer,
-      builder: (context, _) {
-        return Container(
+      builder: (context, _) => Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: widget.backgroundColor ?? AppTheme.surfaceElevated,
@@ -90,7 +89,7 @@ class _StatusCardState extends State<StatusCard>
                 children: [
                   Text(
                     widget.title,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -129,7 +128,7 @@ class _StatusCardState extends State<StatusCard>
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
                       widget.unit,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.textSecondary,
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
@@ -152,8 +151,7 @@ class _StatusCardState extends State<StatusCard>
               ),
             ],
           ),
-        );
-      },
+        ),
     );
   }
 }
@@ -162,20 +160,20 @@ class _StatusCardState extends State<StatusCard>
 //  CIRCULAR PROGRESS CARD  – arc gauge
 // ─────────────────────────────────────────────────────────────────────────────
 class CircularProgressCard extends StatefulWidget {
-  final String title;
-  final double value;
-  final double maxValue;
-  final String unit;
-  final Color? progressColor;
 
   const CircularProgressCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.value,
     required this.maxValue,
     required this.unit,
     this.progressColor,
-  }) : super(key: key);
+  });
+  final String title;
+  final double value;
+  final double maxValue;
+  final String unit;
+  final Color? progressColor;
 
   @override
   State<CircularProgressCard> createState() => _CircularProgressCardState();
@@ -246,7 +244,7 @@ class _CircularProgressCardState extends State<CircularProgressCard>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${(percentage * 100).toStringAsFixed(0)}',
+                      (percentage * 100).toStringAsFixed(0),
                       style: TextStyle(
                         color: color,
                         fontSize: 24,
@@ -257,7 +255,7 @@ class _CircularProgressCardState extends State<CircularProgressCard>
                         ],
                       ),
                     ),
-                    Text(
+                    const Text(
                       '%',
                       style: TextStyle(
                         color: AppTheme.textSecondary,
@@ -267,7 +265,7 @@ class _CircularProgressCardState extends State<CircularProgressCard>
                     ),
                     Text(
                       '${widget.value.toStringAsFixed(1)}${widget.unit}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.textMuted,
                         fontSize: 9,
                       ),
@@ -280,7 +278,7 @@ class _CircularProgressCardState extends State<CircularProgressCard>
           const SizedBox(height: 14),
           Text(
             widget.title,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -295,15 +293,15 @@ class _CircularProgressCardState extends State<CircularProgressCard>
 }
 
 class _ArcProgressPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final Color trackColor;
 
   _ArcProgressPainter({
     required this.progress,
     required this.color,
     required this.trackColor,
   });
+  final double progress;
+  final Color color;
+  final Color trackColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -367,8 +365,8 @@ class _ArcProgressPainter extends CustomPainter {
 }
 
 class _DashedRingPainter extends CustomPainter {
-  final Color color;
   _DashedRingPainter({required this.color});
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -400,18 +398,18 @@ class _DashedRingPainter extends CustomPainter {
 //  ALERT CARD  – severity-aware notification tile
 // ─────────────────────────────────────────────────────────────────────────────
 class AlertCard extends StatefulWidget {
-  final String title;
-  final String message;
-  final String type; // 'danger' | 'warning' | 'info'
-  final VoidCallback? onDismiss;
 
   const AlertCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.message,
     required this.type,
     this.onDismiss,
-  }) : super(key: key);
+  });
+  final String title;
+  final String message;
+  final String type; // 'danger' | 'warning' | 'info'
+  final VoidCallback? onDismiss;
 
   @override
   State<AlertCard> createState() => _AlertCardState();
@@ -459,8 +457,7 @@ class _AlertCardState extends State<AlertCard>
 
     return AnimatedBuilder(
       animation: _pulse,
-      builder: (_, __) {
-        return Container(
+      builder: (_, __) => Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             color: color.withOpacity(0.06 + _pulse.value * 0.04),
@@ -503,7 +500,7 @@ class _AlertCardState extends State<AlertCard>
                     const SizedBox(height: 3),
                     Text(
                       widget.message,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.textSecondary,
                         fontSize: 11,
                         height: 1.3,
@@ -530,8 +527,7 @@ class _AlertCardState extends State<AlertCard>
               ],
             ],
           ),
-        );
-      },
+        ),
     );
   }
 }
@@ -540,16 +536,16 @@ class _AlertCardState extends State<AlertCard>
 //  STATISTICS CHART  – animated bar chart
 // ─────────────────────────────────────────────────────────────────────────────
 class StatisticsChart extends StatefulWidget {
-  final String label;
-  final List<double> values;
-  final Color? barColor;
 
   const StatisticsChart({
-    Key? key,
+    super.key,
     required this.label,
     required this.values,
     this.barColor,
-  }) : super(key: key);
+  });
+  final String label;
+  final List<double> values;
+  final Color? barColor;
 
   @override
   State<StatisticsChart> createState() => _StatisticsChartState();
@@ -593,7 +589,7 @@ class _StatisticsChartState extends State<StatisticsChart>
         children: [
           Text(
             widget.label,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 10,
               fontWeight: FontWeight.w600,
@@ -603,8 +599,7 @@ class _StatisticsChartState extends State<StatisticsChart>
           const SizedBox(height: 16),
           AnimatedBuilder(
             animation: _grow,
-            builder: (_, __) {
-              return Row(
+            builder: (_, __) => Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: widget.values.asMap().entries.map((entry) {
@@ -635,8 +630,7 @@ class _StatisticsChartState extends State<StatisticsChart>
                     ],
                   );
                 }).toList(),
-              );
-            },
+              ),
           ),
         ],
       ),
@@ -648,22 +642,21 @@ class _StatisticsChartState extends State<StatisticsChart>
 //  GLASSMORPHIC CARD  – dark-glass container
 // ─────────────────────────────────────────────────────────────────────────────
 class GlassmorphicCard extends StatelessWidget {
+
+  const GlassmorphicCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.borderRadius = 20,
+    this.borderColor,
+  });
   final Widget child;
   final EdgeInsets padding;
   final double borderRadius;
   final Color? borderColor;
 
-  const GlassmorphicCard({
-    Key? key,
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.borderRadius = 20,
-    this.borderColor,
-  }) : super(key: key);
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: padding,
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.04),
@@ -682,25 +675,23 @@ class GlassmorphicCard extends StatelessWidget {
       ),
       child: child,
     );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  NEON DIVIDER
 // ─────────────────────────────────────────────────────────────────────────────
 class NeonDivider extends StatelessWidget {
+
+  const NeonDivider({
+    super.key,
+    this.color = AppTheme.accentBlue,
+    this.height = 1,
+  });
   final Color color;
   final double height;
 
-  const NeonDivider({
-    Key? key,
-    this.color = AppTheme.accentBlue,
-    this.height = 1,
-  }) : super(key: key);
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       height: height,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -717,27 +708,25 @@ class NeonDivider extends StatelessWidget {
         ],
       ),
     );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  HUD BADGE  – small status label
 // ─────────────────────────────────────────────────────────────────────────────
 class HudBadge extends StatelessWidget {
+
+  const HudBadge({
+    super.key,
+    required this.text,
+    required this.color,
+    this.pulsing = false,
+  });
   final String text;
   final Color color;
   final bool pulsing;
 
-  const HudBadge({
-    Key? key,
-    required this.text,
-    required this.color,
-    this.pulsing = false,
-  }) : super(key: key);
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
@@ -757,5 +746,4 @@ class HudBadge extends StatelessWidget {
         ),
       ),
     );
-  }
 }

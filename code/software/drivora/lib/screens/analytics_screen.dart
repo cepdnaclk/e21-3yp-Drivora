@@ -6,7 +6,7 @@ import '../models/sensor_data.dart';
 import '../theme/app_theme.dart';
 
 class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({Key? key}) : super(key: key);
+  const AnalyticsScreen({super.key});
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -25,6 +25,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
       duration: const Duration(milliseconds: 600),
     )..forward();
     _fade = CurvedAnimation(parent: _reveal, curve: Curves.easeOut);
+
+    // Load cloud alert history after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Provider.of<WiFiSensorService>(context, listen: false).loadAlertHistory();
+      }
+    });
   }
 
   @override
@@ -34,12 +41,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<WiFiSensorService>(
+  Widget build(BuildContext context) => Consumer<WiFiSensorService>(
       builder: (context, svc, _) {
         final history = svc.dataHistory;
-        final alerts = svc.activeAlerts;
-        final current = svc.currentData;
+        final activeAlerts = svc.activeAlerts;
+        final cloudHistory = svc.alertHistory
+            .where((a) =>
+                a.severity == AlertSeverity.critical ||
+                a.severity == AlertSeverity.danger)
+            .toList();
 
         final avgSpeed = history.isEmpty
             ? 0.0
@@ -70,13 +80,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                         avgSpeed: avgSpeed,
                         maxSpeed: maxSpeed,
                         avgTtc: avgTtc,
-                        threatCount: alerts.length,
+                        threatCount: activeAlerts.length,
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(
+                  const SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
                       child: _SectionLabel('VELOCITY HISTORY'),
                     ),
                   ),
@@ -105,30 +115,37 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                       ),
                     ),
                   ),
+                  // ── CLOUD ALERT HISTORY ─────────────────────────────────────
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
+                      child: _SectionLabel('CLOUD ALERT HISTORY'),
+                    ),
+                  ),
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: _SectionLabel('SAFETY EVENT LOG'),
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+                      child: _CloudHistorySubtitle(count: cloudHistory.length),
                     ),
                   ),
-                  alerts.isEmpty
-                      ? SliverToBoxAdapter(
-                    child: _AnalyticsEmptyAlerts(),
-                  )
-                      : SliverPadding(
-                    padding:
-                    const EdgeInsets.fromLTRB(20, 12, 20, 100),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                            (ctx, i) => _AnalyticsAlertRow(
-                          alert: alerts[i],
-                          index: i,
+                  if (cloudHistory.isEmpty)
+                    SliverToBoxAdapter(
+                      child: _AnalyticsEmptyAlerts(isHistory: true),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (ctx, i) => _HistoryAlertRow(
+                            alert: cloudHistory[i],
+                            index: i,
+                          ),
+                          childCount: cloudHistory.length,
                         ),
-                        childCount: alerts.length,
                       ),
                     ),
-                  ),
-                  if (alerts.isNotEmpty)
+                  if (cloudHistory.isNotEmpty)
                     const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ),
@@ -137,17 +154,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
         );
       },
     );
-  }
 }
 
-// ── HEADER ────────────────────────────────────
-class _AnalyticsHeader extends StatelessWidget {
-  final WiFiSensorService svc;
-  const _AnalyticsHeader({required this.svc});
+// ── CLOUD HISTORY SUBTITLE ─────────────────────────────────────────────────────
+class _CloudHistorySubtitle extends StatelessWidget {
+  const _CloudHistorySubtitle({required this.count});
+  final int count;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Text(
+    count == 0
+        ? 'No critical alerts in cloud history'
+        : '$count critical/danger event${count > 1 ? "s" : ""} from cloud',
+    style: const TextStyle(fontSize: 12, color: Color(0xFF6E6E73)),
+  );
+}
+
+// ── HEADER ────────────────────────────────────────────────────────────────────
+class _AnalyticsHeader extends StatelessWidget {
+  const _AnalyticsHeader({required this.svc});
+  final WiFiSensorService svc;
+
+  @override
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -221,15 +250,10 @@ class _AnalyticsHeader extends StatelessWidget {
         ],
       ),
     );
-  }
 }
 
-// ── STATS ROW ─────────────────────────────────
+// ── STATS ROW ─────────────────────────────────────────────────────────────────
 class _StatsRow extends StatelessWidget {
-  final double avgSpeed;
-  final double maxSpeed;
-  final double avgTtc;
-  final int threatCount;
 
   const _StatsRow({
     required this.avgSpeed,
@@ -237,10 +261,13 @@ class _StatsRow extends StatelessWidget {
     required this.avgTtc,
     required this.threatCount,
   });
+  final double avgSpeed;
+  final double maxSpeed;
+  final double avgTtc;
+  final int threatCount;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
+  Widget build(BuildContext context) => Row(
       children: [
         Expanded(
           child: _StatCard(
@@ -275,15 +302,9 @@ class _StatsRow extends StatelessWidget {
         ),
       ],
     );
-  }
 }
 
 class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  final Color color;
-  final IconData icon;
 
   const _StatCard({
     required this.label,
@@ -292,10 +313,14 @@ class _StatCard extends StatelessWidget {
     required this.color,
     required this.icon,
   });
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+  final IconData icon;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -345,17 +370,15 @@ class _StatCard extends StatelessWidget {
         ],
       ),
     );
-  }
 }
 
-// ── SECTION LABEL ─────────────────────────────
+// ── SECTION LABEL ─────────────────────────────────────────────────────────────
 class _SectionLabel extends StatelessWidget {
-  final String text;
   const _SectionLabel(this.text);
+  final String text;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
+  Widget build(BuildContext context) => Row(
       children: [
         Container(
           width: 3,
@@ -378,17 +401,10 @@ class _SectionLabel extends StatelessWidget {
         ),
       ],
     );
-  }
 }
 
-// ── SPARKLINE CARD ────────────────────────────
+// ── SPARKLINE CARD ────────────────────────────────────────────────────────────
 class _SparklineCard extends StatelessWidget {
-  final List<DrivoraSensorData> history;
-  final String label;
-  final Color color;
-  final double Function(DrivoraSensorData) getValue;
-  final double maxY;
-  final double? dangerLine;
 
   const _SparklineCard({
     required this.history,
@@ -398,6 +414,12 @@ class _SparklineCard extends StatelessWidget {
     required this.maxY,
     this.dangerLine,
   });
+  final List<DrivoraSensorData> history;
+  final String label;
+  final Color color;
+  final double Function(DrivoraSensorData) getValue;
+  final double maxY;
+  final double? dangerLine;
 
   @override
   Widget build(BuildContext context) {
@@ -470,12 +492,11 @@ class _SparklineCard extends StatelessWidget {
 }
 
 class _NoDataPlaceholder extends StatelessWidget {
-  final Color color;
   const _NoDataPlaceholder({required this.color});
+  final Color color;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
+  Widget build(BuildContext context) => Center(
       child: Text(
         'ENGAGE SHIELD TO RECORD',
         style: TextStyle(
@@ -486,14 +507,9 @@ class _NoDataPlaceholder extends StatelessWidget {
         ),
       ),
     );
-  }
 }
 
 class _SparklinePainter extends CustomPainter {
-  final List<double> values;
-  final Color color;
-  final double maxY;
-  final double? dangerLine;
 
   _SparklinePainter({
     required this.values,
@@ -501,6 +517,10 @@ class _SparklinePainter extends CustomPainter {
     required this.maxY,
     this.dangerLine,
   });
+  final List<double> values;
+  final Color color;
+  final double maxY;
+  final double? dangerLine;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -510,7 +530,6 @@ class _SparklinePainter extends CustomPainter {
     final h = size.height;
     final step = w / (values.length - 1).clamp(1, double.infinity);
 
-    // Fill path
     final fillPath = Path();
     fillPath.moveTo(0, h);
     for (var i = 0; i < values.length; i++) {
@@ -534,11 +553,10 @@ class _SparklinePainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [color.withOpacity(0.15), color.withOpacity(0.0)],
+          colors: [color.withOpacity(0.15), color.withOpacity(0)],
         ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
 
-    // Line path
     final linePath = Path();
     for (var i = 0; i < values.length; i++) {
       final x = i * step;
@@ -562,7 +580,6 @@ class _SparklinePainter extends CustomPainter {
         ..strokeCap = StrokeCap.round,
     );
 
-    // Danger line
     if (dangerLine != null) {
       final dy = h - (dangerLine!.clamp(0, maxY) / maxY) * h;
       canvas.drawLine(
@@ -575,19 +592,10 @@ class _SparklinePainter extends CustomPainter {
       );
     }
 
-    // Current value dot
     final lastX = (values.length - 1) * step;
     final lastY = h - (values.last.clamp(0, maxY) / maxY) * h;
-    canvas.drawCircle(
-      Offset(lastX, lastY),
-      4,
-      Paint()..color = Colors.white,
-    );
-    canvas.drawCircle(
-      Offset(lastX, lastY),
-      3,
-      Paint()..color = color,
-    );
+    canvas.drawCircle(Offset(lastX, lastY), 4, Paint()..color = Colors.white);
+    canvas.drawCircle(Offset(lastX, lastY), 3, Paint()..color = color);
   }
 
   @override
@@ -595,12 +603,45 @@ class _SparklinePainter extends CustomPainter {
       old.values != values;
 }
 
-// ── ALERT ROW ─────────────────────────────────
-class _AnalyticsAlertRow extends StatelessWidget {
+// ── CLOUD HISTORY ALERT ROW ───────────────────────────────────────────────────
+class _HistoryAlertRow extends StatelessWidget {
+
+  const _HistoryAlertRow({required this.alert, required this.index});
   final SafetyAlert alert;
   final int index;
 
-  const _AnalyticsAlertRow({required this.alert, required this.index});
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inDays > 0) return '${diff.inDays}d ago  ${_hm(dt)}';
+    if (diff.inHours > 0) return '${diff.inHours}h ago  ${_hm(dt)}';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return 'Just now';
+  }
+
+  String _hm(DateTime dt) =>
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  String _fullDate(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}  ${_hm(dt)}';
+
+  Color _color(AlertSeverity s) {
+    switch (s) {
+      case AlertSeverity.critical: return AppTheme.accentRed;
+      case AlertSeverity.danger:   return AppTheme.accentAmber;
+      case AlertSeverity.warning:  return const Color(0xFFFF9F0A);
+      case AlertSeverity.info:     return AppTheme.accentBlue;
+    }
+  }
+
+  String _badge(AlertSeverity s) {
+    switch (s) {
+      case AlertSeverity.critical: return 'CRITICAL';
+      case AlertSeverity.danger:   return 'DANGER';
+      case AlertSeverity.warning:  return 'WARNING';
+      case AlertSeverity.info:     return 'INFO';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -635,27 +676,65 @@ class _AnalyticsAlertRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  alert.title,
-                  style: TextStyle(
-                    fontFamily: 'Orbitron',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    letterSpacing: 0.5,
+                Row(children: [
+                  Expanded(
+                    child: Text(
+                      alert.title,
+                      style: TextStyle(
+                        fontFamily: 'Orbitron',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      _badge(alert.severity),
+                      style: TextStyle(
+                        fontFamily: 'Orbitron',
+                        fontSize: 7,
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 3),
                 Text(
                   alert.message,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF6E6E73),
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF6E6E73)),
                 ),
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.access_time_rounded, size: 11, color: Color(0xFFAEAEB2)),
+                  const SizedBox(width: 4),
+                  Text(
+                    _fullDate(alert.timestamp),
+                    style: const TextStyle(
+                      fontFamily: 'Orbitron',
+                      fontSize: 8,
+                      color: Color(0xFFAEAEB2),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '· ${_formatTime(alert.timestamp)}',
+                    style: const TextStyle(fontSize: 10, color: Color(0xFFAEAEB2)),
+                  ),
+                ]),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -674,21 +753,14 @@ class _AnalyticsAlertRow extends StatelessWidget {
       ),
     );
   }
-
-  Color _color(AlertSeverity s) {
-    switch (s) {
-      case AlertSeverity.critical: return AppTheme.accentRed;
-      case AlertSeverity.danger: return AppTheme.accentAmber;
-      case AlertSeverity.warning: return const Color(0xFFFF9F0A);
-      case AlertSeverity.info: return AppTheme.accentBlue;
-    }
-  }
 }
 
 class _AnalyticsEmptyAlerts extends StatelessWidget {
+  const _AnalyticsEmptyAlerts({this.isHistory = false});
+  final bool isHistory;
+
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       margin: const EdgeInsets.fromLTRB(20, 12, 20, 100),
       padding: const EdgeInsets.symmetric(vertical: 36),
       decoration: BoxDecoration(
@@ -699,14 +771,14 @@ class _AnalyticsEmptyAlerts extends StatelessWidget {
       child: Column(
         children: [
           Icon(
-            Icons.check_circle_outline_rounded,
+            isHistory ? Icons.cloud_off_rounded : Icons.check_circle_outline_rounded,
             size: 44,
             color: AppTheme.accentGreen.withOpacity(0.4),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'NO EVENTS DETECTED',
-            style: TextStyle(
+          Text(
+            isHistory ? 'NO HISTORY IN CLOUD' : 'NO EVENTS DETECTED',
+            style: const TextStyle(
               fontFamily: 'Orbitron',
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -715,12 +787,13 @@ class _AnalyticsEmptyAlerts extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'System operating within safe parameters',
-            style: TextStyle(fontSize: 12, color: Color(0xFFAEAEB2)),
+          Text(
+            isHistory
+                ? 'Connect to internet to load past alerts'
+                : 'System operating within safe parameters',
+            style: const TextStyle(fontSize: 12, color: Color(0xFFAEAEB2)),
           ),
         ],
       ),
     );
-  }
 }
