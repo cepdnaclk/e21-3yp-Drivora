@@ -6,8 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/wifi_sensor_service.dart';
 import '../services/cloud_service.dart';
-import '../theme/app_theme.dart';
-import 'dashboard_screen.dart';
 
 // ─── PALETTE ────────────────────────────────────────────────────────────────
 const _kBg      = Color(0xFF060810);
@@ -123,7 +121,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   // ── STEP 1: Connect ───────────────────────────────────────────────────────
   void _connectToHub(BuildContext context) {
     final svc = Provider.of<WiFiSensorService>(context, listen: false);
-    svc.connectToHardwareHub('192.168.4.1');
+    unawaited(svc.connectToHardwareHub('192.168.4.1'));
     setState(() => _error = null);
   }
 
@@ -150,22 +148,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     await prefs.setInt('frontPreset', _frontPreset);
     await prefs.setInt('rearPreset', _rearPreset);
     await prefs.setBool('setupComplete', true);
-
-    // Save to cloud
-    final email = prefs.getString('userEmail') ?? '';
-    if (email.isNotEmpty) {
-      await _cloudService.saveOnboardingData(
-        driverName: prefs.getString('userName') ?? '',
-        driverEmail: email,
-        driverExperience: 'Standard',
-        vehicleType: _vehicleType,
-        vehicleModel: prefs.getString('carModel') ?? '',
-        vehicleHeight: _vehicleHeight,
-        vehicleWidth: _trackWidth,
-        alertSensitivity: 5,
-        audioVolume: 7,
-      );
-    }
 
     // Send to hardware via WebSocket
     bool sent = false;

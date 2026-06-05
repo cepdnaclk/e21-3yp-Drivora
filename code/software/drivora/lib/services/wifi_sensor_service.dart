@@ -95,11 +95,11 @@ class WiFiSensorService extends ChangeNotifier {
     if (_isConnected) {
       stopAllStreams();
     } else {
-      connectToHardwareHub('192.168.4.1');
+      unawaited(connectToHardwareHub('192.168.4.1'));
     }
   }
 
-  void connectToHardwareHub(String ipAddress) {
+  Future<void> connectToHardwareHub(String ipAddress) async {
     stopAllStreams();
     _status = 'Connecting to ADAS Brain...';
     notifyListeners();
@@ -108,8 +108,10 @@ class WiFiSensorService extends ChangeNotifier {
       final wsUrl = Uri.parse('ws://$ipAddress:81');
       _wsChannel = WebSocketChannel.connect(wsUrl);
 
+      await _wsChannel!.ready.timeout(const Duration(seconds: 5));
+
       _subscription = _wsChannel!.stream.listen(
-            (message) {
+        (message) {
           try {
             final Map<String, dynamic> data = json.decode(message as String);
             _processHardwareJson(data);
@@ -124,7 +126,10 @@ class WiFiSensorService extends ChangeNotifier {
         },
         onError: (err) => _handleError('Link Error: Check WiFi'),
         onDone: () => _handleError('ADAS Link Lost'),
+        cancelOnError: true,
       );
+    } on TimeoutException {
+      _handleError('Timeout: Ensure WiFi is ADASBrain');
     } catch (e) {
       _handleError('Connection Failed');
     }
