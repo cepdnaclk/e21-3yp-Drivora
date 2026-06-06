@@ -99,8 +99,7 @@ class AppTheme {
   }
 
   // ── THEME ──
-  static ThemeData get darkTheme {
-    return ThemeData(
+  static ThemeData get darkTheme => ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: background,
@@ -142,7 +141,6 @@ class AppTheme {
       dividerColor: const Color(0xFF1A2030),
       cardColor: surface,
     );
-  }
 
   // ── COMPATIBILITY ALIASES ──
   static ThemeData get lightTechTheme => darkTheme;

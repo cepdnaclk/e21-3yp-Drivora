@@ -1,0 +1,16 @@
+# Build configuration for Drivora
+# Skip native asset compilation for web and non-iOS platforms
+
+targets:
+  $default:
+    builders:
+      # Prevent iOS/macOS native builds when building for web
+      native_assets|native_assets:
+        options:
+          build_mode: "release"
+
+# Platform-specific configurations
+platforms:
+  web:
+    native_assets:
+      enabled: false

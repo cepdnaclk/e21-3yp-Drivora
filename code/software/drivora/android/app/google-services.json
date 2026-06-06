@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "467697098105",
+    "project_id": "drivora-adas",
+    "storage_bucket": "drivora-adas.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467697098105:android:eeceaee72e85cd026c23a8",
+        "android_client_info": {
+          "package_name": "com.drivora.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "467697098105-bil05ab0b6spn90neiq0n543m5cve7um.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.drivora.app",
+            "certificate_hash": "c1487f3d6dd831480764f88ffd105ca8da6afd56"
+          }
+        },
+        {
+          "client_id": "467697098105-f4te6ld0urcgkohrtced2h7n8bqkapbi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfalUFELaFVvNn2QhvE4CdHq9kkIMiL70"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "467697098105-f4te6ld0urcgkohrtced2h7n8bqkapbi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

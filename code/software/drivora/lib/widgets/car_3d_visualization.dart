@@ -3,22 +3,22 @@ import 'dart:math' as math;
 import '../theme/app_theme.dart';
 
 class Car3DVisualization extends StatefulWidget {
-  final double speed;
-  final double lanePosition;
-  final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
-  final double tiltAngle;
 
   const Car3DVisualization({
-    Key? key,
+    super.key,
     required this.speed,
     this.lanePosition = 0,
     this.brakeActive = false,
     this.leftSignal = false,
     this.rightSignal = false,
     this.tiltAngle = 0,
-  }) : super(key: key);
+  });
+  final double speed;
+  final double lanePosition;
+  final bool brakeActive;
+  final bool leftSignal;
+  final bool rightSignal;
+  final double tiltAngle;
 
   @override
   State<Car3DVisualization> createState() => _Car3DVisualizationState();
@@ -69,8 +69,8 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
 
   @override
   Widget build(BuildContext context) {
-    final bool isLaneDeparting = widget.lanePosition.abs() > 0.45;
-    final bool isDanger = widget.brakeActive || isLaneDeparting;
+    final isLaneDeparting = widget.lanePosition.abs() > 0.45;
+    final isDanger = widget.brakeActive || isLaneDeparting;
 
     return Container(
       width: double.infinity,
@@ -126,8 +126,7 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
             // ── LAYER 4: TOP-VIEW CAR + COG ──
             AnimatedBuilder(
               animation: _signalCtrl,
-              builder: (context, signal) {
-                return AnimatedBuilder(
+              builder: (context, signal) => AnimatedBuilder(
                   animation: _cogCtrl,
                   builder: (context, _) => CustomPaint(
                     size: Size.infinite,
@@ -142,8 +141,7 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
                       cogPulse: _cogCtrl.value,
                     ),
                   ),
-                );
-              },
+                ),
             ),
 
             // ── LAYER 5: LDW Text Banner ──
@@ -168,9 +166,9 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
                           ),
                         ],
                       ),
-                      child: Row(
+                      child: const Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
+                        children: [
                           Icon(Icons.warning_amber_rounded, color: Colors.black, size: 13),
                           SizedBox(width: 6),
                           Text(
@@ -271,15 +269,15 @@ class _Car3DVisualizationState extends State<Car3DVisualization>
 //  TOP-VIEW ROAD PAINTER
 // ─────────────────────────────────────────────────────────────
 class _TopViewRoadPainter extends CustomPainter {
-  final double progress;
-  final double laneOffset;
-  final double speed;
 
   _TopViewRoadPainter({
     required this.progress,
     required this.laneOffset,
     required this.speed,
   });
+  final double progress;
+  final double laneOffset;
+  final double speed;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -292,7 +290,7 @@ class _TopViewRoadPainter extends CustomPainter {
 
     // Road surface gradient
     final roadRect = Rect.fromLTWH(cx - totalRoadWidth / 2, 0, totalRoadWidth, h);
-    final roadGrad = const LinearGradient(
+    const roadGrad = LinearGradient(
       colors: [Color(0xFF0A1520), Color(0xFF0F1C2E), Color(0xFF0A1520)],
       begin: Alignment.centerLeft,
       end: Alignment.centerRight,
@@ -321,7 +319,7 @@ class _TopViewRoadPainter extends CustomPainter {
 
     for (final xOff in [-laneWidth, laneWidth]) {
       final x = cx + xOff;
-      double y = -(progress * period * speedFactor);
+      var y = -(progress * period * speedFactor);
       while (y < h) {
         canvas.drawLine(Offset(x, y), Offset(x, y + dashLen), dashPaint);
         y += period;
@@ -333,7 +331,7 @@ class _TopViewRoadPainter extends CustomPainter {
       ..color = Colors.white.withOpacity(0.14)
       ..strokeWidth = 1.0;
 
-    double cy2 = -(progress * period * speedFactor * 0.8);
+    var cy2 = -(progress * period * speedFactor * 0.8);
     while (cy2 < h) {
       canvas.drawLine(Offset(cx, cy2), Offset(cx, cy2 + dashLen * 0.6), centerDashPaint);
       cy2 += period;
@@ -356,10 +354,10 @@ class _TopViewRoadPainter extends CustomPainter {
 //  LANE DEPARTURE WARNING PAINTER
 // ─────────────────────────────────────────────────────────────
 class _LaneDepartureWarningPainter extends CustomPainter {
-  final double laneOffset;
-  final double pulse;
 
   _LaneDepartureWarningPainter({required this.laneOffset, required this.pulse});
+  final double laneOffset;
+  final double pulse;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -388,7 +386,7 @@ class _LaneDepartureWarningPainter extends CustomPainter {
     final hatchX1 = isLeft ? 0.0 : edgeX;
     final hatchX2 = isLeft ? edgeX : w;
 
-    for (double y = -w; y < h + w; y += 22) {
+    for (var y = -w; y < h + w; y += 22) {
       canvas.drawLine(
         Offset(hatchX1, y),
         Offset(hatchX2, y + (hatchX2 - hatchX1)),
@@ -405,18 +403,18 @@ class _LaneDepartureWarningPainter extends CustomPainter {
 //  SAFETY AURA PAINTER
 // ─────────────────────────────────────────────────────────────
 class _SafetyAuraPainter extends CustomPainter {
+
+  _SafetyAuraPainter({required this.pulse, required this.isDanger, required this.laneOffset});
   final double pulse;
   final bool isDanger;
   final double laneOffset;
-
-  _SafetyAuraPainter({required this.pulse, required this.isDanger, required this.laneOffset});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height * 0.55);
     final color = isDanger ? AppTheme.accentRed : AppTheme.accentCyan;
 
-    for (int i = 0; i < 2; i++) {
+    for (var i = 0; i < 2; i++) {
       final t = (pulse + i * 0.5) % 1.0;
       canvas.drawOval(
         Rect.fromCenter(
@@ -440,14 +438,6 @@ class _SafetyAuraPainter extends CustomPainter {
 //  TOP-VIEW CAR PAINTER
 // ─────────────────────────────────────────────────────────────
 class _TopViewCarPainter extends CustomPainter {
-  final double tiltAngle;
-  final bool brakeActive;
-  final bool leftSignal;
-  final bool rightSignal;
-  final bool signalBlink;
-  final double laneOffset;
-  final double speed;
-  final double cogPulse;
 
   _TopViewCarPainter({
     required this.tiltAngle,
@@ -459,6 +449,14 @@ class _TopViewCarPainter extends CustomPainter {
     required this.speed,
     required this.cogPulse,
   });
+  final double tiltAngle;
+  final bool brakeActive;
+  final bool leftSignal;
+  final bool rightSignal;
+  final bool signalBlink;
+  final double laneOffset;
+  final double speed;
+  final double cogPulse;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -561,8 +559,8 @@ class _TopViewCarPainter extends CustomPainter {
 
     // Hood line
     canvas.drawLine(
-      Offset(-carW * 0.38, -carH * 0.32),
-      Offset(carW * 0.38, -carH * 0.32),
+      const Offset(-carW * 0.38, -carH * 0.32),
+      const Offset(carW * 0.38, -carH * 0.32),
       Paint()
         ..color = AppTheme.accentBlue.withOpacity(0.18)
         ..strokeWidth = 1.2,
@@ -570,8 +568,8 @@ class _TopViewCarPainter extends CustomPainter {
 
     // Trunk line
     canvas.drawLine(
-      Offset(-carW * 0.36, carH * 0.32),
-      Offset(carW * 0.36, carH * 0.32),
+      const Offset(-carW * 0.36, carH * 0.32),
+      const Offset(carW * 0.36, carH * 0.32),
       Paint()
         ..color = AppTheme.accentBlue.withOpacity(0.14)
         ..strokeWidth = 1.0,
@@ -753,15 +751,14 @@ class _GridOverlayPainter extends CustomPainter {
 //  HUD TAG
 // ─────────────────────────────────────────────────────────────
 class _HudTag extends StatelessWidget {
+
+  const _HudTag({required this.label, required this.value, required this.color});
   final String label;
   final String value;
   final Color color;
 
-  const _HudTag({required this.label, required this.value, required this.color});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
+  Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.60),
@@ -797,5 +794,4 @@ class _HudTag extends StatelessWidget {
         ],
       ),
     );
-  }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import 'onboarding_screen.dart';
 
@@ -57,15 +58,23 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   void _startSplashSequence() async {
-    // Start animations
     _fadeController.forward();
     _scaleController.forward();
 
-    // Wait and then navigate
-    await Future.delayed(const Duration(milliseconds: 3500));
+    await Future.delayed(const Duration(milliseconds: 3000));
+
+    if (!mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('userEmail') ?? '';
+    final setupDone = prefs.getBool('setupComplete') ?? false;
 
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/onboarding');
+      if (email.isNotEmpty && setupDone) {
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+      } else {
+        Navigator.of(context).pushReplacementNamed('/onboarding');
+      }
     }
   }
 

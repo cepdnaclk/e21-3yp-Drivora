@@ -5,7 +5,7 @@ import 'dashboard_screen.dart';
 import '../theme/app_theme.dart';
 
 class InitializationScreen extends StatefulWidget {
-  const InitializationScreen({Key? key}) : super(key: key);
+  const InitializationScreen({super.key});
 
   @override
   State<InitializationScreen> createState() => _InitializationScreenState();
@@ -16,14 +16,14 @@ class _InitializationScreenState extends State<InitializationScreen> with Ticker
   late AnimationController _rotationController;
   late AnimationController _loadingController;
   
-  double _progress = 0.0;
-  String _statusText = "INITIALIZING CORE...";
+  double _progress = 0;
+  String _statusText = 'INITIALIZING CORE...';
   final List<String> _statusMessages = [
-    "BOOTING ADAS CORE...",
-    "LINKING SENSOR HUB...",
-    "CALIBRATING GYRO...",
-    "ESTABLISHING 5G HUB...",
-    "SYSTEMS READY."
+    'BOOTING ADAS CORE...',
+    'LINKING SENSOR HUB...',
+    'CALIBRATING GYRO...',
+    'ESTABLISHING 5G HUB...',
+    'SYSTEMS READY.'
   ];
 
   @override
@@ -37,7 +37,7 @@ class _InitializationScreenState extends State<InitializationScreen> with Ticker
   }
 
   void _startInitialization() async {
-    for (int i = 0; i < _statusMessages.length; i++) {
+    for (var i = 0; i < _statusMessages.length; i++) {
       await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) {
         setState(() {
@@ -61,8 +61,7 @@ class _InitializationScreenState extends State<InitializationScreen> with Ticker
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => Scaffold(
       backgroundColor: AppTheme.background,
       body: Stack(
         children: [
@@ -139,7 +138,7 @@ class _InitializationScreenState extends State<InitializationScreen> with Ticker
                             ),
                           ),
                           Text(
-                            "${(_progress * 100).toInt()}%",
+                            '${(_progress * 100).toInt()}%',
                             style: GoogleFonts.orbitron(
                               color: AppTheme.accentBlue,
                               fontSize: 10,
@@ -168,7 +167,6 @@ class _InitializationScreenState extends State<InitializationScreen> with Ticker
         ],
       ),
     );
-  }
 }
 
 class _HUDRingPainter extends CustomPainter {
