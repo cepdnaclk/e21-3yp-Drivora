@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ADAS Brain</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--text:#f2f4f8;--muted:#b6bcc8;--border:#262b35;--btn:#2b2f38;}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif;}
+  body{padding:10px;}
+  .wrap{max-width:1600px;margin:0 auto;}
+  .topTitle{font-size:18px;font-weight:700;margin-bottom:8px;}
+  .statusRow,.navRow,.settingsButtons{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#2b2f38;font-size:11px;}
+  button,select,input{padding:10px 12px;border:0;border-radius:10px;background:var(--btn);color:white;font-size:13px;}
+  button{cursor:pointer;}
+  input[type="number"],select{width:100%;background:#20242c;}
+  .navBtn{flex:1;font-weight:700;}.navBtn.active{background:#3a4250;}
+  .hidden{display:none!important;}
+  .banner{background:#1b2330;border:1px solid #2c3b56;border-radius:14px;padding:12px;margin-bottom:10px;}
+  .cards{display:flex;flex-direction:column;gap:10px;}
+  .panel,.settingsSection{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:10px;min-width:0;}
+  .sensorPanel{display:flex;flex-direction:column;}.sensorPanel .stateBox{flex:1 1 auto;}.sensorPanel .grid{margin-top:auto;}
+  .panelHead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
+  .panelTitle,.settingsTitle{font-size:15px;font-weight:700;min-width:0;margin-bottom:8px;}
+  .stateBox{width:100%;border-radius:14px;min-height:72px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:22px;font-weight:800;color:white;margin-bottom:10px;transition:background-color 120ms linear;}
+  .grid,.settingsGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .cell{background:#11151b;border:1px solid #232933;border-radius:12px;padding:8px;min-width:0;}.cell.full{grid-column:1/-1;}
+  .label{color:var(--muted);font-size:11px;margin-bottom:4px;}.value{font-size:18px;font-weight:700;word-break:break-word;line-height:1.15;}
+  .help{color:var(--muted);font-size:12px;line-height:1.5;margin-top:4px;}
+  .settingsWrap{display:grid;gap:10px;}
+  #frontPanel .grid,#leanPanel .grid,#rearPanel .grid{grid-template-columns:1fr 1fr 1fr;}
+  #frontPanel .grid{grid-template-columns:1fr 1fr;}
+  .rearMiniState{width:100%;border-radius:10px;min-height:40px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;font-weight:800;color:white;margin-bottom:6px;padding:4px;}
+  .mainWarning{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px;margin-bottom:10px;}
+  .mainWarningTitle{font-size:20px;font-weight:800;margin-bottom:6px;}
+  .mainWarningMsg{color:var(--muted);font-size:13px;line-height:1.35;}
+  #leanVisual{position:relative;width:100%;height:250px;background:#000;overflow:hidden;border-radius:16px;margin-bottom:10px;}
+  #leanField{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+  .circle{position:absolute;border:1px solid #555;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;}
+  #c1{width:88%;height:88%;}#c2{width:70%;height:70%;}#c3{width:52%;height:52%;}#c4{width:34%;height:34%;}#c5{width:16%;height:16%;}
+  .line{position:absolute;background:#555;}#lineV{width:2px;height:100%;left:50%;top:0;}#lineH{width:100%;height:2px;top:50%;left:0;}
+  #leanDot{width:16px;height:16px;border-radius:50%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(64,128,255,.75);box-shadow:0 0 12px rgba(64,128,255,.75);}
+  #laneVisual{width:100%;height:220px;background:#0b0d12;border-radius:16px;position:relative;overflow:hidden;margin-bottom:10px;border:1px solid #232933;}
+  #laneRoadCenter{position:absolute;left:50%;top:0;transform:translateX(-50%);width:70%;height:100%;}.laneMark{position:absolute;top:8%;width:8px;height:84%;border-radius:999px;background:#9aa3b2;opacity:.95;transition:background-color 120ms linear,box-shadow 120ms linear;}
+  #laneLeftMark{left:30%;transform:translateX(-50%) rotate(8deg);}#laneRightMark{left:70%;transform:translateX(-50%) rotate(-8deg);}.laneAlert{background:#ffb020!important;box-shadow:0 0 18px rgba(255,176,32,.65);}
+  .wizardBox{border:1px solid #2c3b56;background:#111824;border-radius:14px;padding:12px;margin-top:10px;}
+  .wizardStepTitle{font-size:16px;font-weight:800;margin-bottom:8px;}.wizardProgress{color:var(--muted);font-size:12px;margin-bottom:10px;}.danger{background:#513033;}
+  @media (orientation:landscape) and (max-width:1400px){body{padding:8px}.cards{flex-direction:row;align-items:stretch;gap:8px;flex-wrap:wrap}.panel{flex:1 1 calc(50% - 8px);padding:8px}.stateBox{min-height:52px;font-size:16px;margin-bottom:8px;border-radius:12px}#frontPanel .stateBox,#rearPanel .stateBox{min-height:120px}#leanVisual,#laneVisual{height:164px;margin-bottom:8px;border-radius:12px}.grid{gap:6px}.cell{padding:6px 7px;border-radius:10px}.value{font-size:14px;line-height:1.05}.label{font-size:10px;margin-bottom:2px}}
+  @media (min-width:1401px){.cards{flex-direction:row;align-items:stretch;flex-wrap:wrap}.panel{flex:1 1 calc(25% - 10px)}}
+  @media (max-width:900px){.settingsGrid{grid-template-columns:1fr}}
+
+  .wizardHealth{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:10px;
+  }
+  .unitCheck{
+    background:#11151b;
+    border:1px solid #232933;
+    border-radius:12px;
+    padding:10px;
+  }
+  .unitCheckName{
+    font-size:12px;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .unitCheckStatus{
+    font-size:16px;
+    font-weight:800;
+  }
+  .okText{color:#1db954;}
+  .warnText{color:#ffb020;}
+  .badText{color:#ff3b30;}
+  .wizardCleanNote{
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.45;
+  }
+  @media (max-width: 650px){
+    .wizardHealth{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topTitle">ADAS Brain Monitor</div>
+  <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="enableAudio()">Enable Sound</button></div>
+  <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
+
+  <div id="dashboardTab">
+    <div id="setupBanner" class="banner hidden"><div style="font-weight:700;margin-bottom:6px;">Setup required</div><div class="help">Complete the guided setup before normal use.</div><div class="settingsButtons"><button onclick="openSetupWizard()">Open Setup Wizard</button></div></div>
+    <div class="mainWarning" id="mainWarningBox">
+      <div id="mainWarningTitle" class="mainWarningTitle">All Clear</div>
+      <div id="mainWarningMsg" class="mainWarningMsg">No active safety warnings.</div>
+    </div>
+    <div class="cards">
+      <div class="panel sensorPanel" id="frontPanel"><div class="panelHead"><div class="panelTitle">Front Collision Warning</div><span class="badge" id="frontBadge">Offline</span></div><div id="frontStateBox" class="stateBox" style="background:#1db954;">CLEAR</div><div class="grid"><div class="cell"><div class="label">Distance</div><div id="frontDist" class="value">--</div></div><div class="cell"><div class="label">Speed</div><div id="frontSpeed" class="value">--</div></div></div></div>
+      <div class="panel" id="leanPanel"><div class="panelHead"><div class="panelTitle">Lean Monitor</div><span class="badge" id="leanBadge">Offline</span></div><div id="leanVisual"><div id="leanField"><div id="c1" class="circle"></div><div id="c2" class="circle"></div><div id="c3" class="circle"></div><div id="c4" class="circle"></div><div id="c5" class="circle"></div><div id="lineV" class="line"></div><div id="lineH" class="line"></div><div id="leanDot"></div></div></div><div id="leanStateBox" class="stateBox" style="background:#1db954;">SAFE</div><div class="grid"><div class="cell"><div class="label">Roll</div><div id="leanRoll" class="value">0.00°</div></div><div class="cell"><div class="label">Pitch</div><div id="leanPitch" class="value">0.00°</div></div><div class="cell"><div class="label">Conf</div><div id="leanConf" class="value">1.00</div></div></div></div>
+      <div class="panel sensorPanel" id="rearPanel"><div class="panelHead"><div class="panelTitle">Rear Blindspot</div><span class="badge" id="rearBadge">Offline</span></div><div id="rearStateBox" class="stateBox" style="background:#1db954;">CLEAR</div><div class="grid"><div class="cell"><div class="label">Left</div><div id="rearLeftStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearLeftDist" class="value">--</div></div><div class="cell"><div class="label">Center</div><div id="rearCenterStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearCenterDist" class="value">--</div></div><div class="cell"><div class="label">Right</div><div id="rearRightStateBox" class="rearMiniState" style="background:#1db954;">CLEAR</div><div id="rearRightDist" class="value">--</div></div></div></div>
+      <div class="panel sensorPanel" id="lanePanel"><div class="panelHead"><div class="panelTitle">Lane Departure Warning</div><span class="badge" id="laneBadge">Offline</span></div><div id="laneVisual"><div id="laneRoadCenter"><div id="laneLeftMark" class="laneMark"></div><div id="laneRightMark" class="laneMark"></div></div></div><div id="laneStateBox" class="stateBox" style="background:#1db954;">SAFE</div></div>
+    </div>
+  </div>
+
+  <div id="settingsTab" class="hidden">
+  <div class="settingsWrap">
+
+    <div class="settingsSection">
+      <div class="settingsTitle">Command Status</div>
+      <div id="cmdStatus" class="help">Waiting for WebSocket connection...</div>
+    </div>
+
+    <div id="wizardHeader" class="settingsSection hidden">
+      <div id="wizardProgress" class="wizardProgress">Step 1 of 7</div>
+      <div id="wizardTitle" class="wizardStepTitle">Welcome</div>
+      <div id="wizardBody" class="wizardCleanNote">Set up Drivora for this vehicle.</div>
+    </div>
+
+    <div id="vehicleSection" class="settingsSection configSection wizardStepSection" data-step="1">
+      <div class="settingsTitle">Vehicle Profile</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Vehicle Type</div>
+          <select id="cfgVehicleType">
+            <option value="1">Compact</option>
+            <option value="2">Passenger</option>
+            <option value="3">Tall / SUV</option>
+          </select>
+        </div>
+        <div>
+          <div class="label">Load Condition</div>
+          <select id="cfgLoadCondition">
+            <option value="0">Light</option>
+            <option value="1">Normal</option>
+            <option value="2">Heavy</option>
+           </select>
+        </div>
+        <div>
+          <div class="label">Track Width (m)</div>
+          <input id="cfgTrackWidth" type="number" step="0.01" min="0.80" max="4.00">
+        </div>
+        <div>
+          <div class="label">Wheelbase (m)</div>
+          <input id="cfgWheelBase" type="number" step="0.01" min="1.50" max="6.00">
+        </div>
+        <div>
+          <div class="label">Vehicle Height (m)</div>
+          <input id="cfgVehicleHeight" type="number" step="0.01" min="0.50" max="6.00">
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveVehicleSettings()">Save Vehicle Settings</button>
+      </div>
+    </div>
+
+    <div id="frontSection" class="settingsSection configSection wizardStepSection" data-step="2">
+      <div class="settingsTitle">Front Sensitivity</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Front preset</div>
+          <select id="cfgFrontPreset">
+            <option value="0">Near</option>
+            <option value="1">Normal</option>
+            <option value="2">Far</option>
+          </select>
+          <div class="help">Near gives shorter warning range. Far gives earlier warnings.</div>
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveFrontPreset()">Apply Front Sensitivity</button>
+      </div>
+    </div>
+
+    <div id="rearSection" class="settingsSection configSection wizardStepSection" data-step="3">
+      <div class="settingsTitle">Rear Sensitivity</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Rear preset</div>
+           <select id="cfgRearPreset">
+            <option value="0">Near</option>
+            <option value="1">Normal</option>
+            <option value="2">Far</option>
+          </select>
+          <div class="help">Near gives a tighter rear zone. Far gives earlier rear warnings.</div>
+        </div>
+      </div>
+      <div class="settingsButtons normalOnly">
+        <button onclick="saveRearPreset()">Apply Rear Sensitivity</button>
+      </div>
+    </div>
+
+    <div id="calibrationSection" class="settingsSection configSection wizardStepSection" data-step="4">
+      <div class="settingsTitle">Center Calibration</div>
+      <div class="settingsGrid">
+        <div>
+          <div class="label">Calibration Status</div>
+           <div id="cfgCenterCalStatus" class="value">Not calibrated</div>
+        </div>
+      </div>
+      <div class="help">Park on level ground and keep the vehicle still.</div>
+      <div class="settingsButtons">
+        <button onclick="calibrateCenter()">Calibrate Center Unit</button>
+      </div>
+      <div id="wizardCalibrationStatus" class="help hidden">Calibration is required before continuing.</div>
+    </div>
+
+    <div id="testSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="5">
+      <div class="settingsTitle">Installation Test</div>
+      <div class="help">Check that each unit is online before finishing setup.</div>
+      <div class="wizardHealth">
+        <div class="unitCheck">
+          <div class="unitCheckName">Front Unit</div>
+          <div id="wizardFrontStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Center Unit</div>
+          <div id="wizardCenterStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Rear Unit</div>
+          <div id="wizardRearStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+        <div class="unitCheck">
+          <div class="unitCheckName">Lane Unit</div>
+          <div id="wizardLaneStatus" class="unitCheckStatus badText">Offline</div>
+        </div>
+      </div>
+      <div id="wizardTestHint" class="help">You can continue after confirming the required units are responding.</div>
+    </div>
+
+    <div id="finishSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="6">
+      <div class="settingsTitle">Save and Finish</div>
+      <div class="help">Save this setup and unlock the dashboard.</div>
+      <div class="settingsButtons">
+        <button onclick="finishWizardSetup()">Save and Finish Setup</button>
+      </div>
+    </div>
+
+    <div id="wizardControls" class="settingsSection hidden">
+      <div class="settingsButtons">
+        <button id="wizardBackBtn" onclick="wizardBack()">Back</button>
+        <button id="wizardNextBtn" onclick="wizardNext()">Next</button>
+      </div>
+    </div>
+
+    <div id="normalSetupWizardSection" class="settingsSection normalOnly">
+      <div class="settingsTitle">Guided Setup Wizard</div>
+      <div class="help">Run the full setup again after reinstalling, remounting, or moving the system to another vehicle.</div>
+      <div class="settingsButtons">
+        <button onclick="openSetupWizard()">Open Setup Wizard</button>
+      </div>
+    </div>
+
+    <div id="systemSection" class="settingsSection normalOnly">
+      <div class="settingsTitle">System / Reset</div>
+       <div class="help">Reset returns vehicle dimensions and sensitivity presets to defaults. Setup must be completed again afterwards.</div>
+      <div class="settingsButtons">
+        <button class="danger" onclick="resetDefaults()">Reset Settings to Defaults</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+// --- WS CONNECTION UPDATED FOR LINUX/CROW ---
+const ws = new WebSocket("ws://" + location.hostname + "/ws");
+
+let audioCtx = null;
+let audioEnabled = false;
+let lastFrontBeepMs = 0;
+let lastRearBeepMs = 0;
+let lastLaneBeepMs = 0;
+let leanDotCurrentX = 0;
+let leanDotCurrentY = 0;
+let leanDotTargetX = 0;
+let leanDotTargetY = 0;
+let leanDotInitialized = false;
+let latestConfig = null;
+let latestHealth = {
+  front: {online:false, stale:true},
+  lean:  {online:false, stale:true},
+  rear:  {online:false, stale:true},
+  lane:  {online:false, stale:true}
+};
+let settingsUiInitialized = false;
+let settingsDirty = false;
+let wizardStep = 0;
+let wizardMode = false;
+let forceFormRefresh = false;
+let wizardCalibrationRequested = false;
+let wizardCalibrationStartedAt = 0;
+
+const DEFAULT_CFG = {
+  setupCompleted: 0,
+  vehicleType: 3,
+  loadCondition: 1,
+  trackWidth_m: 1.56,
+  wheelBase_m: 2.67,
+  vehicleHeight_m: 1.57,
+  frontPreset: 1,
+  rearPreset: 1,
+  centerCalibrated: 0
+};
+
+function $(id){ return document.getElementById(id); }
+
+function isSetupLocked(){
+  return wizardMode || !latestConfig || !latestConfig.setupCompleted;
+}
+
+function showTab(tab){
+  if (tab === "dashboard" && isSetupLocked()) {
+    $("dashboardTab").classList.add("hidden");
+    $("settingsTab").classList.remove("hidden");
+    $("tabDashboardBtn").classList.add("hidden");
+    $("tabSettingsBtn").classList.add("active");
+    $("tabSettingsBtn").innerText = "Setup";
+    setCmdStatus("Complete setup to unlock the dashboard.");
+    return;
+  }
+
+  $("dashboardTab").classList.toggle("hidden", tab !== "dashboard");
+  $("settingsTab").classList.toggle("hidden", tab !== "settings");
+  $("tabDashboardBtn").classList.toggle("active", tab === "dashboard");
+  $("tabSettingsBtn").classList.toggle("active", tab === "settings");
+}
+
+function setCmdStatus(msg){
+  const el = $("cmdStatus");
+  if (el) el.innerText = msg;
+}
+
+ws.onopen = () => setCmdStatus("WebSocket connected.");
+ws.onclose = () => setCmdStatus("WebSocket disconnected. Refresh the page.");
+ws.onerror = () => setCmdStatus("WebSocket error. Refresh the page.");
+
+function enableAudio(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.resume().then(() => {
+    audioEnabled = true;
+    $("audioBtn").innerText = "Sound Enabled";
+  });
+}
+
+function playBeep(freq = 900, durationMs = 80, volume = 0.08){
+  if (!audioEnabled || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  gain.gain.value = volume;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const n = audioCtx.currentTime;
+  osc.start(n);
+  osc.stop(n + durationMs / 1000);
+  gain.gain.setValueAtTime(volume, n);
+  gain.gain.exponentialRampToValueAtTime(0.0001, n + durationMs / 1000);
+}
+
+function resizeLeanField(){
+  const visual = $("leanVisual");
+  const rect = visual.getBoundingClientRect();
+  const side = Math.min(rect.width, rect.height) * 0.92;
+  const field = $("leanField");
+  field.style.width = side + "px";
+  field.style.height = side + "px";
+}
+
+window.addEventListener("resize", resizeLeanField);
+window.addEventListener("load", () => {
+  resizeLeanField();
+  markSettingsDirtyHandlers();
+});
+
+function softAxisPosition(valueDeg, criticalDeg, radiusPx){
+  const INNER_RATIO = 0.78;
+  const OUTER_RATIO = 0.90;
+  const HEADROOM = 2.85;
+  const absV = Math.abs(valueDeg);
+  const sign = valueDeg >= 0 ? 1 : -1;
+
+  const innerSpan = Math.max(criticalDeg, 0.01);
+  const outerSpan = Math.max(criticalDeg * HEADROOM, innerSpan + 0.01);
+
+  let magRatio;
+  if (absV <= innerSpan) {
+    magRatio = (absV / innerSpan) * INNER_RATIO;
+  } else {
+    const t = Math.min((absV - innerSpan) / (outerSpan - innerSpan), 1.0);
+    const eased = 1.0 - Math.exp(-3.2 * t);
+    const easedNorm = eased / (1.0 - Math.exp(-3.2));
+    magRatio = INNER_RATIO + (OUTER_RATIO - INNER_RATIO) * easedNorm;
+  }
+
+  return sign * magRatio * radiusPx;
+}
+
+function animateLeanDot(){
+  if (leanDotInitialized) {
+    const dot = $("leanDot");
+    const SMOOTH = 0.35;
+    leanDotCurrentX += (leanDotTargetX - leanDotCurrentX) * SMOOTH;
+    leanDotCurrentY += (leanDotTargetY - leanDotCurrentY) * SMOOTH;
+    dot.style.left = leanDotCurrentX + "px";
+    dot.style.top = leanDotCurrentY + "px";
+  }
+  requestAnimationFrame(animateLeanDot);
+}
+requestAnimationFrame(animateLeanDot);
+
+function fmtCm(v){ return v < 0 ? "Invalid" : v.toFixed(1) + " cm"; }
+function fmtSpeed(v){ return (v >= 0 ? "+" : "") + v.toFixed(1) + " cm/s"; }
+function statusText(o){
+  if (!o.online) return "Offline";
+  if (o.stale) return "Stale";
+  return "Online";
+}
+
+function setUnitStatus(el, obj){
+  const text = statusText(obj);
+  el.innerText = text;
+  el.classList.remove("okText", "warnText", "badText");
+  if (!obj.online) el.classList.add("badText");
+  else if (obj.stale) el.classList.add("warnText");
+  else el.classList.add("okText");
+}
+
+function safeSend(msg){
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return false;
+  }
+
+  ws.send(msg);
+  setCmdStatus("Command sent: " + msg);
+  return true;
+}
+
+function sendObj(obj){
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return false;
+  }
+
+  ws.send(JSON.stringify(obj));
+  settingsDirty = false;
+  setCmdStatus("Settings command sent.");
+  return true;
+}
+
+function getSetupObj(cmd){
+  return {
+    cmd: cmd,
+    vehicleType: parseInt($("cfgVehicleType").value),
+    loadCondition: parseInt($("cfgLoadCondition").value),
+    trackWidth_m: parseFloat($("cfgTrackWidth").value),
+    wheelBase_m: parseFloat($("cfgWheelBase").value),
+    vehicleHeight_m: parseFloat($("cfgVehicleHeight").value),
+    frontPreset: parseInt($("cfgFrontPreset").value),
+    rearPreset: parseInt($("cfgRearPreset").value),
+    setupCompleted: true
+  };
+}
+
+function saveVehicleSettings(){
+  sendObj({
+    cmd: "saveVehicle",
+    vehicleType: parseInt($("cfgVehicleType").value),
+    loadCondition: parseInt($("cfgLoadCondition").value),
+    trackWidth_m: parseFloat($("cfgTrackWidth").value),
+    wheelBase_m: parseFloat($("cfgWheelBase").value),
+    vehicleHeight_m: parseFloat($("cfgVehicleHeight").value),
+    setupCompleted: true
+  });
+}
+
+function saveFrontPreset(){
+  sendObj({cmd:"saveFrontPreset", frontPreset:parseInt($("cfgFrontPreset").value)});
+}
+
+function saveRearPreset(){
+  sendObj({cmd:"saveRearPreset", rearPreset:parseInt($("cfgRearPreset").value)});
+}
+
+function saveAllSetup(){
+  return sendObj(getSetupObj("saveAllSetup"));
+}
+
+function calibrateCenter(){
+  wizardCalibrationRequested = true;
+  wizardCalibrationStartedAt = Date.now();
+  latestConfig.centerCalibrated = 0;
+  $("cfgCenterCalStatus").innerText = "Calibrating...";
+  $("wizardCalibrationStatus").innerText = "Calibrating... keep the vehicle still.";
+  safeSend("CAL_CENTER");
+  renderWizard();
+}
+
+function resetDefaults(){
+  if (confirm("Reset Drivora settings to defaults? Setup must be completed again afterwards.")) {
+    settingsDirty = false;
+    settingsUiInitialized = false;
+    wizardMode = true;
+    wizardStep = 0;
+    wizardCalibrationRequested = false;
+    wizardCalibrationStartedAt = 0;
+    latestConfig = Object.assign({}, DEFAULT_CFG);
+    applyConfigToForm(DEFAULT_CFG, true);
+    refreshSettingsMode(DEFAULT_CFG);
+    safeSend("RESET_DEFAULTS");
+    setCmdStatus("Reset command sent. Defaults loaded in UI.");
+  }
+}
+
+function markSettingsDirtyHandlers(){
+  ["cfgVehicleType","cfgLoadCondition","cfgTrackWidth","cfgWheelBase","cfgVehicleHeight","cfgFrontPreset","cfgRearPreset"].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener("input", () => settingsDirty = true);
+      el.addEventListener("change", () => settingsDirty = true);
+    }
+  });
+}
+
+function applyConfigToForm(cfg, force = false){
+  if (!force && settingsDirty) return;
+
+  $("cfgVehicleType").value = cfg.vehicleType;
+  $("cfgLoadCondition").value = cfg.loadCondition;
+  $("cfgTrackWidth").value = Number(cfg.trackWidth_m).toFixed(2);
+  $("cfgWheelBase").value = Number(cfg.wheelBase_m).toFixed(2);
+  $("cfgVehicleHeight").value = Number(cfg.vehicleHeight_m).toFixed(2);
+  $("cfgFrontPreset").value = cfg.frontPreset;
+  $("cfgRearPreset").value = cfg.rearPreset;
+
+  settingsUiInitialized = true;
+}
+
+function refreshNavigation(cfg){
+  const locked = wizardMode || !cfg.setupCompleted;
+
+  $("tabDashboardBtn").classList.toggle("hidden", locked);
+  $("tabSettingsBtn").innerText = locked ? "Setup" : "Settings";
+  if (locked) {
+    $("dashboardTab").classList.add("hidden");
+    $("settingsTab").classList.remove("hidden");
+    $("tabDashboardBtn").classList.remove("active");
+    $("tabSettingsBtn").classList.add("active");
+  }
+}
+
+function refreshSettingsMode(cfg){
+  const setupDone = !!cfg.setupCompleted;
+  const wizardActive = wizardMode || !setupDone;
+
+  refreshNavigation(cfg);
+
+  $("wizardHeader").classList.toggle("hidden", !wizardActive);
+  $("wizardControls").classList.toggle("hidden", !wizardActive);
+  $("wizardCalibrationStatus").classList.toggle("hidden", !wizardActive);
+  document.querySelectorAll(".normalOnly").forEach(el => {
+    el.classList.toggle("hidden", wizardActive);
+  });
+  document.querySelectorAll(".wizardStepSection").forEach(el => {
+    if (wizardActive) {
+      const step = parseInt(el.dataset.step);
+      el.classList.toggle("hidden", step !== wizardStep);
+    } else {
+      el.classList.toggle("hidden", el.classList.contains("wizardOnly"));
+    }
+  });
+  if (wizardActive) renderWizard();
+}
+
+function updateSettingsUI(cfg){
+  latestConfig = cfg;
+
+  if (forceFormRefresh || !settingsUiInitialized) {
+    applyConfigToForm(cfg, true);
+    forceFormRefresh = false;
+  } else {
+    applyConfigToForm(cfg, false);
+  }
+
+  $("cfgCenterCalStatus").innerText = cfg.centerCalibrated ? "Calibrated" : (wizardCalibrationRequested ? "Calibrating..." : "Not calibrated");
+  $("setupBanner").classList.toggle("hidden", !!cfg.setupCompleted);
+  refreshSettingsMode(cfg);
+}
+
+function openSetupWizard(){
+  if (latestConfig && latestConfig.setupCompleted) {
+    if (!confirm("Run the setup wizard again? The dashboard will be locked until the setup is completed.")) {
+      return;
+    }
+  }
+
+  showTab("settings");
+  wizardMode = true;
+  wizardStep = 0;
+  settingsDirty = false;
+  wizardCalibrationRequested = false;
+  wizardCalibrationStartedAt = 0;
+  if (latestConfig) {
+    latestConfig.setupCompleted = 0;
+    latestConfig.centerCalibrated = 0;
+    applyConfigToForm(latestConfig, true);
+  }
+
+  safeSend("START_WIZARD");
+  refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function wizardBack(){
+  if (wizardStep > 0) {
+    wizardStep--;
+    refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  }
+}
+
+function wizardNext(){
+  if (wizardStep < 6) {
+    wizardStep++;
+    refreshSettingsMode(latestConfig || DEFAULT_CFG);
+  }
+}
+
+function calibrationReadyForNext(){
+  if (!wizardCalibrationRequested) return false;
+  if (!latestConfig || !latestConfig.centerCalibrated) return false;
+  return (Date.now() - wizardCalibrationStartedAt) > 2000;
+}
+
+function finishWizardSetup(){
+  if (saveAllSetup()) {
+    wizardMode = false;
+    wizardCalibrationRequested = false;
+    wizardCalibrationStartedAt = 0;
+    settingsDirty = false;
+    forceFormRefresh = true;
+
+    if (latestConfig) latestConfig.setupCompleted = 1;
+
+    setCmdStatus("Setup saved. Dashboard unlocked.");
+    showTab("dashboard");
+  }
+}
+
+function renderWizard(){
+  const titles = [
+    "Welcome",
+    "Vehicle Information",
+    "Front Sensitivity",
+    "Rear Sensitivity",
+    "Center Calibration",
+    "Installation Test",
+    "Save and Finish"
+  ];
+  const bodies = [
+    "Set up Drivora for this vehicle.",
+    "Enter the vehicle dimensions used by the center unit.",
+    "Choose how early the front warning should respond.",
+    "Choose how early the rear warning should respond.",
+    "Calibrate the center unit on level ground.",
+    "Confirm that the installed units are responding.",
+    "Save the setup and unlock the dashboard."
+  ];
+
+  $("wizardProgress").innerText = "Step " + (wizardStep + 1) + " of 7";
+  $("wizardTitle").innerText = titles[wizardStep];
+  $("wizardBody").innerText = bodies[wizardStep];
+  $("wizardBackBtn").style.display = wizardStep === 0 ? "none" : "inline-block";
+  $("wizardNextBtn").style.display = wizardStep === 6 ? "none" : "inline-block";
+  $("wizardNextBtn").innerText = "Next";
+
+  if (wizardStep === 4) {
+    const ready = calibrationReadyForNext();
+    if (!wizardCalibrationRequested) {
+      $("wizardCalibrationStatus").innerText = "Press Calibrate to continue.";
+    } else if (!ready) {
+      $("wizardCalibrationStatus").innerText = "Waiting for calibration to complete...";
+    } else {
+      $("wizardCalibrationStatus").innerText = "Calibration completed. You can continue.";
+    }
+
+    $("wizardNextBtn").style.display = ready ? "inline-block" : "none";
+  }
+
+  if (wizardStep === 5) {
+    updateWizardHealth();
+  }
+}
+
+function updateWizardHealth(){
+  setUnitStatus($("wizardFrontStatus"), latestHealth.front);
+  setUnitStatus($("wizardCenterStatus"), latestHealth.lean);
+  setUnitStatus($("wizardRearStatus"), latestHealth.rear);
+  setUnitStatus($("wizardLaneStatus"), latestHealth.lane);
+
+  const requiredOk =
+    latestHealth.front.online && !latestHealth.front.stale &&
+    latestHealth.lean.online && !latestHealth.lean.stale &&
+    latestHealth.rear.online && !latestHealth.rear.stale;
+  $("wizardTestHint").innerText = requiredOk
+    ? "Core units are responding. Lane unit can be checked if installed."
+    : "Waiting for Front, Center, and Rear units to respond.";
+}
+
+ws.onmessage = (evt) => {
+  const d = JSON.parse(evt.data);
+  latestHealth.front = d.front;
+  latestHealth.lean = d.lean;
+  latestHealth.rear = d.rear;
+  latestHealth.lane = d.lane;
+
+  if (d.config) updateSettingsUI(d.config);
+  
+  // Fused main warning
+  if (d.fused) {
+    $("mainWarningBox").style.borderColor = d.fused.color;
+    $("mainWarningTitle").innerText = d.fused.title;
+    $("mainWarningTitle").style.color = d.fused.color;
+    $("mainWarningMsg").innerText = d.fused.message;
+  }
+
+  // Lean
+  const lean = d.lean;
+  $("leanBadge").innerText = statusText(lean);
+  $("leanStateBox").innerText = lean.riskName;
+  $("leanStateBox").style.backgroundColor = lean.riskLevel === 2 ? "#ff3b30" : (lean.riskLevel === 1 ? "#ffb020" : "#1db954");
+  $("leanRoll").innerText = lean.roll.toFixed(2) + "°";
+  $("leanPitch").innerText = lean.pitch.toFixed(2) + "°";
+  $("leanConf").innerText = lean.confidence.toFixed(2);
+
+  const rect = $("leanField").getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  const r = Math.min(rect.width, rect.height) / 2 - 12;
+  const px = cx + softAxisPosition(lean.roll, lean.criticalRollDeg, r);
+  const py = cy + softAxisPosition(lean.pitch, lean.criticalPitchDeg, r);
+
+  leanDotTargetX = px;
+  leanDotTargetY = py;
+
+  if (!leanDotInitialized) {
+    leanDotCurrentX = px;
+    leanDotCurrentY = py;
+    leanDotInitialized = true;
+  }
+
+  // Front
+  const front = d.front;
+  $("frontBadge").innerText = statusText(front);
+  $("frontStateBox").innerText = front.stateName;
+  $("frontStateBox").style.backgroundColor = front.stateColor;
+  $("frontDist").innerText = fmtCm(front.filteredDistanceCm);
+  $("frontSpeed").innerText = fmtSpeed(front.closingSpeedCmS);
+
+  // Rear
+  const rear = d.rear;
+  $("rearBadge").innerText = statusText(rear);
+  $("rearStateBox").innerText = rear.overallStateName;
+  $("rearStateBox").style.backgroundColor = rear.overallStateColor;
+
+  $("rearLeftStateBox").innerText = rear.leftStateName;
+  $("rearLeftStateBox").style.backgroundColor = rear.leftStateColor;
+  $("rearLeftDist").innerText = fmtCm(rear.leftFilteredDistanceCm);
+
+  $("rearCenterStateBox").innerText = rear.centerStateName;
+  $("rearCenterStateBox").style.backgroundColor = rear.centerStateColor;
+  $("rearCenterDist").innerText = fmtCm(rear.centerFilteredDistanceCm);
+
+  $("rearRightStateBox").innerText = rear.rightStateName;
+  $("rearRightStateBox").style.backgroundColor = rear.rightStateColor;
+  $("rearRightDist").innerText = fmtCm(rear.rightFilteredDistanceCm);
+
+  // Lane
+  const lane = d.lane;
+  $("laneBadge").innerText = statusText(lane);
+  $("laneStateBox").innerText = lane.stateName;
+  $("laneStateBox").style.backgroundColor = lane.stateColor;
+
+  $("laneLeftMark").classList.remove("laneAlert");
+  $("laneRightMark").classList.remove("laneAlert");
+
+  if (lane.state === 1) $("laneLeftMark").classList.add("laneAlert");
+  else if (lane.state === 2) $("laneRightMark").classList.add("laneAlert");
+
+  if (wizardStep === 5) updateWizardHealth();
+
+  // Beeps
+  const now = Date.now();
+  if (audioEnabled) {
+    if (front.state === 2 && now - lastFrontBeepMs > 700) {
+      playBeep(850, 70, 0.07);
+      lastFrontBeepMs = now;
+    } else if (front.state === 3 && now - lastFrontBeepMs > 250) {
+      playBeep(1250, 90, 0.09);
+      lastFrontBeepMs = now;
+    }
+
+    if (rear.overallState === 1 && now - lastRearBeepMs > 900) {
+      playBeep(820, 70, 0.06);
+      lastRearBeepMs = now;
+    } else if (rear.overallState === 2 && now - lastRearBeepMs > 450) {
+      playBeep(980, 80, 0.07);
+      lastRearBeepMs = now;
+    } else if (rear.overallState === 3 && now - lastRearBeepMs > 180) {
+      playBeep(1250, 90, 0.09);
+      lastRearBeepMs = now;
+    }
+
+    if ((lane.state === 1 || lane.state === 2) && now - lastLaneBeepMs > 220) {
+      playBeep(1100, 80, 0.08);
+      lastLaneBeepMs = now;
+    }
+  }
+};
+</script>
+</body>
+</html>
