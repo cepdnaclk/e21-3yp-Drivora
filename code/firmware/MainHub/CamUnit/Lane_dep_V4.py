@@ -49,6 +49,13 @@ FRAME_W, FRAME_H = 640, 480
 Y_NEAR = FRAME_H - 10           # 470 px (Bottom of screen)
 Y_FAR  = int(FRAME_H * 0.65)    # 312 px (Shortened lookahead distance)
 
+def map_distance_to_y(distance_cm):
+    """Maps ultrasonic distance to a Y-pixel coordinate on the asphalt."""
+    if distance_cm < 0: return None
+    mapped_y = np.interp(distance_cm, [20, 250], [Y_NEAR, Y_FAR])
+    return int(np.clip(mapped_y, Y_FAR, Y_NEAR))
+
+
 # ── 2. Short-Range Spatiotemporal Tracker ──────────────────────────────────────
 class ShortRangeLaneTracker:
     MAX_PIXEL_JUMP   = 25    
@@ -169,6 +176,32 @@ def process_frame(frame):
     hls    = cv2.cvtColor(bgr, cv2.COLOR_BGR2HLS)
     l_ch   = hls[:, :, 1]
     sobelx = np.absolute(cv2.Sobel(l_ch, cv2.CV_64F, 1, 0, ksize=3))
+
+    # ── BARE-METAL OBJECT VALIDATION ──
+    is_valid_object = False
+    
+    if 20.0 < current_front_dist_cm < 200.0:
+        target_y = map_distance_to_y(current_front_dist_cm)
+        if target_y is not None:
+            roi_w, roi_h = 80, 40
+            roi_left = max(0, car_cx - (roi_w // 2))
+            roi_right = min(width, car_cx + (roi_w // 2))
+            roi_bottom = target_y
+            roi_top = max(0, target_y - roi_h)
+            
+            validation_slice = sobelx[roi_top:roi_bottom, roi_left:roi_right]
+            edge_density = np.mean(validation_slice)
+            
+            if edge_density > 30.0: # Threshold for physical vertical edges
+                is_valid_object = True
+                
+            # Diagnostic Visuals on the top screen
+            box_color = (0, 0, 255) if is_valid_object else (0, 255, 255)
+            cv2.rectangle(bgr, (roi_left, roi_top), (roi_right, roi_bottom), box_color, 2)
+            cv2.putText(bgr, f"Dist: {current_front_dist_cm:.1f}cm", (roi_left, roi_top - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, box_color, 1, cv2.LINE_AA)
+            cv2.putText(bgr, f"Dens: {edge_density:.1f}", (roi_left, roi_top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, box_color, 1, cv2.LINE_AA)
+    # ──────────────────────────────────
+
     peak   = sobelx.max()
     
     scaled = np.uint8(255.0 * sobelx / peak) if peak > 0 else np.zeros_like(l_ch)
@@ -209,12 +242,22 @@ def process_frame(frame):
         else:
             tracker.right_breach = max(0, tracker.right_breach - 1)
 
+    lane_state_int = 0
     if tracker.left_breach >= tracker.BREACH_THRESHOLD:
+        lane_state_int = 1
         status_text  = "WARN: LEFT DEPARTURE"
         status_color = (0, 140, 255)
     elif tracker.right_breach >= tracker.BREACH_THRESHOLD:
+        lane_state_int = 2
         status_text  = "CRIT: RIGHT DEPARTURE"
         status_color = (0, 0, 255)
+
+    # ── FIRE TELEMETRY TO C++ BRAIN ──
+    try:
+        payload = json.dumps({"state": lane_state_int, "objectValid": is_valid_object})
+        sock_send.sendto(payload.encode('utf-8'), (UDP_IP, UDP_PORT_SEND))
+    except Exception:
+        pass    
 
     cv2.line(bgr, (car_cx - CRITICAL_DISTANCE, height),
                   (car_cx - CRITICAL_DISTANCE, height - 30), (200, 200, 200), 1)
