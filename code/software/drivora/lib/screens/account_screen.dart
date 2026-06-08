@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -13,18 +12,30 @@ class AccountScreen extends StatefulWidget {
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen>
-    with WidgetsBindingObserver {
+class _AccountScreenState extends State<AccountScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Ensure provider refresh when screen first appears
+    print('🔵 AccountScreen.initState: Scheduling provider refresh...');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        print('🔵 AccountScreen: Calling initializeUser() from post-frame callback');
+        userProvider.initializeUser();
+      }
+    });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
-      Provider.of<UserProvider>(context, listen: false).initializeUser();
+    if (state == AppLifecycleState.resumed) {
+      // Refresh user data when screen comes to focus
+      if (mounted) {
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        userProvider.initializeUser();
+      }
     }
   }
 
@@ -35,8 +46,7 @@ class _AccountScreenState extends State<AccountScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         title: Text(
@@ -54,8 +64,9 @@ class _AccountScreenState extends State<AccountScreen>
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh Profile',
             onPressed: () {
-              Provider.of<UserProvider>(context, listen: false)
-                  .initializeUser();
+              final userProvider =
+                  Provider.of<UserProvider>(context, listen: false);
+              userProvider.initializeUser();
             },
           ),
         ],
@@ -130,25 +141,24 @@ class _AccountScreenState extends State<AccountScreen>
           }
 
           final cloudData = userProvider.cloudData ?? {};
+          final calib = cloudData['calibration'] as Map<String, dynamic>? ?? {};
           final onboarding =
-              (cloudData['onboarding'] as Map<String, dynamic>?) ?? {};
+              cloudData['onboarding'] as Map<String, dynamic>? ?? {};
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Profile Header
                 Center(
                   child: Column(
                     children: [
                       const CircleAvatar(
                         radius: 50,
                         backgroundColor: AppTheme.accentBlue,
-                        child: Icon(
-                          Icons.person,
-                          size: 60,
-                          color: Colors.white,
-                        ),
+                        child: Icon(Icons.person,
+                            size: 60, color: Colors.white),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -173,6 +183,8 @@ class _AccountScreenState extends State<AccountScreen>
                   ),
                 ),
                 const SizedBox(height: 32),
+
+                // Driver Information Section
                 _buildSectionTitle('DRIVER INFORMATION'),
                 const SizedBox(height: 12),
                 _buildInfoCard(
@@ -191,6 +203,8 @@ class _AccountScreenState extends State<AccountScreen>
                   Icons.school_outlined,
                 ),
                 const SizedBox(height: 24),
+
+                // Vehicle Information Section
                 _buildSectionTitle('VEHICLE CONFIGURATION'),
                 const SizedBox(height: 12),
                 _buildInfoCard(
@@ -222,6 +236,8 @@ class _AccountScreenState extends State<AccountScreen>
                   ],
                 ),
                 const SizedBox(height: 24),
+
+                // System Settings Section
                 _buildSectionTitle('SYSTEM SETTINGS'),
                 const SizedBox(height: 12),
                 Row(
@@ -242,6 +258,8 @@ class _AccountScreenState extends State<AccountScreen>
                   ],
                 ),
                 const SizedBox(height: 24),
+
+                // Cloud Sync Status
                 _buildSectionTitle('SYNC STATUS'),
                 const SizedBox(height: 12),
                 Container(
@@ -250,16 +268,12 @@ class _AccountScreenState extends State<AccountScreen>
                     color: AppTheme.accentGreen.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: AppTheme.accentGreen.withOpacity(0.3),
-                    ),
+                        color: AppTheme.accentGreen.withOpacity(0.3)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.cloud_done,
-                        color: AppTheme.accentGreen,
-                        size: 24,
-                      ),
+                      const Icon(Icons.cloud_done,
+                          color: AppTheme.accentGreen, size: 24),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -275,9 +289,9 @@ class _AccountScreenState extends State<AccountScreen>
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
+                            const Text(
                               'Profile saved to Local & Firebase Cloud',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10,
                                 color: AppTheme.textSecondary,
                               ),
@@ -295,19 +309,19 @@ class _AccountScreenState extends State<AccountScreen>
         },
       ),
     );
-  }
 
   Widget _buildSectionTitle(String title) => Text(
-        title,
-        style: GoogleFonts.rajdhani(
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1.5,
-          fontSize: 11,
-          color: AppTheme.textSecondary,
-        ),
-      );
+      title,
+      style: GoogleFonts.rajdhani(
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.5,
+        fontSize: 11,
+        color: AppTheme.textSecondary,
+      ),
+    );
 
-  Widget _buildInfoCard(String label, String value, IconData icon) => Container(
+  Widget _buildInfoCard(String label, String value, IconData icon) =>
+      Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -351,66 +365,66 @@ class _AccountScreenState extends State<AccountScreen>
       );
 
   Widget _buildMetricTile(String label, String value) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppTheme.accentBlue.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.accentBlue.withOpacity(0.2)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'Orbitron',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.accentBlue,
-              ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.accentBlue.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.accentBlue.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontFamily: 'Orbitron',
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.accentBlue,
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textSecondary,
-                letterSpacing: 0.5,
-              ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textSecondary,
+              letterSpacing: 0.5,
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
 
   Widget _buildSettingTile(String label, String value) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppTheme.accentAmber.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.accentAmber.withOpacity(0.2)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'Orbitron',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.accentAmber,
-              ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.accentAmber.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.accentAmber.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontFamily: 'Orbitron',
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.accentAmber,
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textSecondary,
-                letterSpacing: 0.5,
-              ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textSecondary,
+              letterSpacing: 0.5,
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
 }
