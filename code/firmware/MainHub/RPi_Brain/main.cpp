@@ -159,6 +159,100 @@ void canListenerThread() {
     }
 }
 
+// ================= HYSTERESIS TIMERS =================
+unsigned long frontCriticalStartMs = 0;
+unsigned long rearCriticalStartMs = 0;
+unsigned long leanCriticalStartMs = 0;
+unsigned long laneCriticalStartMs = 0;
+unsigned long multiHazardStartMs = 0;
+
+bool frontCriticalLogged = false;
+bool rearCriticalLogged = false;
+bool leanCriticalLogged = false;
+bool laneCriticalLogged = false;
+bool multiHazardLogged = false;
+
+unsigned long lastFrontIncidentMs = 0;
+unsigned long lastRearIncidentMs = 0;
+unsigned long lastLeanIncidentMs = 0;
+unsigned long lastLaneIncidentMs = 0;
+unsigned long lastMultiIncidentMs = 0;
+
+const unsigned long FRONT_CRITICAL_CONFIRM_MS = 700;
+const unsigned long REAR_CRITICAL_CONFIRM_MS  = 700;
+const unsigned long LEAN_CRITICAL_CONFIRM_MS  = 500;
+const unsigned long LANE_CRITICAL_CONFIRM_MS  = 500;
+const unsigned long MULTI_HAZARD_CONFIRM_MS   = 500;
+const unsigned long INCIDENT_COOLDOWN_MS      = 5000;
+
+// Helper: Get nearest rear distance
+float nearestRearDistanceForIncident() {
+    float best = -1.0f;
+    if (rearData.leftFilteredDistanceCm >= 0.0f) best = rearData.leftFilteredDistanceCm;
+    if (rearData.centerFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.centerFilteredDistanceCm < best)) best = rearData.centerFilteredDistanceCm;
+    if (rearData.rightFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.rightFilteredDistanceCm < best)) best = rearData.rightFilteredDistanceCm;
+    return best;
+}
+
+void storeIncident(std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message, unsigned long nowMs) {
+    int slot = findIncidentSlot();
+    incidentBuffer[slot].used = true;
+    incidentBuffer[slot].pendingAck = true;
+    incidentBuffer[slot].id = nextIncidentId++;
+    incidentBuffer[slot].timestampMs = nowMs;
+    incidentBuffer[slot].severity = severity;
+    incidentBuffer[slot].eventType = eventType;
+    incidentBuffer[slot].sourceUnit = sourceUnit;
+    incidentBuffer[slot].title = title;
+    incidentBuffer[slot].message = message;
+    incidentBuffer[slot].frontDistanceCm = frontData.filteredDistanceCm;
+    incidentBuffer[slot].frontSpeedCmS = frontData.closingSpeedCmS;
+    incidentBuffer[slot].rearNearestDistanceCm = nearestRearDistanceForIncident();
+    incidentBuffer[slot].leanRollDeg = leanData.rollDeg;
+    incidentBuffer[slot].leanPitchDeg = leanData.pitchDeg;
+    incidentBuffer[slot].laneState = laneData.state;
+    
+    std::cout << "INCIDENT STORED | id=" << incidentBuffer[slot].id << " type=" << eventType << "\n";
+}
+
+void updateIncidentLatch(bool active, unsigned long confirmMs, unsigned long& startMs, bool& logged, unsigned long& lastIncidentMs, unsigned long nowMs, std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message) {
+    if (active) {
+        if (startMs == 0) startMs = nowMs;
+        if (!logged && (nowMs - startMs >= confirmMs) && (nowMs - lastIncidentMs >= INCIDENT_COOLDOWN_MS)) {
+            storeIncident(eventType, severity, sourceUnit, title, message, nowMs);
+            logged = true;
+            lastIncidentMs = nowMs;
+        }
+    } else {
+        startMs = 0;
+        logged = false;
+    }
+}
+
+void updateCriticalIncidentDetection(unsigned long nowMs) {
+    // (Assume isOffline functions are defined above this)
+    bool frontCritical = frontData.online && frontData.state == 3;
+    bool rearCritical  = rearData.online && rearData.overallState == 3;
+    bool leanCritical  = leanData.online && leanData.riskLevel == 2;
+    bool laneCritical  = laneData.online && laneData.state != 0;
+
+    updateIncidentLatch(frontCritical, FRONT_CRITICAL_CONFIRM_MS, frontCriticalStartMs, frontCriticalLogged, lastFrontIncidentMs, nowMs, "FRONT_CRITICAL", 3, "front", "Front Collision Risk", "A critical front collision warning was detected.");
+    updateIncidentLatch(rearCritical, REAR_CRITICAL_CONFIRM_MS, rearCriticalStartMs, rearCriticalLogged, lastRearIncidentMs, nowMs, "REAR_CRITICAL", 3, "rear", "Rear Blindspot Risk", "A critical rear blindspot warning was detected.");
+    updateIncidentLatch(leanCritical, LEAN_CRITICAL_CONFIRM_MS, leanCriticalStartMs, leanCriticalLogged, lastLeanIncidentMs, nowMs, "LEAN_CRITICAL", 3, "center", "High Lean Risk", "A critical vehicle lean condition was detected.");
+    
+    std::string laneStr = (laneData.state == 1) ? "LANE_LEFT_CRITICAL" : "LANE_RIGHT_CRITICAL";
+    std::string laneTitle = (laneData.state == 1) ? "Left Lane Departure" : "Right Lane Departure";
+    updateIncidentLatch(laneCritical, LANE_CRITICAL_CONFIRM_MS, laneCriticalStartMs, laneCriticalLogged, lastLaneIncidentMs, nowMs, laneStr, 2, "lane", laneTitle, "A lane departure warning was detected.");
+
+    uint8_t seriousCount = 0;
+    if (frontCritical) seriousCount++;
+    if (rearCritical) seriousCount++;
+    if (leanCritical) seriousCount++;
+    if (laneCritical) seriousCount++;
+
+    updateIncidentLatch(seriousCount >= 2, MULTI_HAZARD_CONFIRM_MS, multiHazardStartMs, multiHazardLogged, lastMultiIncidentMs, nowMs, "MULTI_HAZARD", 3, "multiple", "Multiple Safety Warnings", "Multiple critical safety warnings were active at the same time.");
+}
+
 // 3. The 50ms Broadcaster Loop
 void broadcastThread() {
     while (true) {
