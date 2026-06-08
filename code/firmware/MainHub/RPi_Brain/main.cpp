@@ -33,8 +33,63 @@ struct LaneData {
 };
 LaneData laneData;
 
-// (For brevity, assume LeanData, FrontData, RearData, and BrainConfig 
-// are pasted here exactly as they were in your ESP32 code).
+// ================= INCIDENT / STATISTICS =================
+const uint8_t INCIDENT_BUFFER_SIZE = 10;
+const unsigned long INCIDENT_RESEND_MS = 700;
+
+struct IncidentRecord {
+    bool used = false;
+    bool pendingAck = false;
+    uint32_t id = 0;
+    unsigned long timestampMs = 0;
+    uint8_t severity = 0;       
+    std::string eventType = "";
+    std::string sourceUnit = "";
+    std::string title = "";
+    std::string message = "";
+    float frontDistanceCm = -1.0f;
+    float frontSpeedCmS = 0.0f;
+    float rearNearestDistanceCm = -1.0f;
+    float leanRollDeg = 0.0f;
+    float leanPitchDeg = 0.0f;
+    uint8_t laneState = 0;
+};
+
+IncidentRecord incidentBuffer[INCIDENT_BUFFER_SIZE];
+uint32_t nextIncidentId = 1;
+uint32_t lostIncidentCount = 0;
+unsigned long lastIncidentResendMs = 0;
+
+// Helper: Find oldest or empty slot
+int findIncidentSlot() {
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+        if (!incidentBuffer[i].used) return i;
+    }
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+        if (!incidentBuffer[i].pendingAck) return i;
+    }
+    int oldest = 0;
+    for (int i = 1; i < INCIDENT_BUFFER_SIZE; i++) {
+        if (incidentBuffer[i].timestampMs < incidentBuffer[oldest].timestampMs) {
+            oldest = i;
+        }
+    }
+    lostIncidentCount++;
+    return oldest;
+}
+
+// Helper: Acknowledge from UI
+void acknowledgeIncident(uint32_t id) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+        if (incidentBuffer[i].used && incidentBuffer[i].id == id) {
+            incidentBuffer[i].used = false;
+            incidentBuffer[i].pendingAck = false;
+            std::cout << "INCIDENT ACK | id=" << id << "\n";
+            return;
+        }
+    }
+}
 
 // Timing helpers
 unsigned long getMillis() {
