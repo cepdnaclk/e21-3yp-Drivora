@@ -1,3 +1,4 @@
+#include <pigpio.h>
 #include "crow.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -112,6 +113,56 @@ unsigned long getMillis()
 }
 
 // ================= HARDWARE THREADS =================
+
+// ================= BUZZER (pigpio) =================
+const int BUZZER_PIN = 18; // Use BCM 18 (Pin 12) - Hardware PWM capable
+bool buzzerEnabled = true;
+bool setupWizardBuzzerMuted = false;
+int currentBuzzerFreq = -1;
+int currentBuzzerDuty = -1;
+
+void buzzerBegin() {
+    if (gpioInitialise() < 0) {
+        std::cerr << "CRITICAL: pigpio initialization failed. Run with sudo.\n";
+        return;
+    }
+    gpioSetMode(BUZZER_PIN, PI_OUTPUT);
+    gpioPWM(BUZZER_PIN, 0);
+    currentBuzzerFreq = 0;
+    currentBuzzerDuty = 0;
+    std::cout << "Buzzer initialized on BCM 18\n";
+}
+
+void buzzerOff() {
+    if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0) {
+        gpioPWM(BUZZER_PIN, 0);
+        currentBuzzerFreq = 0;
+        currentBuzzerDuty = 0;
+    }
+}
+
+// Convert 0-100% volume into a 0-128 duty cycle (128 = 50% square wave = max piezo volume)
+uint32_t buzzerDutyFromVolume(uint8_t volumePercent) {
+    if (volumePercent < 30) volumePercent = 30;
+    if (volumePercent > 100) volumePercent = 100;
+    return (volumePercent / 100.0f) * 128; 
+}
+
+void buzzerTone(int freq, uint8_t volumePercent) {
+    if (!buzzerEnabled || setupWizardBuzzerMuted || freq <= 0) {
+        buzzerOff();
+        return;
+    }
+
+    uint32_t duty = buzzerDutyFromVolume(volumePercent);
+
+    if (currentBuzzerFreq != freq || currentBuzzerDuty != duty) {
+        gpioSetPWMfrequency(BUZZER_PIN, freq);
+        gpioPWM(BUZZER_PIN, duty);
+        currentBuzzerFreq = freq;
+        currentBuzzerDuty = duty;
+    }
+}
 
 // 1. UDP Listener (Replaces receiveLaneUART)
 void udpListenerThread()
