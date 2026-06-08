@@ -8,6 +8,7 @@
 #include <mutex>
 #include <chrono>
 #include <unordered_set>
+#include <cmath>
 
 // Linux networking and SocketCAN headers
 #include <sys/socket.h>
@@ -26,21 +27,130 @@ using json = nlohmann::json;
 std::mutex stateMutex;
 std::unordered_set<crow::websocket::connection *> users;
 
-// Structs remain identical to your ESP32 architecture
-struct LaneData
-{
+// ================= TIMING CONSTANTS =================
+const unsigned long UI_BROADCAST_MS     = 50;
+const unsigned long CONFIG_BROADCAST_MS = 1000;
+const unsigned long STALE_MS            = 300;
+const unsigned long OFFLINE_MS          = 1000;
+
+unsigned long lastBroadcastMs = 0;
+unsigned long lastConfigBroadcastMs = 0;
+bool forceConfigBroadcast = true;
+bool centerCalibrationRequested = false;
+
+// ================= CONFIG & DATA STRUCTS =================
+const uint8_t BUZZER_PATTERN_URGENT_TRIPLE = 0;
+const uint8_t BUZZER_PATTERN_WIDE_DOUBLE   = 1;
+const uint8_t BUZZER_PATTERN_QUICK_DOUBLE  = 2;
+const uint8_t BUZZER_PATTERN_TWO_TONE      = 3;
+
+struct BrainConfig {
+    bool setupCompleted = false;
+    std::string profileName = "My Vehicle";
+    uint8_t vehicleType = 3;
+    float trackWidth_m = 1.56f;
+    float wheelBase_m = 2.67f;
+    float vehicleHeight_m = 1.57f;
+    uint8_t loadCondition = 1;
+    uint8_t frontSensitivityPreset = 1;
+    uint8_t rearSensitivityPreset  = 1;
+    bool centerCalibrated = false;
+
+    uint8_t frontBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
+    uint8_t rearBuzzerPattern  = BUZZER_PATTERN_WIDE_DOUBLE;
+    uint8_t laneBuzzerPattern  = BUZZER_PATTERN_QUICK_DOUBLE;
+    uint8_t leanBuzzerPattern  = BUZZER_PATTERN_TWO_TONE;
+
+    uint8_t frontBuzzerVolume = 100;
+    uint8_t rearBuzzerVolume  = 100;
+    uint8_t laneBuzzerVolume  = 100;
+    uint8_t leanBuzzerVolume  = 100;
+};
+BrainConfig brainConfig;
+
+struct LaneData {
     bool online = false;
     uint8_t state = 0;
     unsigned long lastUpdateMs = 0;
 };
 LaneData laneData;
 
+struct LeanData {
+    bool online = false;
+    bool calibrated = false;
+    uint8_t riskLevel = 0;
+    float rollDeg = 0.0f;
+    float pitchDeg = 0.0f;
+    float confidence = 1.0f;
+    float criticalRollDeg = 30.0f;
+    float criticalPitchDeg = 20.0f;
+    unsigned long lastUpdateMs = 0;
+    uint8_t vehicleType = 0;
+    uint8_t loadCondition = 0;
+};
+LeanData leanData;
+
+struct FrontData {
+    bool online = false;
+    uint8_t state = 0;
+    float filteredDistanceCm = -1.0f;
+    float rawDistanceCm = -1.0f;
+    float closingSpeedCmS = 0.0f;
+    unsigned long lastUpdateMs = 0;
+    uint8_t debugFlags = 0;
+    uint8_t approachCounter = 0;
+    uint8_t warningCounter = 0;
+    uint8_t blindReleaseCounter = 0;
+    uint8_t invalidStreak = 0;
+};
+FrontData frontData;
+
+struct RearData {
+    bool online = false;
+    uint8_t leftState = 0;
+    uint8_t centerState = 0;
+    uint8_t rightState = 0;
+    uint8_t overallState = 0;
+    float leftFilteredDistanceCm = -1.0f;
+    float centerFilteredDistanceCm = -1.0f;
+    float rightFilteredDistanceCm = -1.0f;
+    uint8_t nearestSensor = 0;
+    uint8_t leftWarningReleaseCounter = 0;
+    uint8_t centerWarningReleaseCounter = 0;
+    uint8_t rightWarningReleaseCounter = 0;
+    uint8_t leftFastWarningReleaseCounter = 0;
+    uint8_t centerFastWarningReleaseCounter = 0;
+    uint8_t rightFastWarningReleaseCounter = 0;
+    uint8_t maxInvalidStreak = 0;
+    unsigned long lastUpdateMs = 0;
+};
+RearData rearData;
+
+// ================= BUZZER STATE =================
+const int BUZZER_PIN = 18; 
+bool buzzerEnabled = true;
+bool setupWizardBuzzerMuted = false;
+int currentBuzzerFreq = -1;
+int currentBuzzerDuty = -1;
+
+std::string activeBuzzerType = "NONE";
+uint8_t activeBuzzerSeverity = 0;
+unsigned long buzzerPatternStartMs = 0;
+unsigned long buzzerSwitchMuteUntilMs = 0;
+unsigned long buzzerClearCandidateMs = 0;
+
+const unsigned long BUZZER_MIN_TYPE_HOLD_MS = 650;
+const unsigned long BUZZER_SWITCH_GAP_MS = 35;
+const unsigned long BUZZER_CLEAR_GRACE_MS = 260;
+
+std::string currentFusedType = "NONE";
+uint8_t currentFusedSeverity = 0;
+
 // ================= INCIDENT / STATISTICS =================
 const uint8_t INCIDENT_BUFFER_SIZE = 10;
 const unsigned long INCIDENT_RESEND_MS = 700;
 
-struct IncidentRecord
-{
+struct IncidentRecord {
     bool used = false;
     bool pendingAck = false;
     uint32_t id = 0;
@@ -63,203 +173,6 @@ uint32_t nextIncidentId = 1;
 uint32_t lostIncidentCount = 0;
 unsigned long lastIncidentResendMs = 0;
 
-// Helper: Find oldest or empty slot
-int findIncidentSlot()
-{
-    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++)
-    {
-        if (!incidentBuffer[i].used)
-            return i;
-    }
-    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++)
-    {
-        if (!incidentBuffer[i].pendingAck)
-            return i;
-    }
-    int oldest = 0;
-    for (int i = 1; i < INCIDENT_BUFFER_SIZE; i++)
-    {
-        if (incidentBuffer[i].timestampMs < incidentBuffer[oldest].timestampMs)
-        {
-            oldest = i;
-        }
-    }
-    lostIncidentCount++;
-    return oldest;
-}
-
-// Helper: Acknowledge from UI
-void acknowledgeIncident(uint32_t id)
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++)
-    {
-        if (incidentBuffer[i].used && incidentBuffer[i].id == id)
-        {
-            incidentBuffer[i].used = false;
-            incidentBuffer[i].pendingAck = false;
-            std::cout << "INCIDENT ACK | id=" << id << "\n";
-            return;
-        }
-    }
-}
-
-// Timing helpers
-unsigned long getMillis()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
-// ================= HARDWARE THREADS =================
-
-// ================= BUZZER (pigpio) =================
-const int BUZZER_PIN = 18; // Use BCM 18 (Pin 12) - Hardware PWM capable
-bool buzzerEnabled = true;
-bool setupWizardBuzzerMuted = false;
-int currentBuzzerFreq = -1;
-int currentBuzzerDuty = -1;
-
-void buzzerBegin()
-{
-    if (gpioInitialise() < 0)
-    {
-        std::cerr << "CRITICAL: pigpio initialization failed. Run with sudo.\n";
-        return;
-    }
-    gpioSetMode(BUZZER_PIN, PI_OUTPUT);
-    gpioPWM(BUZZER_PIN, 0);
-    currentBuzzerFreq = 0;
-    currentBuzzerDuty = 0;
-    std::cout << "Buzzer initialized on BCM 18\n";
-}
-
-void buzzerOff()
-{
-    if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0)
-    {
-        gpioPWM(BUZZER_PIN, 0);
-        currentBuzzerFreq = 0;
-        currentBuzzerDuty = 0;
-    }
-}
-
-// Convert 0-100% volume into a 0-128 duty cycle (128 = 50% square wave = max piezo volume)
-uint32_t buzzerDutyFromVolume(uint8_t volumePercent)
-{
-    if (volumePercent < 30)
-        volumePercent = 30;
-    if (volumePercent > 100)
-        volumePercent = 100;
-    return (volumePercent / 100.0f) * 128;
-}
-
-void buzzerTone(int freq, uint8_t volumePercent)
-{
-    if (!buzzerEnabled || setupWizardBuzzerMuted || freq <= 0)
-    {
-        buzzerOff();
-        return;
-    }
-
-    uint32_t duty = buzzerDutyFromVolume(volumePercent);
-
-    if (currentBuzzerFreq != freq || currentBuzzerDuty != duty)
-    {
-        gpioSetPWMfrequency(BUZZER_PIN, freq);
-        gpioPWM(BUZZER_PIN, duty);
-        currentBuzzerFreq = freq;
-        currentBuzzerDuty = duty;
-    }
-}
-
-// 1. UDP Listener (Replaces receiveLaneUART)
-void udpListenerThread()
-{
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    sockaddr_in servaddr{};
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(5005);
-
-    bind(sockfd, (const sockaddr *)&servaddr, sizeof(servaddr));
-
-    char buffer[1024];
-    while (true)
-    {
-        int n = recvfrom(sockfd, buffer, 1024, 0, nullptr, nullptr);
-        if (n > 0)
-        {
-            buffer[n] = '\0';
-            try
-            {
-                auto j = json::parse(buffer);
-                std::lock_guard<std::mutex> lock(stateMutex);
-                if (j.contains("state"))
-                {
-                    laneData.state = j["state"].get<uint8_t>();
-                    laneData.online = true;
-                    laneData.lastUpdateMs = getMillis();
-                }
-            }
-            catch (...)
-            {
-                // Ignore malformed JSON packets
-            }
-        }
-    }
-}
-
-// 2. SocketCAN Listener (Replaces TWAI loop)
-void canListenerThread()
-{
-    int s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-    ifreq ifr;
-    strcpy(ifr.ifr_name, "can0");
-    ioctl(s, SIOCGIFINDEX, &ifr);
-
-    sockaddr_can addr{};
-    addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-    bind(s, (sockaddr *)&addr, sizeof(addr));
-
-    can_frame frame;
-    while (true)
-    {
-        int nbytes = read(s, &frame, sizeof(can_frame));
-        if (nbytes > 0)
-        {
-            std::lock_guard<std::mutex> lock(stateMutex);
-            unsigned long nowMs = getMillis();
-
-            // Example conversion of your ESP32 TWAI parser:
-            // if (frame.can_id == LEAN_MAIN_ID) {
-            //     leanData.riskLevel = frame.data[0];
-            //     leanData.lastUpdateMs = nowMs;
-            // }
-            // (Implement the rest of your CAN IDs here)
-        }
-    }
-}
-
-// 4. The High-Speed Buzzer Thread (Runs every 10ms)
-void buzzerThreadLoop()
-{
-    while (true)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        std::lock_guard<std::mutex> lock(stateMutex);
-        unsigned long nowMs = getMillis();
-
-        // (Assuming currentFusedType and currentFusedSeverity are global just like ESP32)
-        // This function holds your exact buzzer selection and pattern logic
-        updateBuzzerByFusedType(currentFusedType, currentFusedSeverity, nowMs);
-    }
-}
-
-// ================= HYSTERESIS TIMERS =================
 unsigned long frontCriticalStartMs = 0;
 unsigned long rearCriticalStartMs = 0;
 unsigned long leanCriticalStartMs = 0;
@@ -285,21 +198,214 @@ const unsigned long LANE_CRITICAL_CONFIRM_MS = 500;
 const unsigned long MULTI_HAZARD_CONFIRM_MS = 500;
 const unsigned long INCIDENT_COOLDOWN_MS = 5000;
 
-// Helper: Get nearest rear distance
-float nearestRearDistanceForIncident()
-{
+// ================= UTILITIES =================
+unsigned long getMillis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+bool isStale(unsigned long lastMs, unsigned long nowMs) { return (nowMs - lastMs) > STALE_MS; }
+bool isOffline(unsigned long lastMs, unsigned long nowMs) { return (nowMs - lastMs) > OFFLINE_MS; }
+
+float nearestRearDistanceForIncident() {
     float best = -1.0f;
-    if (rearData.leftFilteredDistanceCm >= 0.0f)
-        best = rearData.leftFilteredDistanceCm;
-    if (rearData.centerFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.centerFilteredDistanceCm < best))
-        best = rearData.centerFilteredDistanceCm;
-    if (rearData.rightFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.rightFilteredDistanceCm < best))
-        best = rearData.rightFilteredDistanceCm;
+    if (rearData.leftFilteredDistanceCm >= 0.0f) best = rearData.leftFilteredDistanceCm;
+    if (rearData.centerFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.centerFilteredDistanceCm < best)) best = rearData.centerFilteredDistanceCm;
+    if (rearData.rightFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.rightFilteredDistanceCm < best)) best = rearData.rightFilteredDistanceCm;
     return best;
 }
 
-void storeIncident(std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message, unsigned long nowMs)
-{
+// Convert numbers mapping to string UI elements
+std::string leanRiskName(uint8_t level) { return level == 2 ? "HIGH" : (level == 1 ? "CAUTION" : "SAFE"); }
+std::string frontStateName(uint8_t state) { return state == 3 ? "WARNING" : (state == 2 ? "APPROACHING" : (state == 1 ? "OBJECT_AHEAD" : "CLEAR")); }
+std::string rearStateName(uint8_t state) { return state == 3 ? "WARNING" : (state == 2 ? "CAUTION" : (state == 1 ? "OBJECT_DETECTED" : "CLEAR")); }
+std::string laneStateName(uint8_t state) { return state == 2 ? "RIGHT_DEPARTURE" : (state == 1 ? "LEFT_DEPARTURE" : "SAFE"); }
+std::string stateColorByLevel(uint8_t level) { return level == 3 ? "#ff3b30" : (level == 2 ? "#ff7230" : (level == 1 ? "#ffb020" : "#1db954")); }
+std::string laneStateColor(uint8_t state) { return state != 0 ? "#ffb020" : "#1db954"; }
+std::string vehicleTypeName(uint8_t v) { return v == 1 ? "Compact" : (v == 2 ? "Passenger" : "Tall / SUV"); }
+std::string loadConditionName(uint8_t v) { return v == 0 ? "Light" : (v == 2 ? "Heavy" : "Normal"); }
+std::string presetName(uint8_t v) { return v == 0 ? "Near" : (v == 2 ? "Far" : "Normal"); }
+
+// ================= BUZZER ENGINE (PIGPIO) =================
+void buzzerBegin() {
+    if (gpioInitialise() < 0) {
+        std::cerr << "CRITICAL: pigpio initialization failed. Run with sudo.\n";
+        return;
+    }
+    gpioSetMode(BUZZER_PIN, PI_OUTPUT);
+    gpioPWM(BUZZER_PIN, 0);
+}
+
+void buzzerOff() {
+    if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0) {
+        gpioPWM(BUZZER_PIN, 0);
+        currentBuzzerFreq = 0;
+        currentBuzzerDuty = 0;
+    }
+}
+
+uint32_t buzzerDutyFromVolume(uint8_t volumePercent) {
+    if (volumePercent < 30) volumePercent = 30;
+    if (volumePercent > 100) volumePercent = 100;
+    return (volumePercent / 100.0f) * 128; // 128 is 50% square wave (max resonance)
+}
+
+void buzzerTone(int freq, uint8_t volumePercent) {
+    if (!buzzerEnabled || setupWizardBuzzerMuted || freq <= 0) {
+        buzzerOff();
+        return;
+    }
+    uint32_t duty = buzzerDutyFromVolume(volumePercent);
+    if (currentBuzzerFreq != freq || currentBuzzerDuty != duty) {
+        gpioSetPWMfrequency(BUZZER_PIN, freq);
+        gpioPWM(BUZZER_PIN, duty);
+        currentBuzzerFreq = freq;
+        currentBuzzerDuty = duty;
+    }
+}
+
+uint8_t getBuzzerVolumeForType(const std::string& buzzerType) {
+    if (buzzerType == "FRONT_ALERT") return brainConfig.frontBuzzerVolume;
+    if (buzzerType == "REAR_ALERT") return brainConfig.rearBuzzerVolume;
+    if (buzzerType == "LANE_WARNING") return brainConfig.laneBuzzerVolume;
+    if (buzzerType == "LEAN_HIGH" || buzzerType == "LEAN_CAUTION") return brainConfig.leanBuzzerVolume;
+    return 100;
+}
+
+uint8_t getBuzzerPatternForType(const std::string& buzzerType) {
+    if (buzzerType == "FRONT_ALERT") return brainConfig.frontBuzzerPattern;
+    if (buzzerType == "REAR_ALERT") return brainConfig.rearBuzzerPattern;
+    if (buzzerType == "LANE_WARNING") return brainConfig.laneBuzzerPattern;
+    if (buzzerType == "LEAN_HIGH" || buzzerType == "LEAN_CAUTION") return brainConfig.leanBuzzerPattern;
+    return BUZZER_PATTERN_URGENT_TRIPLE;
+}
+
+void playAssignedBuzzerPattern(uint8_t pattern, uint8_t severity, unsigned long t, uint8_t volume) {
+    if (pattern == BUZZER_PATTERN_URGENT_TRIPLE) {
+        unsigned long p;
+        if (severity >= 3) {
+            p = t % 420;
+            if (p < 75 || (p >= 135 && p < 210) || (p >= 270 && p < 345)) buzzerTone(2200, volume); else buzzerOff();
+        } else if (severity == 2) {
+            p = t % 620;
+            if (p < 95 || (p >= 210 && p < 305)) buzzerTone(2200, volume); else buzzerOff();
+        } else {
+            p = t % 850;
+            if (p < 120) buzzerTone(2200, volume); else buzzerOff();
+        }
+        return;
+    }
+    if (pattern == BUZZER_PATTERN_WIDE_DOUBLE) {
+        unsigned long p;
+        if (severity >= 3) {
+            p = t % 640;
+            if (p < 130 || (p >= 280 && p < 410)) buzzerTone(2150, volume); else buzzerOff();
+        } else if (severity == 2) {
+            p = t % 780;
+            if (p < 140) buzzerTone(2150, volume); else buzzerOff();
+        } else {
+            p = t % 980;
+            if (p < 110) buzzerTone(2150, volume); else buzzerOff();
+        }
+        return;
+    }
+    if (pattern == BUZZER_PATTERN_QUICK_DOUBLE) {
+        unsigned long p = severity >= 3 ? (t % 620) : (t % 820);
+        if (p < 70 || (p >= 145 && p < 215)) buzzerTone(2250, volume); else buzzerOff();
+        return;
+    }
+    if (pattern == BUZZER_PATTERN_TWO_TONE) {
+        unsigned long p = severity >= 3 ? (t % 600) : (t % 860);
+        if (severity >= 3) {
+            if (p < 180) buzzerTone(2200, volume);
+            else if (p >= 300 && p < 480) buzzerTone(2350, volume);
+            else buzzerOff();
+        } else {
+            if (p < 130) buzzerTone(2300, volume); else buzzerOff();
+        }
+        return;
+    }
+    buzzerOff();
+}
+
+std::string normalizeBuzzerType(const std::string& fusedType, uint8_t fusedSeverity) {
+    if (fusedSeverity == 0 || fusedType == "NONE") return "NONE";
+    if (fusedType == "FRONT_WARNING" || fusedType == "FRONT_APPROACHING" || fusedType == "FRONT_OBJECT") return "FRONT_ALERT";
+    if (fusedType == "REAR_WARNING" || fusedType == "REAR_CAUTION" || fusedType == "REAR_OBJECT") return "REAR_ALERT";
+    if (fusedType == "LANE_LEFT" || fusedType == "LANE_RIGHT") return "LANE_WARNING";
+    if (fusedType == "LEAN_HIGH") return "LEAN_HIGH";
+    if (fusedType == "LEAN_CAUTION") return "LEAN_CAUTION";
+    return fusedSeverity >= 3 ? "GENERAL_WARNING" : "GENERAL_CAUTION";
+}
+
+void updateBuzzerByFusedType(const std::string& fusedType, uint8_t fusedSeverity, unsigned long nowMs) {
+    std::string requestedType = normalizeBuzzerType(fusedType, fusedSeverity);
+
+    if (!buzzerEnabled || setupWizardBuzzerMuted || requestedType == "NONE" || fusedSeverity == 0) {
+        if (activeBuzzerType != "NONE" && buzzerClearCandidateMs == 0) buzzerClearCandidateMs = nowMs;
+        if (activeBuzzerType == "NONE" || (nowMs - buzzerClearCandidateMs) >= BUZZER_CLEAR_GRACE_MS) {
+            activeBuzzerType = "NONE";
+            activeBuzzerSeverity = 0;
+            buzzerClearCandidateMs = 0;
+            buzzerOff();
+        }
+        return;
+    }
+
+    buzzerClearCandidateMs = 0;
+    if (activeBuzzerType == "NONE") {
+        activeBuzzerType = requestedType;
+        activeBuzzerSeverity = fusedSeverity;
+        buzzerPatternStartMs = nowMs;
+        buzzerSwitchMuteUntilMs = nowMs + BUZZER_SWITCH_GAP_MS;
+        buzzerOff();
+        return;
+    }
+
+    bool holdCompleted = (nowMs - buzzerPatternStartMs) >= BUZZER_MIN_TYPE_HOLD_MS;
+    bool requestedIsMoreUrgent = fusedSeverity > activeBuzzerSeverity;
+    if ((holdCompleted || requestedIsMoreUrgent) && requestedType != activeBuzzerType) {
+        activeBuzzerType = requestedType;
+        activeBuzzerSeverity = fusedSeverity;
+        buzzerPatternStartMs = nowMs;
+        buzzerSwitchMuteUntilMs = nowMs + BUZZER_SWITCH_GAP_MS;
+        buzzerOff();
+    } else if (requestedType == activeBuzzerType) {
+        activeBuzzerSeverity = fusedSeverity;
+    }
+
+    if (nowMs < buzzerSwitchMuteUntilMs) {
+        buzzerOff();
+        return;
+    }
+
+    unsigned long t = nowMs - buzzerPatternStartMs;
+    uint8_t assignedPattern = getBuzzerPatternForType(activeBuzzerType);
+    uint8_t vol = getBuzzerVolumeForType(activeBuzzerType);
+    playAssignedBuzzerPattern(assignedPattern, activeBuzzerSeverity, t, vol);
+}
+
+
+// ================= INCIDENT ENGINE =================
+int findIncidentSlot() {
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) if (!incidentBuffer[i].used) return i;
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) if (!incidentBuffer[i].pendingAck) return i;
+    int oldest = 0;
+    for (int i = 1; i < INCIDENT_BUFFER_SIZE; i++) if (incidentBuffer[i].timestampMs < incidentBuffer[oldest].timestampMs) oldest = i;
+    lostIncidentCount++;
+    return oldest;
+}
+
+void acknowledgeIncident(uint32_t id) {
+    for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+        if (incidentBuffer[i].used && incidentBuffer[i].id == id) {
+            incidentBuffer[i].used = false;
+            incidentBuffer[i].pendingAck = false;
+            return;
+        }
+    }
+}
+
+void storeIncident(std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message, unsigned long nowMs) {
     int slot = findIncidentSlot();
     incidentBuffer[slot].used = true;
     incidentBuffer[slot].pendingAck = true;
@@ -316,37 +422,32 @@ void storeIncident(std::string eventType, uint8_t severity, std::string sourceUn
     incidentBuffer[slot].leanRollDeg = leanData.rollDeg;
     incidentBuffer[slot].leanPitchDeg = leanData.pitchDeg;
     incidentBuffer[slot].laneState = laneData.state;
-
-    std::cout << "INCIDENT STORED | id=" << incidentBuffer[slot].id << " type=" << eventType << "\n";
 }
 
-void updateIncidentLatch(bool active, unsigned long confirmMs, unsigned long &startMs, bool &logged, unsigned long &lastIncidentMs, unsigned long nowMs, std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message)
-{
-    if (active)
-    {
-        if (startMs == 0)
-            startMs = nowMs;
-        if (!logged && (nowMs - startMs >= confirmMs) && (nowMs - lastIncidentMs >= INCIDENT_COOLDOWN_MS))
-        {
+void updateIncidentLatch(bool active, unsigned long confirmMs, unsigned long &startMs, bool &logged, unsigned long &lastIncidentMs, unsigned long nowMs, std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message) {
+    if (active) {
+        if (startMs == 0) startMs = nowMs;
+        if (!logged && (nowMs - startMs >= confirmMs) && (nowMs - lastIncidentMs >= INCIDENT_COOLDOWN_MS)) {
             storeIncident(eventType, severity, sourceUnit, title, message, nowMs);
             logged = true;
             lastIncidentMs = nowMs;
         }
-    }
-    else
-    {
+    } else {
         startMs = 0;
         logged = false;
     }
 }
 
-void updateCriticalIncidentDetection(unsigned long nowMs)
-{
-    // (Assume isOffline functions are defined above this)
-    bool frontCritical = frontData.online && frontData.state == 3;
-    bool rearCritical = rearData.online && rearData.overallState == 3;
-    bool leanCritical = leanData.online && leanData.riskLevel == 2;
-    bool laneCritical = laneData.online && laneData.state != 0;
+void updateCriticalIncidentDetection(unsigned long nowMs) {
+    bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
+    bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
+    bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
+    bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
+
+    bool frontCritical = !frontOffline && frontData.state == 3;
+    bool rearCritical = !rearOffline && rearData.overallState == 3;
+    bool leanCritical = !leanOffline && leanData.riskLevel == 2;
+    bool laneCritical = !laneOffline && laneData.state != 0;
 
     updateIncidentLatch(frontCritical, FRONT_CRITICAL_CONFIRM_MS, frontCriticalStartMs, frontCriticalLogged, lastFrontIncidentMs, nowMs, "FRONT_CRITICAL", 3, "front", "Front Collision Risk", "A critical front collision warning was detected.");
     updateIncidentLatch(rearCritical, REAR_CRITICAL_CONFIRM_MS, rearCriticalStartMs, rearCriticalLogged, lastRearIncidentMs, nowMs, "REAR_CRITICAL", 3, "rear", "Rear Blindspot Risk", "A critical rear blindspot warning was detected.");
@@ -356,22 +457,11 @@ void updateCriticalIncidentDetection(unsigned long nowMs)
     std::string laneTitle = (laneData.state == 1) ? "Left Lane Departure" : "Right Lane Departure";
     updateIncidentLatch(laneCritical, LANE_CRITICAL_CONFIRM_MS, laneCriticalStartMs, laneCriticalLogged, lastLaneIncidentMs, nowMs, laneStr, 2, "lane", laneTitle, "A lane departure warning was detected.");
 
-    uint8_t seriousCount = 0;
-    if (frontCritical)
-        seriousCount++;
-    if (rearCritical)
-        seriousCount++;
-    if (leanCritical)
-        seriousCount++;
-    if (laneCritical)
-        seriousCount++;
-
+    uint8_t seriousCount = (frontCritical?1:0) + (rearCritical?1:0) + (leanCritical?1:0) + (laneCritical?1:0);
     updateIncidentLatch(seriousCount >= 2, MULTI_HAZARD_CONFIRM_MS, multiHazardStartMs, multiHazardLogged, lastMultiIncidentMs, nowMs, "MULTI_HAZARD", 3, "multiple", "Multiple Safety Warnings", "Multiple critical safety warnings were active at the same time.");
 }
 
-// 1. Add this Helper Function above broadcastThread() to build the payload
-json buildIncidentJson(const IncidentRecord &inc)
-{
+json buildIncidentJson(const IncidentRecord &inc) {
     json j;
     j["type"] = "incident";
     j["incident"]["id"] = inc.id;
@@ -392,108 +482,281 @@ json buildIncidentJson(const IncidentRecord &inc)
     return j;
 }
 
-// 3. The 50ms Broadcaster Loop
-void broadcastThread()
-{
-    while (true)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+// ================= HARDWARE THREADS =================
 
+void buzzerThreadLoop() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::lock_guard<std::mutex> lock(stateMutex);
-        if (users.empty())
-            continue;
-
         unsigned long nowMs = getMillis();
-        json payload;
+        updateBuzzerByFusedType(currentFusedType, currentFusedSeverity, nowMs);
+    }
+}
 
-        // Construct payload cleanly using nlohmann/json
-        payload["lane"]["online"] = laneData.online ? 1 : 0;
-        payload["lane"]["state"] = laneData.state;
+void udpListenerThread() {
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in servaddr{};
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = INADDR_ANY;
+    servaddr.sin_port = htons(5005);
+    bind(sockfd, (const sockaddr *)&servaddr, sizeof(servaddr));
 
-        // (Add your fused logic and other structs here exactly as before)
-        if (nowMs - lastIncidentResendMs >= INCIDENT_RESEND_MS)
-        {
-            lastIncidentResendMs = nowMs;
-            for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++)
-            {
-                if (incidentBuffer[i].used && incidentBuffer[i].pendingAck)
-                {
-                    json incJson = buildIncidentJson(incidentBuffer[i]);
-                    std::string incStr = incJson.dump();
-                    for (auto *u : users)
-                    {
-                        u->send_text(incStr);
-                    }
+    char buffer[1024];
+    while (true) {
+        int n = recvfrom(sockfd, buffer, 1024, 0, nullptr, nullptr);
+        if (n > 0) {
+            buffer[n] = '\0';
+            try {
+                auto j = json::parse(buffer);
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (j.contains("state")) {
+                    laneData.state = j["state"].get<uint8_t>();
+                    laneData.online = true;
+                    laneData.lastUpdateMs = getMillis();
                 }
+            } catch (...) {}
+        }
+    }
+}
+
+void canListenerThread() {
+    int s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    ifreq ifr;
+    strcpy(ifr.ifr_name, "can0");
+    ioctl(s, SIOCGIFINDEX, &ifr);
+    sockaddr_can addr{};
+    addr.can_family = AF_CAN;
+    addr.can_ifindex = ifr.ifr_ifindex;
+    bind(s, (sockaddr *)&addr, sizeof(addr));
+
+    can_frame frame;
+    while (true) {
+        int nbytes = read(s, &frame, sizeof(can_frame));
+        if (nbytes > 0) {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            unsigned long nowMs = getMillis();
+            
+            // Keep your CAN decoding logic here. Example snippet mapping:
+            if (frame.can_id == 0x100 && frame.can_dlc >= 8) {
+                leanData.riskLevel = frame.data[0];
+                int16_t r = frame.data[1] | (frame.data[2] << 8);
+                int16_t p = frame.data[3] | (frame.data[4] << 8);
+                leanData.rollDeg = r / 100.0f;
+                leanData.pitchDeg = p / 100.0f;
+                leanData.confidence = frame.data[5] / 100.0f;
+                leanData.calibrated = (frame.data[6] & 1) != 0;
+                leanData.online = true;
+                leanData.lastUpdateMs = nowMs;
             }
+            // (Add other CAN parsers exactly as they were in ESP32)
+        }
+    }
+}
+
+void broadcastThread() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::lock_guard<std::mutex> lock(stateMutex);
+        
+        unsigned long nowMs = getMillis();
+        
+        updateCriticalIncidentDetection(nowMs);
+
+        if (users.empty()) continue;
+
+        bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
+        bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
+        bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
+        bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
+
+        std::string fusedType = "NONE";
+        std::string fusedTitle = "All Clear";
+        std::string fusedMessage = "No active safety warnings.";
+        std::string fusedColor = "#1db954";
+        uint8_t fusedSeverity = 0;
+
+        if (!leanOffline && leanData.riskLevel == 2) {
+            fusedType = "LEAN_HIGH"; fusedTitle = "High Lean Risk"; fusedMessage = "Vehicle lean angle is high. Reduce speed and stabilize the vehicle."; fusedColor = "#ff3b30"; fusedSeverity = 3;
+        } else if (!frontOffline && frontData.state == 3) {
+            fusedType = "FRONT_WARNING"; fusedTitle = "Front Collision Warning"; fusedMessage = "Obstacle ahead with high risk. Brake or slow down."; fusedColor = "#ff3b30"; fusedSeverity = 3;
+        } else if (!rearOffline && rearData.overallState == 3) {
+            fusedType = "REAR_WARNING"; fusedTitle = "Rear Blindspot Warning"; fusedMessage = "Very close object detected behind the vehicle."; fusedColor = "#ff3b30"; fusedSeverity = 3;
+        } else if (!laneOffline && laneData.state == 1) {
+            fusedType = "LANE_LEFT"; fusedTitle = "Left Lane Departure"; fusedMessage = "Vehicle is drifting toward the left lane marking."; fusedColor = "#ffb020"; fusedSeverity = 2;
+        } else if (!laneOffline && laneData.state == 2) {
+            fusedType = "LANE_RIGHT"; fusedTitle = "Right Lane Departure"; fusedMessage = "Vehicle is drifting toward the right lane marking."; fusedColor = "#ffb020"; fusedSeverity = 2;
+        } else if (!leanOffline && leanData.riskLevel == 1) {
+            fusedType = "LEAN_CAUTION"; fusedTitle = "Lean Caution"; fusedMessage = "Vehicle lean is increasing. Drive carefully."; fusedColor = "#ffb020"; fusedSeverity = 2;
+        } else if (!frontOffline && frontData.state == 2) {
+            fusedType = "FRONT_APPROACHING"; fusedTitle = "Object Approaching"; fusedMessage = "Object ahead is getting closer."; fusedColor = "#ff7230"; fusedSeverity = 2;
+        } else if (!rearOffline && rearData.overallState == 2) {
+            fusedType = "REAR_CAUTION"; fusedTitle = "Rear Caution"; fusedMessage = "Object detected close to the rear blindspot area."; fusedColor = "#ffb020"; fusedSeverity = 2;
+        } else if (!frontOffline && frontData.state == 1) {
+            fusedType = "FRONT_OBJECT"; fusedTitle = "Object Ahead"; fusedMessage = "Object detected in front."; fusedColor = "#f5c542"; fusedSeverity = 1;
+        } else if (!rearOffline && rearData.overallState == 1) {
+            fusedType = "REAR_OBJECT"; fusedTitle = "Rear Object Detected"; fusedMessage = "Object detected behind the vehicle."; fusedColor = "#f5c542"; fusedSeverity = 1;
         }
 
+        currentFusedType = fusedType;
+        currentFusedSeverity = fusedSeverity;
+
+        bool includeConfig = forceConfigBroadcast || ((nowMs - lastConfigBroadcastMs) >= CONFIG_BROADCAST_MS);
+        if (includeConfig) {
+            lastConfigBroadcastMs = nowMs;
+            forceConfigBroadcast = false;
+        }
+
+        json payload;
+
+        if (includeConfig) {
+            payload["config"]["setupCompleted"] = brainConfig.setupCompleted ? 1 : 0;
+            payload["config"]["profileName"] = brainConfig.profileName;
+            payload["config"]["vehicleType"] = brainConfig.vehicleType;
+            payload["config"]["vehicleTypeName"] = vehicleTypeName(brainConfig.vehicleType);
+            payload["config"]["trackWidth_m"] = std::round(brainConfig.trackWidth_m * 100) / 100;
+            payload["config"]["wheelBase_m"] = std::round(brainConfig.wheelBase_m * 100) / 100;
+            payload["config"]["vehicleHeight_m"] = std::round(brainConfig.vehicleHeight_m * 100) / 100;
+            payload["config"]["loadCondition"] = brainConfig.loadCondition;
+            payload["config"]["loadConditionName"] = loadConditionName(brainConfig.loadCondition);
+            payload["config"]["frontPreset"] = brainConfig.frontSensitivityPreset;
+            payload["config"]["frontPresetName"] = presetName(brainConfig.frontSensitivityPreset);
+            payload["config"]["rearPreset"] = brainConfig.rearSensitivityPreset;
+            payload["config"]["rearPresetName"] = presetName(brainConfig.rearSensitivityPreset);
+            payload["config"]["centerCalibrated"] = brainConfig.centerCalibrated ? 1 : 0;
+            payload["config"]["buzzerEnabled"] = buzzerEnabled ? 1 : 0;
+            payload["config"]["frontSoundPattern"] = brainConfig.frontBuzzerPattern;
+            payload["config"]["rearSoundPattern"] = brainConfig.rearBuzzerPattern;
+            payload["config"]["laneSoundPattern"] = brainConfig.laneBuzzerPattern;
+            payload["config"]["leanSoundPattern"] = brainConfig.leanBuzzerPattern;
+            payload["config"]["frontSoundVolume"] = brainConfig.frontBuzzerVolume;
+            payload["config"]["rearSoundVolume"] = brainConfig.rearBuzzerVolume;
+            payload["config"]["laneSoundVolume"] = brainConfig.laneBuzzerVolume;
+            payload["config"]["leanSoundVolume"] = brainConfig.leanBuzzerVolume;
+        }
+
+        payload["fused"]["type"] = fusedType;
+        payload["fused"]["title"] = fusedTitle;
+        payload["fused"]["message"] = fusedMessage;
+        payload["fused"]["color"] = fusedColor;
+        payload["fused"]["severity"] = fusedSeverity;
+
+        payload["lean"]["online"] = leanOffline ? 0 : 1;
+        payload["lean"]["stale"] = isStale(leanData.lastUpdateMs, nowMs) ? 1 : 0;
+        payload["lean"]["calibrated"] = leanData.calibrated ? 1 : 0;
+        payload["lean"]["riskLevel"] = leanData.riskLevel;
+        payload["lean"]["riskName"] = leanRiskName(leanData.riskLevel);
+        payload["lean"]["roll"] = std::round(leanData.rollDeg * 100) / 100;
+        payload["lean"]["pitch"] = std::round(leanData.pitchDeg * 100) / 100;
+        payload["lean"]["confidence"] = std::round(leanData.confidence * 100) / 100;
+        payload["lean"]["criticalRollDeg"] = std::round(leanData.criticalRollDeg * 100) / 100;
+        payload["lean"]["criticalPitchDeg"] = std::round(leanData.criticalPitchDeg * 100) / 100;
+
+        payload["front"]["online"] = frontOffline ? 0 : 1;
+        payload["front"]["stale"] = isStale(frontData.lastUpdateMs, nowMs) ? 1 : 0;
+        payload["front"]["state"] = frontData.state;
+        payload["front"]["stateName"] = frontStateName(frontData.state);
+        payload["front"]["stateColor"] = stateColorByLevel(frontData.state);
+        payload["front"]["filteredDistanceCm"] = std::round(frontData.filteredDistanceCm * 10) / 10;
+        payload["front"]["closingSpeedCmS"] = std::round(frontData.closingSpeedCmS * 10) / 10;
+
+        payload["rear"]["online"] = rearOffline ? 0 : 1;
+        payload["rear"]["stale"] = isStale(rearData.lastUpdateMs, nowMs) ? 1 : 0;
+        payload["rear"]["overallState"] = rearData.overallState;
+        payload["rear"]["overallStateName"] = rearStateName(rearData.overallState);
+        payload["rear"]["overallStateColor"] = stateColorByLevel(rearData.overallState);
+        payload["rear"]["leftStateName"] = rearStateName(rearData.leftState);
+        payload["rear"]["leftStateColor"] = stateColorByLevel(rearData.leftState);
+        payload["rear"]["leftFilteredDistanceCm"] = std::round(rearData.leftFilteredDistanceCm * 10) / 10;
+        payload["rear"]["centerStateName"] = rearStateName(rearData.centerState);
+        payload["rear"]["centerStateColor"] = stateColorByLevel(rearData.centerState);
+        payload["rear"]["centerFilteredDistanceCm"] = std::round(rearData.centerFilteredDistanceCm * 10) / 10;
+        payload["rear"]["rightStateName"] = rearStateName(rearData.rightState);
+        payload["rear"]["rightStateColor"] = stateColorByLevel(rearData.rightState);
+        payload["rear"]["rightFilteredDistanceCm"] = std::round(rearData.rightFilteredDistanceCm * 10) / 10;
+
+        payload["lane"]["online"] = laneOffline ? 0 : 1;
+        payload["lane"]["stale"] = isStale(laneData.lastUpdateMs, nowMs) ? 1 : 0;
+        payload["lane"]["state"] = laneData.state;
+        payload["lane"]["stateName"] = laneStateName(laneData.state);
+        payload["lane"]["stateColor"] = laneStateColor(laneData.state);
+
         std::string payloadStr = payload.dump();
-        for (auto *u : users)
-        {
+        for (auto *u : users) {
             u->send_text(payloadStr);
+        }
+
+        if (nowMs - lastIncidentResendMs >= INCIDENT_RESEND_MS) {
+            lastIncidentResendMs = nowMs;
+            for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+                if (incidentBuffer[i].used && incidentBuffer[i].pendingAck) {
+                    std::string incStr = buildIncidentJson(incidentBuffer[i]).dump();
+                    for (auto *u : users) u->send_text(incStr);
+                }
+            }
         }
     }
 }
 
 // ================= MAIN HTTP/WS SERVER =================
-int main()
-{
+int main() {
     buzzerBegin();
     crow::SimpleApp app;
 
-    // Load your index.html dynamically
-    CROW_ROUTE(app, "/")([]()
-                         {
+    CROW_ROUTE(app, "/")([]() {
         std::ifstream file("index.html");
         if (!file.is_open()) return crow::response(404, "index.html not found");
         std::stringstream buffer;
         buffer << file.rdbuf();
-        return crow::response(buffer.str()); });
+        return crow::response(buffer.str()); 
+    });
 
-    // Handle WebSocket Connections
     CROW_WEBSOCKET_ROUTE(app, "/ws")
-        .onopen([&](crow::websocket::connection &conn)
-                {
-          std::lock_guard<std::mutex> lock(stateMutex);
-          users.insert(&conn); })
-        .onclose([&](crow::websocket::connection &conn, const std::string &reason)
-                 {
-          std::lock_guard<std::mutex> lock(stateMutex);
-          users.erase(&conn); })
-        .onmessage([&](crow::websocket::connection & /*conn*/, const std::string &data, bool is_binary)
-                   {
-    try {
-        auto j = json::parse(data);
-        if (j.contains("cmd") && j["cmd"] == "incidentAck") {
-            uint32_t id = j["incidentId"].get<uint32_t>();
-            acknowledgeIncident(id);
-        }
-        if (j.contains("cmd") && j["cmd"] == "clearLocalStats") {
+        .onopen([&](crow::websocket::connection &conn) {
             std::lock_guard<std::mutex> lock(stateMutex);
-            for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
-                incidentBuffer[i].used = false;
-                incidentBuffer[i].pendingAck = false;
-            }
-            lostIncidentCount = 0;
-            std::cout << "Incident buffer cleared by UI\n";
-        }
-        // (Add your saveSettings commands here later)
-    } catch (...) {
-        std::cout << "Invalid JSON received from UI\n";
-    } });
+            users.insert(&conn); 
+        })
+        .onclose([&](crow::websocket::connection &conn, const std::string &reason) {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            users.erase(&conn); 
+        })
+        .onmessage([&](crow::websocket::connection & /*conn*/, const std::string &data, bool is_binary) {
+            try {
+                auto j = json::parse(data);
+                std::lock_guard<std::mutex> lock(stateMutex);
+                if (j.contains("cmd")) {
+                    std::string cmd = j["cmd"];
+                    if (cmd == "incidentAck") {
+                        acknowledgeIncident(j["incidentId"].get<uint32_t>());
+                    } else if (cmd == "clearLocalStats") {
+                        for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+                            incidentBuffer[i].used = false;
+                            incidentBuffer[i].pendingAck = false;
+                        }
+                        lostIncidentCount = 0;
+                    } else if (cmd == "saveVehicle" || cmd == "saveAllSetup") {
+                        if (j.contains("setupCompleted")) brainConfig.setupCompleted = j["setupCompleted"].get<bool>();
+                        if (j.contains("vehicleType")) brainConfig.vehicleType = j["vehicleType"].get<int>();
+                        if (j.contains("trackWidth_m")) brainConfig.trackWidth_m = j["trackWidth_m"].get<float>();
+                        // Extract remaining JSON configs similarly here
+                        forceConfigBroadcast = true;
+                    }
+                } else if (data == "BUZZER_TOGGLE") {
+                    buzzerEnabled = !buzzerEnabled;
+                    if (!buzzerEnabled) buzzerOff();
+                    forceConfigBroadcast = true;
+                } else if (data == "CAL_CENTER") {
+                    centerCalibrationRequested = true;
+                    forceConfigBroadcast = true;
+                }
+            } catch (...) {} 
+        });
 
-    // Launch background hardware threads
     std::thread udp(udpListenerThread);
     std::thread can(canListenerThread);
     std::thread broadcast(broadcastThread);
     std::thread buzzer(buzzerThreadLoop);
-    udp.detach();
-    can.detach();
-    broadcast.detach();
-    buzzer.detach();
+    udp.detach(); can.detach(); broadcast.detach(); buzzer.detach();
 
-    // Start the Crow server on port 80
     app.port(80).multithreaded().run();
     gpioTerminate();
 }
