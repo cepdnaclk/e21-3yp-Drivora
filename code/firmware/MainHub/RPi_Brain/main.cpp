@@ -253,6 +253,28 @@ void updateCriticalIncidentDetection(unsigned long nowMs) {
     updateIncidentLatch(seriousCount >= 2, MULTI_HAZARD_CONFIRM_MS, multiHazardStartMs, multiHazardLogged, lastMultiIncidentMs, nowMs, "MULTI_HAZARD", 3, "multiple", "Multiple Safety Warnings", "Multiple critical safety warnings were active at the same time.");
 }
 
+// 1. Add this Helper Function above broadcastThread() to build the payload
+json buildIncidentJson(const IncidentRecord& inc) {
+    json j;
+    j["type"] = "incident";
+    j["incident"]["id"] = inc.id;
+    j["incident"]["timestampMs"] = inc.timestampMs;
+    j["incident"]["eventType"] = inc.eventType;
+    j["incident"]["severity"] = inc.severity;
+    j["incident"]["sourceUnit"] = inc.sourceUnit;
+    j["incident"]["title"] = inc.title;
+    j["incident"]["message"] = inc.message;
+    j["incident"]["frontDistanceCm"] = inc.frontDistanceCm;
+    j["incident"]["frontSpeedCmS"] = inc.frontSpeedCmS;
+    j["incident"]["rearNearestDistanceCm"] = inc.rearNearestDistanceCm;
+    j["incident"]["leanRollDeg"] = inc.leanRollDeg;
+    j["incident"]["leanPitchDeg"] = inc.leanPitchDeg;
+    j["incident"]["laneState"] = inc.laneState;
+    j["incident"]["lostIncidentCount"] = lostIncidentCount;
+    j["incident"]["pendingAck"] = 1;
+    return j;
+}
+
 // 3. The 50ms Broadcaster Loop
 void broadcastThread() {
     while (true) {
