@@ -385,8 +385,25 @@ int main()
           users.erase(&conn); })
         .onmessage([&](crow::websocket::connection & /*conn*/, const std::string &data, bool is_binary)
                    {
-                       // Parse incoming settings commands exactly like handleIncomingCommand()
-                   });
+    try {
+        auto j = json::parse(data);
+        if (j.contains("cmd") && j["cmd"] == "incidentAck") {
+            uint32_t id = j["incidentId"].get<uint32_t>();
+            acknowledgeIncident(id);
+        }
+        if (j.contains("cmd") && j["cmd"] == "clearLocalStats") {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+                incidentBuffer[i].used = false;
+                incidentBuffer[i].pendingAck = false;
+            }
+            lostIncidentCount = 0;
+            std::cout << "Incident buffer cleared by UI\n";
+        }
+        // (Add your saveSettings commands here later)
+    } catch (...) {
+        std::cout << "Invalid JSON received from UI\n";
+    } });
 
     // Launch background hardware threads
     std::thread udp(udpListenerThread);
