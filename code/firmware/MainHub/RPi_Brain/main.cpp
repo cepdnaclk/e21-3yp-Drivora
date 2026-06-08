@@ -439,6 +439,7 @@ void broadcastThread()
 // ================= MAIN HTTP/WS SERVER =================
 int main()
 {
+    buzzerBegin();
     crow::SimpleApp app;
 
     // Load your index.html dynamically
@@ -486,10 +487,13 @@ int main()
     std::thread udp(udpListenerThread);
     std::thread can(canListenerThread);
     std::thread broadcast(broadcastThread);
+    std::thread buzzer(buzzerThreadLoop);
     udp.detach();
     can.detach();
     broadcast.detach();
+    buzzer.detach();
 
     // Start the Crow server on port 80
     app.port(80).multithreaded().run();
+    gpioTerminate();
 }
