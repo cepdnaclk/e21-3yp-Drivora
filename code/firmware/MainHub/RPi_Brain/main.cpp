@@ -102,6 +102,7 @@ struct FrontData {
     uint8_t warningCounter = 0;
     uint8_t blindReleaseCounter = 0;
     uint8_t invalidStreak = 0;
+    bool visionValidated = false;
 };
 FrontData frontData;
 
@@ -449,6 +450,8 @@ void updateCriticalIncidentDetection(unsigned long nowMs) {
     bool leanCritical = !leanOffline && leanData.riskLevel == 2;
     bool laneCritical = !laneOffline && laneData.state != 0;
 
+    bool frontCritical = !frontOffline && frontData.state == 3 && frontData.visionValidated;
+
     updateIncidentLatch(frontCritical, FRONT_CRITICAL_CONFIRM_MS, frontCriticalStartMs, frontCriticalLogged, lastFrontIncidentMs, nowMs, "FRONT_CRITICAL", 3, "front", "Front Collision Risk", "A critical front collision warning was detected.");
     updateIncidentLatch(rearCritical, REAR_CRITICAL_CONFIRM_MS, rearCriticalStartMs, rearCriticalLogged, lastRearIncidentMs, nowMs, "REAR_CRITICAL", 3, "rear", "Rear Blindspot Risk", "A critical rear blindspot warning was detected.");
     updateIncidentLatch(leanCritical, LEAN_CRITICAL_CONFIRM_MS, leanCriticalStartMs, leanCriticalLogged, lastLeanIncidentMs, nowMs, "LEAN_CRITICAL", 3, "center", "High Lean Risk", "A critical vehicle lean condition was detected.");
@@ -509,12 +512,18 @@ void udpListenerThread() {
             try {
                 auto j = json::parse(buffer);
                 std::lock_guard<std::mutex> lock(stateMutex);
+                std::lock_guard<std::mutex> lock(stateMutex);
                 if (j.contains("state")) {
                     laneData.state = j["state"].get<uint8_t>();
                     laneData.online = true;
                     laneData.lastUpdateMs = getMillis();
                 }
+                // --- ADDED BARE-METAL VISION GATE ---
+                if (j.contains("objectValid")) {
+                    frontData.visionValidated = j["objectValid"].get<bool>();
+                }
             } catch (...) {}
+
         }
     }
 }
@@ -529,6 +538,13 @@ void canListenerThread() {
     addr.can_ifindex = ifr.ifr_ifindex;
     bind(s, (sockaddr *)&addr, sizeof(addr));
 
+    // --- NEW: Setup UDP Sender for Port 5006 ---
+    int udpSock = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in pyAddr{};
+    pyAddr.sin_family = AF_INET;
+    pyAddr.sin_port = htons(5006);
+    inet_pton(AF_INET, "127.0.0.1", &pyAddr.sin_addr);
+
     can_frame frame;
     while (true) {
         int nbytes = read(s, &frame, sizeof(can_frame));
@@ -536,7 +552,7 @@ void canListenerThread() {
             std::lock_guard<std::mutex> lock(stateMutex);
             unsigned long nowMs = getMillis();
             
-            // Keep your CAN decoding logic here. Example snippet mapping:
+            // ── EXISTING: Lean Angle CAN Parser (ID 0x100) ──
             if (frame.can_id == 0x100 && frame.can_dlc >= 8) {
                 leanData.riskLevel = frame.data[0];
                 int16_t r = frame.data[1] | (frame.data[2] << 8);
@@ -548,7 +564,21 @@ void canListenerThread() {
                 leanData.online = true;
                 leanData.lastUpdateMs = nowMs;
             }
-            // (Add other CAN parsers exactly as they were in ESP32)
+            
+            // ── NEW: Front Sensor CAN Parser (ID 0x200) & UDP Bridge ──
+            if (frame.can_id == 0x200 && frame.can_dlc >= 4) {
+                frontData.state = frame.data[0];
+                int16_t distRaw = frame.data[1] | (frame.data[2] << 8);
+                frontData.filteredDistanceCm = distRaw / 10.0f;
+                frontData.online = true;
+                frontData.lastUpdateMs = nowMs;
+
+                // Blast distance to Python Vision Script via UDP Port 5006
+                json p;
+                p["dist"] = frontData.filteredDistanceCm;
+                std::string pStr = p.dump();
+                sendto(udpSock, pStr.c_str(), pStr.length(), 0, (sockaddr*)&pyAddr, sizeof(pyAddr));
+            }
         }
     }
 }
