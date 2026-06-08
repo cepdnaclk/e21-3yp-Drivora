@@ -3,6 +3,36 @@ import cv2
 import numpy as np
 from picamera2 import Picamera2
 
+import socket
+import threading
+import json
+
+# ── UDP IPC SETUP ──
+UDP_IP = "127.0.0.1"
+UDP_PORT_SEND = 5005  # Sending telemetry to C++ Brain
+UDP_PORT_RECV = 5006  # Receiving distance from C++ Brain
+
+sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock_recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock_recv.bind((UDP_IP, UDP_PORT_RECV))
+
+# Global thread-safe variable for incoming distance
+current_front_dist_cm = -1.0 
+
+def udp_distance_listener():
+    global current_front_dist_cm
+    while True:
+        try:
+            data, _ = sock_recv.recvfrom(1024)
+            msg = json.loads(data.decode('utf-8'))
+            if "dist" in msg:
+                current_front_dist_cm = msg["dist"]
+        except Exception:
+            pass
+
+# Start the background listener
+threading.Thread(target=udp_distance_listener, daemon=True).start()
+
 app = Flask(__name__)
 
 # ── 1. Hardware Initialization ─────────────────────────────────────────────────
@@ -11,7 +41,7 @@ config  = picam2.create_preview_configuration({"size": (640, 480)})
 config['framerate'] = 20
 picam2.configure(config)
 picam2.start()
-picam2.set_controls({"AfMode": 0, "LensPosition": 0.0})
+#picam2.set_controls({"AfMode": 0, "LensPosition": 0.0})
 
 FRAME_W, FRAME_H = 640, 480
 
