@@ -121,8 +121,10 @@ bool setupWizardBuzzerMuted = false;
 int currentBuzzerFreq = -1;
 int currentBuzzerDuty = -1;
 
-void buzzerBegin() {
-    if (gpioInitialise() < 0) {
+void buzzerBegin()
+{
+    if (gpioInitialise() < 0)
+    {
         std::cerr << "CRITICAL: pigpio initialization failed. Run with sudo.\n";
         return;
     }
@@ -133,8 +135,10 @@ void buzzerBegin() {
     std::cout << "Buzzer initialized on BCM 18\n";
 }
 
-void buzzerOff() {
-    if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0) {
+void buzzerOff()
+{
+    if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0)
+    {
         gpioPWM(BUZZER_PIN, 0);
         currentBuzzerFreq = 0;
         currentBuzzerDuty = 0;
@@ -142,21 +146,27 @@ void buzzerOff() {
 }
 
 // Convert 0-100% volume into a 0-128 duty cycle (128 = 50% square wave = max piezo volume)
-uint32_t buzzerDutyFromVolume(uint8_t volumePercent) {
-    if (volumePercent < 30) volumePercent = 30;
-    if (volumePercent > 100) volumePercent = 100;
-    return (volumePercent / 100.0f) * 128; 
+uint32_t buzzerDutyFromVolume(uint8_t volumePercent)
+{
+    if (volumePercent < 30)
+        volumePercent = 30;
+    if (volumePercent > 100)
+        volumePercent = 100;
+    return (volumePercent / 100.0f) * 128;
 }
 
-void buzzerTone(int freq, uint8_t volumePercent) {
-    if (!buzzerEnabled || setupWizardBuzzerMuted || freq <= 0) {
+void buzzerTone(int freq, uint8_t volumePercent)
+{
+    if (!buzzerEnabled || setupWizardBuzzerMuted || freq <= 0)
+    {
         buzzerOff();
         return;
     }
 
     uint32_t duty = buzzerDutyFromVolume(volumePercent);
 
-    if (currentBuzzerFreq != freq || currentBuzzerDuty != duty) {
+    if (currentBuzzerFreq != freq || currentBuzzerDuty != duty)
+    {
         gpioSetPWMfrequency(BUZZER_PIN, freq);
         gpioPWM(BUZZER_PIN, duty);
         currentBuzzerFreq = freq;
@@ -230,6 +240,22 @@ void canListenerThread()
             // }
             // (Implement the rest of your CAN IDs here)
         }
+    }
+}
+
+// 4. The High-Speed Buzzer Thread (Runs every 10ms)
+void buzzerThreadLoop()
+{
+    while (true)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        std::lock_guard<std::mutex> lock(stateMutex);
+        unsigned long nowMs = getMillis();
+
+        // (Assuming currentFusedType and currentFusedSeverity are global just like ESP32)
+        // This function holds your exact buzzer selection and pattern logic
+        updateBuzzerByFusedType(currentFusedType, currentFusedSeverity, nowMs);
     }
 }
 
