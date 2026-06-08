@@ -16,4 +16,4 @@ FetchContent_Declare(crow URL https://github.com/CrowCpp/Crow/releases/download/
 FetchContent_MakeAvailable(crow)
 
 add_executable(brain_hub main.cpp)
-target_link_libraries(brain_hub PRIVATE Threads::Threads nlohmann_json::nlohmann_json Crow::Crow)
+target_link_libraries(brain_hub PRIVATE Threads::Threads nlohmann_json::nlohmann_json Crow::Crow pigpio rt)
