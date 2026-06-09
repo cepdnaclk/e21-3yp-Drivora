@@ -38,6 +38,24 @@ unsigned long lastConfigBroadcastMs = 0;
 bool forceConfigBroadcast = true;
 bool centerCalibrationRequested = false;
 
+// ================= CAN TRANSMISSION STATE =================
+int canSocketFd = -1;
+std::mutex canWriteMutex;
+
+void sendCanFrame(uint32_t id, uint8_t len, const uint8_t* data) {
+    if (canSocketFd < 0) return;
+
+    struct can_frame frame;
+    frame.can_id = id;
+    frame.can_dlc = len;
+    std::memcpy(frame.data, data, len);
+
+    std::lock_guard<std::mutex> lock(canWriteMutex);
+    if (write(canSocketFd, &frame, sizeof(struct can_frame)) < 0) {
+        std::cerr << "ERROR: Failed to write frame 0x" << std::hex << id << " to CAN bus.\n";
+    }
+}
+
 // ================= CONFIG & DATA STRUCTS =================
 const uint8_t BUZZER_PATTERN_URGENT_TRIPLE = 0;
 const uint8_t BUZZER_PATTERN_WIDE_DOUBLE   = 1;
