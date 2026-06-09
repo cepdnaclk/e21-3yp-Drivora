@@ -484,6 +484,75 @@ json buildIncidentJson(const IncidentRecord &inc) {
     return j;
 }
 
+// ================= CONFIG STORAGE =================
+void saveConfig() {
+    // Note: The stateMutex should already be locked by the caller (like the WebSocket thread)
+    json j;
+    j["setupCompleted"] = brainConfig.setupCompleted;
+    j["profileName"] = brainConfig.profileName;
+    j["vehicleType"] = brainConfig.vehicleType;
+    j["trackWidth_m"] = brainConfig.trackWidth_m;
+    j["wheelBase_m"] = brainConfig.wheelBase_m;
+    j["vehicleHeight_m"] = brainConfig.vehicleHeight_m;
+    j["loadCondition"] = brainConfig.loadCondition;
+    j["frontSensitivityPreset"] = brainConfig.frontSensitivityPreset;
+    j["rearSensitivityPreset"] = brainConfig.rearSensitivityPreset;
+    j["centerCalibrated"] = brainConfig.centerCalibrated;
+    j["frontBuzzerPattern"] = brainConfig.frontBuzzerPattern;
+    j["rearBuzzerPattern"] = brainConfig.rearBuzzerPattern;
+    j["laneBuzzerPattern"] = brainConfig.laneBuzzerPattern;
+    j["leanBuzzerPattern"] = brainConfig.leanBuzzerPattern;
+    j["frontBuzzerVolume"] = brainConfig.frontBuzzerVolume;
+    j["rearBuzzerVolume"] = brainConfig.rearBuzzerVolume;
+    j["laneBuzzerVolume"] = brainConfig.laneBuzzerVolume;
+    j["leanBuzzerVolume"] = brainConfig.leanBuzzerVolume;
+    j["buzzerEnabled"] = buzzerEnabled;
+
+    std::ofstream file("brain_config.json");
+    if (file.is_open()) {
+        file << j.dump(4); // Pretty print with 4 spaces
+        file.close();
+    } else {
+        std::cerr << "ERROR: Failed to open brain_config.json for writing.\n";
+    }
+}
+
+void loadConfig() {
+    std::ifstream file("brain_config.json");
+    if (!file.is_open()) {
+        std::cout << "No existing config file found. Using default structure.\n";
+        return;
+    }
+    
+    try {
+        json j;
+        file >> j;
+        if (j.contains("setupCompleted")) brainConfig.setupCompleted = j["setupCompleted"].get<bool>();
+        if (j.contains("profileName")) brainConfig.profileName = j["profileName"].get<std::string>();
+        if (j.contains("vehicleType")) brainConfig.vehicleType = j["vehicleType"].get<uint8_t>();
+        if (j.contains("trackWidth_m")) brainConfig.trackWidth_m = j["trackWidth_m"].get<float>();
+        if (j.contains("wheelBase_m")) brainConfig.wheelBase_m = j["wheelBase_m"].get<float>();
+        if (j.contains("vehicleHeight_m")) brainConfig.vehicleHeight_m = j["vehicleHeight_m"].get<float>();
+        if (j.contains("loadCondition")) brainConfig.loadCondition = j["loadCondition"].get<uint8_t>();
+        if (j.contains("frontSensitivityPreset")) brainConfig.frontSensitivityPreset = j["frontSensitivityPreset"].get<uint8_t>();
+        if (j.contains("rearSensitivityPreset")) brainConfig.rearSensitivityPreset = j["rearSensitivityPreset"].get<uint8_t>();
+        if (j.contains("centerCalibrated")) brainConfig.centerCalibrated = j["centerCalibrated"].get<bool>();
+        if (j.contains("frontBuzzerPattern")) brainConfig.frontBuzzerPattern = j["frontBuzzerPattern"].get<uint8_t>();
+        if (j.contains("rearBuzzerPattern")) brainConfig.rearBuzzerPattern = j["rearBuzzerPattern"].get<uint8_t>();
+        if (j.contains("laneBuzzerPattern")) brainConfig.laneBuzzerPattern = j["laneBuzzerPattern"].get<uint8_t>();
+        if (j.contains("leanBuzzerPattern")) brainConfig.leanBuzzerPattern = j["leanBuzzerPattern"].get<uint8_t>();
+        if (j.contains("frontBuzzerVolume")) brainConfig.frontBuzzerVolume = j["frontBuzzerVolume"].get<uint8_t>();
+        if (j.contains("rearBuzzerVolume")) brainConfig.rearBuzzerVolume = j["rearBuzzerVolume"].get<uint8_t>();
+        if (j.contains("laneBuzzerVolume")) brainConfig.laneBuzzerVolume = j["laneBuzzerVolume"].get<uint8_t>();
+        if (j.contains("leanBuzzerVolume")) brainConfig.leanBuzzerVolume = j["leanBuzzerVolume"].get<uint8_t>();
+        if (j.contains("buzzerEnabled")) buzzerEnabled = j["buzzerEnabled"].get<bool>();
+        
+        std::cout << "Successfully loaded brain_config.json\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error parsing config file: " << e.what() << '\n';
+    }
+}
+
 // ================= HARDWARE THREADS =================
 
 void buzzerThreadLoop() {
