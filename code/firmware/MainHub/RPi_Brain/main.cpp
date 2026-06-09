@@ -234,6 +234,8 @@ struct IncidentRecord {
     float frontDistanceCm = -1.0f;
     float frontSpeedCmS = 0.0f;
     float rearNearestDistanceCm = -1.0f;
+    std::string rearZone = "";
+    float rearZoneDistanceCm = -1.0f;
     float leanRollDeg = 0.0f;
     float leanPitchDeg = 0.0f;
     uint8_t laneState = 0;
@@ -283,6 +285,59 @@ float nearestRearDistanceForIncident() {
     if (rearData.centerFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.centerFilteredDistanceCm < best)) best = rearData.centerFilteredDistanceCm;
     if (rearData.rightFilteredDistanceCm >= 0.0f && (best < 0.0f || rearData.rightFilteredDistanceCm < best)) best = rearData.rightFilteredDistanceCm;
     return best;
+}
+
+float rearDistanceBySensorIndex(uint8_t idx) {
+    if (idx == 1) return rearData.leftFilteredDistanceCm;
+    if (idx == 2) return rearData.centerFilteredDistanceCm;
+    if (idx == 3) return rearData.rightFilteredDistanceCm;
+    return -1.0f;
+}
+
+std::string rearZoneNameFromIndex(uint8_t idx) {
+    if (idx == 1) return "LEFT";
+    if (idx == 2) return "CENTER";
+    if (idx == 3) return "RIGHT";
+    return "UNKNOWN";
+}
+
+uint8_t rearRiskZoneIndexForIncident() {
+    uint8_t bestIdx = 0;
+    float bestDist = 1e9f;
+
+    // Prefer the rear sensor that is actually in WARNING state (state 3)
+    if (rearData.leftState == 3) {
+        bestIdx = 1;
+        if (rearData.leftFilteredDistanceCm >= 0.0f) bestDist = rearData.leftFilteredDistanceCm;
+    }
+    if (rearData.centerState == 3) {
+        if (bestIdx == 0 || (rearData.centerFilteredDistanceCm >= 0.0f && rearData.centerFilteredDistanceCm < bestDist)) {
+            bestIdx = 2;
+            if (rearData.centerFilteredDistanceCm >= 0.0f) bestDist = rearData.centerFilteredDistanceCm;
+        }
+    }
+    if (rearData.rightState == 3) {
+        if (bestIdx == 0 || (rearData.rightFilteredDistanceCm >= 0.0f && rearData.rightFilteredDistanceCm < bestDist)) {
+            bestIdx = 3;
+            if (rearData.rightFilteredDistanceCm >= 0.0f) bestDist = rearData.rightFilteredDistanceCm;
+        }
+    }
+    if (bestIdx != 0) return bestIdx;
+
+    // Fallbacks if no sensor is in full warning
+    if (rearData.leftState >= rearData.centerState && rearData.leftState >= rearData.rightState && rearData.leftState > 0) return 1;
+    if (rearData.centerState >= rearData.leftState && rearData.centerState >= rearData.rightState && rearData.centerState > 0) return 2;
+    if (rearData.rightState >= rearData.leftState && rearData.rightState >= rearData.centerState && rearData.rightState > 0) return 3;
+    if (rearData.nearestSensor >= 1 && rearData.nearestSensor <= 3) return rearData.nearestSensor;
+
+    return 0;
+}
+
+std::string rearIncidentTitleForZone(const std::string& zone) {
+    if (zone == "LEFT") return "Rear Left Blindspot Risk";
+    if (zone == "RIGHT") return "Rear Right Blindspot Risk";
+    if (zone == "CENTER") return "Rear Center Obstacle Risk";
+    return "Rear Blindspot Risk";
 }
 
 // Convert numbers mapping to string UI elements
@@ -495,6 +550,30 @@ void acknowledgeIncident(uint32_t id) {
 
 void storeIncident(std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message, unsigned long nowMs) {
     int slot = findIncidentSlot();
+    std::string finalTitle = title;
+    std::string finalMessage = message;
+
+    uint8_t rearZoneIdx = 0;
+    std::string rearZone = "";
+    float rearZoneDistance = -1.0f;
+
+    if (sourceUnit == "rear") {
+        rearZoneIdx = rearRiskZoneIndexForIncident();
+        rearZone = rearZoneNameFromIndex(rearZoneIdx);
+        rearZoneDistance = rearDistanceBySensorIndex(rearZoneIdx);
+        finalTitle = rearIncidentTitleForZone(rearZone);
+        
+        if (rearZoneDistance >= 0.0f) {
+            std::string zoneText = rearZone;
+            for(auto& c : zoneText) c = tolower(c); // Convert to lowercase for the sentence
+            
+            // Format distance to 1 decimal place safely
+            char distBuf[16];
+            snprintf(distBuf, sizeof(distBuf), "%.1f", rearZoneDistance);
+            finalMessage = "Object detected in the rear " + zoneText + " zone at " + std::string(distBuf) + " cm.";
+        }
+    }
+
     incidentBuffer[slot].used = true;
     incidentBuffer[slot].pendingAck = true;
     incidentBuffer[slot].id = nextIncidentId++;
@@ -502,14 +581,40 @@ void storeIncident(std::string eventType, uint8_t severity, std::string sourceUn
     incidentBuffer[slot].severity = severity;
     incidentBuffer[slot].eventType = eventType;
     incidentBuffer[slot].sourceUnit = sourceUnit;
-    incidentBuffer[slot].title = title;
-    incidentBuffer[slot].message = message;
+    incidentBuffer[slot].title = finalTitle;
+    incidentBuffer[slot].message = finalMessage;
+    
     incidentBuffer[slot].frontDistanceCm = frontData.filteredDistanceCm;
     incidentBuffer[slot].frontSpeedCmS = frontData.closingSpeedCmS;
     incidentBuffer[slot].rearNearestDistanceCm = nearestRearDistanceForIncident();
+    incidentBuffer[slot].rearZone = rearZone;                 // <-- NEW
+    incidentBuffer[slot].rearZoneDistanceCm = rearZoneDistance; // <-- NEW
     incidentBuffer[slot].leanRollDeg = leanData.rollDeg;
     incidentBuffer[slot].leanPitchDeg = leanData.pitchDeg;
     incidentBuffer[slot].laneState = laneData.state;
+}
+
+json buildIncidentJson(const IncidentRecord &inc) {
+    json j;
+    j["type"] = "incident";
+    j["incident"]["id"] = inc.id;
+    j["incident"]["timestampMs"] = inc.timestampMs;
+    j["incident"]["eventType"] = inc.eventType;
+    j["incident"]["severity"] = inc.severity;
+    j["incident"]["sourceUnit"] = inc.sourceUnit;
+    j["incident"]["title"] = inc.title;
+    j["incident"]["message"] = inc.message;
+    j["incident"]["frontDistanceCm"] = std::round(inc.frontDistanceCm * 10) / 10;
+    j["incident"]["frontSpeedCmS"] = std::round(inc.frontSpeedCmS * 10) / 10;
+    j["incident"]["rearNearestDistanceCm"] = std::round(inc.rearNearestDistanceCm * 10) / 10;
+    j["incident"]["rearZone"] = inc.rearZone;                             // <-- NEW
+    j["incident"]["rearZoneDistanceCm"] = std::round(inc.rearZoneDistanceCm * 10) / 10; // <-- NEW
+    j["incident"]["leanRollDeg"] = std::round(inc.leanRollDeg * 100) / 100;
+    j["incident"]["leanPitchDeg"] = std::round(inc.leanPitchDeg * 100) / 100;
+    j["incident"]["laneState"] = inc.laneState;
+    j["incident"]["lostIncidentCount"] = lostIncidentCount;
+    j["incident"]["pendingAck"] = 1;
+    return j;
 }
 
 void updateIncidentLatch(bool active, unsigned long confirmMs, unsigned long &startMs, bool &logged, unsigned long &lastIncidentMs, unsigned long nowMs, std::string eventType, uint8_t severity, std::string sourceUnit, std::string title, std::string message) {
