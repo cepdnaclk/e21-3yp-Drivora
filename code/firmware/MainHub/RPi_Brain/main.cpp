@@ -26,6 +26,7 @@ using json = nlohmann::json;
 // ================= GLOBAL STATE =================
 std::mutex stateMutex;
 std::unordered_set<crow::websocket::connection *> users;
+int64_t timeOffsetMs = 0;
 
 // ================= TIMING CONSTANTS =================
 const unsigned long UI_BROADCAST_MS     = 50;
@@ -599,6 +600,7 @@ json buildIncidentJson(const IncidentRecord &inc) {
     j["type"] = "incident";
     j["incident"]["id"] = inc.id;
     j["incident"]["timestampMs"] = inc.timestampMs;
+    j["incident"]["realTimeMs"] = inc.timestampMs + timeOffsetMs;
     j["incident"]["eventType"] = inc.eventType;
     j["incident"]["severity"] = inc.severity;
     j["incident"]["sourceUnit"] = inc.sourceUnit;
@@ -1092,7 +1094,18 @@ int main() {
                     if (cmd == "incidentAck") {
                         acknowledgeIncident(j["incidentId"].get<uint32_t>());
                         
-                    } else if (cmd == "clearLocalStats") {
+                    }
+                    
+                    else if (cmd == "timeSync") {
+                        // Calculate the offset between the phone's real time and the Pi's offline uptime
+                        if (j.contains("phoneTimeMs")) {
+                            int64_t phoneTime = j["phoneTimeMs"].get<int64_t>();
+                            timeOffsetMs = phoneTime - (int64_t)getMillis();
+                        }
+                        
+                    }
+                    
+                    else if (cmd == "clearLocalStats") {
                         for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
                             incidentBuffer[i].used = false;
                             incidentBuffer[i].pendingAck = false;
