@@ -194,6 +194,16 @@ bool setupWizardBuzzerMuted = false;
 int currentBuzzerFreq = -1;
 int currentBuzzerDuty = -1;
 
+// Buzzer Test & Wizard Override State
+bool setupWizardBuzzerMuted = false;
+bool setupWizardBuzzerForceEnabled = false;
+bool buzzerTestActive = false;
+uint8_t testBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
+uint8_t testBuzzerVolume = 100;
+unsigned long testBuzzerStartMs = 0;
+unsigned long testBuzzerUntilMs = 0;
+int buzzerVolumeOverride = -1;
+
 std::string activeBuzzerType = "NONE";
 uint8_t activeBuzzerSeverity = 0;
 unsigned long buzzerPatternStartMs = 0;
@@ -399,9 +409,26 @@ std::string normalizeBuzzerType(const std::string& fusedType, uint8_t fusedSever
 }
 
 void updateBuzzerByFusedType(const std::string& fusedType, uint8_t fusedSeverity, unsigned long nowMs) {
+    // --- 1. TEST TONE INTERCEPTOR ---
+    if (buzzerTestActive) {
+        if (nowMs >= testBuzzerUntilMs) {
+            buzzerTestActive = false;
+            buzzerVolumeOverride = -1;
+            buzzerOff();
+        } else {
+            // Play the test pattern at maximum severity (3) to preview the urgent sound
+            playAssignedBuzzerPattern(testBuzzerPattern, 3, nowMs - testBuzzerStartMs, testBuzzerVolume);
+            return; // Block live warnings while testing
+        }
+    }
+
+    // --- 2. LIVE WARNING LOGIC ---
     std::string requestedType = normalizeBuzzerType(fusedType, fusedSeverity);
 
-    if (!buzzerEnabled || setupWizardBuzzerMuted || requestedType == "NONE" || fusedSeverity == 0) {
+    // Evaluate if the wizard has explicitly enabled or muted the system
+    bool effectiveBuzzerEnabled = buzzerEnabled || setupWizardBuzzerForceEnabled;
+    
+    if (!effectiveBuzzerEnabled || setupWizardBuzzerMuted || requestedType == "NONE" || fusedSeverity == 0) {
         if (activeBuzzerType != "NONE" && buzzerClearCandidateMs == 0) buzzerClearCandidateMs = nowMs;
         if (activeBuzzerType == "NONE" || (nowMs - buzzerClearCandidateMs) >= BUZZER_CLEAR_GRACE_MS) {
             activeBuzzerType = "NONE";
@@ -934,6 +961,23 @@ int main() {
                 return;
             }
 
+            } else if (data == "WIZARD_BUZZER_MUTE") {
+                setupWizardBuzzerMuted = true;
+                setupWizardBuzzerForceEnabled = false;
+                buzzerOff();
+                return;
+            } else if (data == "WIZARD_BUZZER_ENABLE") {
+                setupWizardBuzzerMuted = false;
+                setupWizardBuzzerForceEnabled = true;
+                return;
+            } else if (data == "WIZARD_BUZZER_RESTORE") {
+                setupWizardBuzzerMuted = false;
+                setupWizardBuzzerForceEnabled = false;
+                if (!buzzerEnabled) buzzerOff();
+                forceConfigBroadcast = true;
+                return;
+            }
+
             // 2. Process JSON commands
             try {
                 auto j = json::parse(data);
@@ -1010,6 +1054,16 @@ int main() {
                         
                         saveConfig();
                         forceConfigBroadcast = true;
+                    }
+
+                    } else if (cmd == "testSound") {
+                        if (j.contains("pattern")) testBuzzerPattern = j["pattern"].get<int>();
+                        if (j.contains("volume")) testBuzzerVolume = j["volume"].get<int>();
+                        
+                        testBuzzerStartMs = getMillis();
+                        testBuzzerUntilMs = testBuzzerStartMs + 1800; // Run test for 1.8 seconds
+                        buzzerTestActive = true;
+                        buzzerOff(); // Reset PWM phase for a clean start
                     }
                 }
             } catch (...) {} 
