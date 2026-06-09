@@ -56,6 +56,48 @@ void sendCanFrame(uint32_t id, uint8_t len, const uint8_t* data) {
     }
 }
 
+void sendLeanConfig() {
+    uint8_t data[8] = {0};
+    // Match the exact byte-packing mapping your ESP32 used:
+    data[0] = brainConfig.vehicleType;
+    
+    // Copy track width (float -> 4 bytes)
+    std::memcpy(&data[1], &brainConfig.trackWidth_m, sizeof(float));
+    
+    // Copy load condition
+    data[5] = brainConfig.loadCondition;
+    
+    sendCanFrame(0x110, 6, data);
+}
+
+void sendFrontConfig() {
+    uint8_t data[8] = {0};
+    data[0] = brainConfig.frontSensitivityPreset;
+    
+    // Copy wheelbase (float -> 4 bytes)
+    std::memcpy(&data[1], &brainConfig.wheelBase_m, sizeof(float));
+    
+    sendCanFrame(0x210, 5, data);
+}
+
+void sendRearConfig() {
+    uint8_t data[8] = {0};
+    data[0] = brainConfig.rearSensitivityPreset;
+    
+    // Copy vehicle height if required by your nodes
+    std::memcpy(&data[1], &brainConfig.vehicleHeight_m, sizeof(float));
+    
+    sendCanFrame(0x310, 5, data);
+}
+
+void sendAllConfigs() {
+    sendLeanConfig();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    sendFrontConfig();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    sendRearConfig();
+}
+
 // ================= CONFIG & DATA STRUCTS =================
 const uint8_t BUZZER_PATTERN_URGENT_TRIPLE = 0;
 const uint8_t BUZZER_PATTERN_WIDE_DOUBLE   = 1;
@@ -614,23 +656,36 @@ void udpListenerThread() {
 }
 
 void canListenerThread() {
-    int s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-    ifreq ifr;
-    strcpy(ifr.ifr_name, "can0");
-    ioctl(s, SIOCGIFINDEX, &ifr);
-    sockaddr_can addr{};
+    struct sockaddr_can addr;
+    struct ifreq ifr;
+
+    canSocketFd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    if (canSocketFd < 0) {
+        std::cerr << "Error opening SocketCAN raw socket\n";
+        return;
+    }
+
+    std::strcpy(ifr.ifr_name, "can0");
+    if (ioctl(canSocketFd, SIOCGIFINDEX, &ifr) < 0) {
+        std::cerr << "Error matching can0 interface\n";
+        close(canSocketFd);
+        canSocketFd = -1;
+        return;
+    }
+
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
-    bind(s, (sockaddr *)&addr, sizeof(addr));
 
-    // --- NEW: Setup UDP Sender for Port 5006 ---
-    int udpSock = socket(AF_INET, SOCK_DGRAM, 0);
-    sockaddr_in pyAddr{};
-    pyAddr.sin_family = AF_INET;
-    pyAddr.sin_port = htons(5006);
-    inet_pton(AF_INET, "127.0.0.1", &pyAddr.sin_addr);
+    if (bind(canSocketFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        std::cerr << "Error binding SocketCAN to can0\n";
+        close(canSocketFd);
+        canSocketFd = -1;
+        return;
+    }
 
-    can_frame frame;
+    std::cout << "SocketCAN (can0) successfully bound for bidirectional transfer.\n";
+
+    struct can_frame frame;
     while (true) {
         int nbytes = read(s, &frame, sizeof(can_frame));
         if (nbytes > 0) {
@@ -870,6 +925,7 @@ int main() {
                         if (j.contains("leanSoundVolume")) brainConfig.leanBuzzerVolume = j["leanSoundVolume"].get<int>();
                         
                         saveConfig(); // <-- Write to disk
+                        sendAllConfigs();
                         forceConfigBroadcast = true;
                         
                     } else if (data == "BUZZER_TOGGLE") {
