@@ -14,23 +14,36 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
+
+    // Pre-create stub typedefs.txt so syncLibJars configuration validation passes
+    // (extractAnnotations is disabled to avoid downloading large lint tool jars)
+    listOf(
+        "intermediates/annotations_typedef_file/debug/extractDebugAnnotations/typedefs.txt",
+        "intermediates/annotations_typedef_file/release/extractReleaseAnnotations/typedefs.txt"
+    ).forEach { relPath ->
+        val f = File(newSubprojectBuildDir.asFile, relPath)
+        f.parentFile.mkdirs()
+        if (!f.exists()) f.createNewFile()
+    }
 }
 
 subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// Force all Android modules to use the stable NDK version to fix CXX1101 errors
+// Force all Kotlin stdlib deps to match the compiler (2.3.10)
 subprojects {
-    afterEvaluate {
-        if (project.extensions.findByName("android") != null) {
-            val android = project.extensions.getByName("android")
-            // Use property setting which works across AGP versions in Kotlin DSL
-            try {
-                android.setProperty("ndkVersion", "27.0.12077973")
-            } catch (e: Exception) {
-                // Ignore if property doesn't exist
+    configurations.all {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.jetbrains.kotlin") {
+                useVersion("2.3.10")
             }
+        }
+    }
+    // Disable annotation extraction tasks — avoids downloading large lint tool jars
+    tasks.configureEach {
+        if (name.startsWith("extract") && name.endsWith("Annotations")) {
+            enabled = false
         }
     }
 }

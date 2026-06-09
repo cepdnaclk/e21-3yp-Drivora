@@ -381,12 +381,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> with SingleTick
           vehicleWidth: width,
           alertSensitivity: 5,
           audioVolume: 5,
-          soundProfiles: const {
-            'collision': 0,
-            'lane': 1,
-            'prox': 2,
-            'lean': 3,
-          },
         );
         print('🔴 Registration: Onboarding saved to Firebase: $onboardingSaved');
       }
