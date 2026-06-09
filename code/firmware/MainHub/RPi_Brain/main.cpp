@@ -508,7 +508,7 @@ void saveConfig() {
     j["leanBuzzerVolume"] = brainConfig.leanBuzzerVolume;
     j["buzzerEnabled"] = buzzerEnabled;
 
-    std::ofstream file("brain_config.json");
+    std::ofstream file("/home/pi/brain_config.json");
     if (file.is_open()) {
         file << j.dump(4); // Pretty print with 4 spaces
         file.close();
