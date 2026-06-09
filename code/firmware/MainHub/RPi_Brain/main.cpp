@@ -445,7 +445,6 @@ void updateCriticalIncidentDetection(unsigned long nowMs) {
     bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
     bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
 
-    bool frontCritical = !frontOffline && frontData.state == 3;
     bool rearCritical = !rearOffline && rearData.overallState == 3;
     bool leanCritical = !leanOffline && leanData.riskLevel == 2;
     bool laneCritical = !laneOffline && laneData.state != 0;
@@ -511,7 +510,6 @@ void udpListenerThread() {
             buffer[n] = '\0';
             try {
                 auto j = json::parse(buffer);
-                std::lock_guard<std::mutex> lock(stateMutex);
                 std::lock_guard<std::mutex> lock(stateMutex);
                 if (j.contains("state")) {
                     laneData.state = j["state"].get<uint8_t>();
