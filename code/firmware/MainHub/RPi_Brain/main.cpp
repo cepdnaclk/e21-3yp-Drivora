@@ -613,6 +613,32 @@ void loadConfig() {
     }
 }
 
+void resetConfigToDefaults() {
+    brainConfig.setupCompleted = false;
+    brainConfig.profileName = "Default";
+    brainConfig.vehicleType = 1; // 1 = Car/Sedan
+    brainConfig.trackWidth_m = 1.6f;
+    brainConfig.wheelBase_m = 2.7f;
+    brainConfig.vehicleHeight_m = 1.5f;
+    brainConfig.loadCondition = 0;
+    brainConfig.frontSensitivityPreset = 1; // Normal
+    brainConfig.rearSensitivityPreset = 1;  // Normal
+    brainConfig.centerCalibrated = false;
+    
+    brainConfig.frontBuzzerPattern = 1;
+    brainConfig.rearBuzzerPattern = 2;
+    brainConfig.laneBuzzerPattern = 3;
+    brainConfig.leanBuzzerPattern = 4;
+    
+    brainConfig.frontBuzzerVolume = 80;
+    brainConfig.rearBuzzerVolume = 80;
+    brainConfig.laneBuzzerVolume = 80;
+    brainConfig.leanBuzzerVolume = 80;
+    
+    buzzerEnabled = true;
+    saveConfig();
+}
+
 // ================= HARDWARE THREADS =================
 
 void buzzerThreadLoop() {
@@ -891,21 +917,52 @@ int main() {
             users.erase(&conn); 
         })
         .onmessage([&](crow::websocket::connection & /*conn*/, const std::string &data, bool is_binary) {
+            std::lock_guard<std::mutex> lock(stateMutex);
+
+            // 1. Process fallback raw actions FIRST (since they aren't JSON)
+            if (data == "BUZZER_TOGGLE") {
+                buzzerEnabled = !buzzerEnabled;
+                if (!buzzerEnabled) buzzerOff();
+                saveConfig();
+                forceConfigBroadcast = true;
+                return;
+            } else if (data == "CAL_CENTER") {
+                centerCalibrationRequested = true;
+                brainConfig.centerCalibrated = false;
+                saveConfig();
+                forceConfigBroadcast = true;
+                return;
+            }
+
+            // 2. Process JSON commands
             try {
                 auto j = json::parse(data);
-                std::lock_guard<std::mutex> lock(stateMutex);
                 if (j.contains("cmd")) {
                     std::string cmd = j["cmd"];
+                    
                     if (cmd == "incidentAck") {
                         acknowledgeIncident(j["incidentId"].get<uint32_t>());
+                        
                     } else if (cmd == "clearLocalStats") {
                         for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
                             incidentBuffer[i].used = false;
                             incidentBuffer[i].pendingAck = false;
                         }
                         lostIncidentCount = 0;
+                        
+                    } else if (cmd == "START_WIZARD") {
+                        brainConfig.setupCompleted = false;
+                        saveConfig();
+                        forceConfigBroadcast = true;
+
+                    } else if (cmd == "RESET_DEFAULTS") {
+                        resetConfigToDefaults();
+                        sendAllConfigs();
+                        forceConfigBroadcast = true;
+
                     } else if (cmd == "saveVehicle" || cmd == "saveAllSetup") {
                         if (j.contains("setupCompleted")) brainConfig.setupCompleted = j["setupCompleted"].get<bool>();
+                        if (j.contains("profileName")) brainConfig.profileName = j["profileName"].get<std::string>();
                         if (j.contains("vehicleType")) brainConfig.vehicleType = j["vehicleType"].get<int>();
                         if (j.contains("trackWidth_m")) brainConfig.trackWidth_m = j["trackWidth_m"].get<float>();
                         if (j.contains("wheelBase_m")) brainConfig.wheelBase_m = j["wheelBase_m"].get<float>();
@@ -924,22 +981,37 @@ int main() {
                         if (j.contains("laneSoundVolume")) brainConfig.laneBuzzerVolume = j["laneSoundVolume"].get<int>();
                         if (j.contains("leanSoundVolume")) brainConfig.leanBuzzerVolume = j["leanSoundVolume"].get<int>();
                         
-                        saveConfig(); // <-- Write to disk
+                        saveConfig(); 
                         sendAllConfigs();
                         forceConfigBroadcast = true;
-                        
-                    } else if (data == "BUZZER_TOGGLE") {
-                        buzzerEnabled = !buzzerEnabled;
-                        if (!buzzerEnabled) buzzerOff();
-                        saveConfig(); // <-- Write to disk
+
+                    } else if (cmd == "saveFrontPreset") {
+                        if (j.contains("frontPreset")) brainConfig.frontSensitivityPreset = j["frontPreset"].get<int>();
+                        saveConfig();
+                        sendFrontConfig();
                         forceConfigBroadcast = true;
+
+                    } else if (cmd == "saveRearPreset") {
+                        if (j.contains("rearPreset")) brainConfig.rearSensitivityPreset = j["rearPreset"].get<int>();
+                        saveConfig();
+                        sendRearConfig();
+                        forceConfigBroadcast = true;
+
+                    } else if (cmd == "saveSoundSettings") {
+                        if (j.contains("frontSoundPattern")) brainConfig.frontBuzzerPattern = j["frontSoundPattern"].get<int>();
+                        if (j.contains("rearSoundPattern")) brainConfig.rearBuzzerPattern = j["rearSoundPattern"].get<int>();
+                        if (j.contains("laneSoundPattern")) brainConfig.laneBuzzerPattern = j["laneSoundPattern"].get<int>();
+                        if (j.contains("leanSoundPattern")) brainConfig.leanBuzzerPattern = j["leanSoundPattern"].get<int>();
                         
-                    } else if (data == "CAL_CENTER") {
-                        centerCalibrationRequested = true;
-                        brainConfig.centerCalibrated = false;
-                        saveConfig(); // <-- Write to disk
+                        if (j.contains("frontSoundVolume")) brainConfig.frontBuzzerVolume = j["frontSoundVolume"].get<int>();
+                        if (j.contains("rearSoundVolume")) brainConfig.rearBuzzerVolume = j["rearSoundVolume"].get<int>();
+                        if (j.contains("laneSoundVolume")) brainConfig.laneBuzzerVolume = j["laneSoundVolume"].get<int>();
+                        if (j.contains("leanSoundVolume")) brainConfig.leanBuzzerVolume = j["leanSoundVolume"].get<int>();
+                        
+                        saveConfig();
                         forceConfigBroadcast = true;
                     }
+                }
             } catch (...) {} 
         });
 
