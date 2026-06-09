@@ -797,6 +797,7 @@ void broadcastThread() {
 // ================= MAIN HTTP/WS SERVER =================
 int main() {
     buzzerBegin();
+    loadConfig();
     crow::SimpleApp app;
 
     CROW_ROUTE(app, "/")([]() {
@@ -834,17 +835,37 @@ int main() {
                         if (j.contains("setupCompleted")) brainConfig.setupCompleted = j["setupCompleted"].get<bool>();
                         if (j.contains("vehicleType")) brainConfig.vehicleType = j["vehicleType"].get<int>();
                         if (j.contains("trackWidth_m")) brainConfig.trackWidth_m = j["trackWidth_m"].get<float>();
-                        // Extract remaining JSON configs similarly here
+                        if (j.contains("wheelBase_m")) brainConfig.wheelBase_m = j["wheelBase_m"].get<float>();
+                        if (j.contains("vehicleHeight_m")) brainConfig.vehicleHeight_m = j["vehicleHeight_m"].get<float>();
+                        if (j.contains("loadCondition")) brainConfig.loadCondition = j["loadCondition"].get<int>();
+                        if (j.contains("frontPreset")) brainConfig.frontSensitivityPreset = j["frontPreset"].get<int>();
+                        if (j.contains("rearPreset")) brainConfig.rearSensitivityPreset = j["rearPreset"].get<int>();
+                        
+                        if (j.contains("frontSoundPattern")) brainConfig.frontBuzzerPattern = j["frontSoundPattern"].get<int>();
+                        if (j.contains("rearSoundPattern")) brainConfig.rearBuzzerPattern = j["rearSoundPattern"].get<int>();
+                        if (j.contains("laneSoundPattern")) brainConfig.laneBuzzerPattern = j["laneSoundPattern"].get<int>();
+                        if (j.contains("leanSoundPattern")) brainConfig.leanBuzzerPattern = j["leanSoundPattern"].get<int>();
+                        
+                        if (j.contains("frontSoundVolume")) brainConfig.frontBuzzerVolume = j["frontSoundVolume"].get<int>();
+                        if (j.contains("rearSoundVolume")) brainConfig.rearBuzzerVolume = j["rearSoundVolume"].get<int>();
+                        if (j.contains("laneSoundVolume")) brainConfig.laneBuzzerVolume = j["laneSoundVolume"].get<int>();
+                        if (j.contains("leanSoundVolume")) brainConfig.leanBuzzerVolume = j["leanSoundVolume"].get<int>();
+                        
+                        saveConfig(); // <-- Write to disk
+                        forceConfigBroadcast = true;
+                        
+                    } else if (data == "BUZZER_TOGGLE") {
+                        buzzerEnabled = !buzzerEnabled;
+                        if (!buzzerEnabled) buzzerOff();
+                        saveConfig(); // <-- Write to disk
+                        forceConfigBroadcast = true;
+                        
+                    } else if (data == "CAL_CENTER") {
+                        centerCalibrationRequested = true;
+                        brainConfig.centerCalibrated = false;
+                        saveConfig(); // <-- Write to disk
                         forceConfigBroadcast = true;
                     }
-                } else if (data == "BUZZER_TOGGLE") {
-                    buzzerEnabled = !buzzerEnabled;
-                    if (!buzzerEnabled) buzzerOff();
-                    forceConfigBroadcast = true;
-                } else if (data == "CAL_CENTER") {
-                    centerCalibrationRequested = true;
-                    forceConfigBroadcast = true;
-                }
             } catch (...) {} 
         });
 
