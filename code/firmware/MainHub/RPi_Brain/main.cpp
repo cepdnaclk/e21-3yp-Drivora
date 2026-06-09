@@ -9,6 +9,7 @@
 #include <chrono>
 #include <unordered_set>
 #include <cmath>
+#include <atomic>
 
 // Linux networking and SocketCAN headers
 #include <sys/socket.h>
@@ -26,7 +27,7 @@ using json = nlohmann::json;
 // ================= GLOBAL STATE =================
 std::mutex stateMutex;
 std::unordered_set<crow::websocket::connection *> users;
-int64_t timeOffsetMs = 0;
+std::atomic<int64_t> timeOffsetMs{0};
 
 // ================= TIMING CONSTANTS =================
 const unsigned long UI_BROADCAST_MS     = 50;
@@ -97,6 +98,13 @@ void sendAllConfigs() {
     sendFrontConfig();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     sendRearConfig();
+}
+
+void sendLeanCalibrateCommand() {
+    uint8_t data[8] = {0};
+    data[0] = 0x01; // bit0 calibrate command
+    sendCanFrame(0x111, 8, data);
+    std::cout << "TX LeanCmd | CALIBRATE FRAME SENT\n";
 }
 
 // ================= CONFIG & DATA STRUCTS =================
@@ -196,7 +204,6 @@ int currentBuzzerFreq = -1;
 int currentBuzzerDuty = -1;
 
 // Buzzer Test & Wizard Override State
-bool setupWizardBuzzerMuted = false;
 bool setupWizardBuzzerForceEnabled = false;
 bool buzzerTestActive = false;
 uint8_t testBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
@@ -633,6 +640,32 @@ void updateIncidentLatch(bool active, unsigned long confirmMs, unsigned long &st
     }
 }
 
+std::string multiHazardMessage(bool frontCritical, bool rearCritical, bool leanCritical, bool laneCritical) {
+    std::string hazards = "";
+    if (frontCritical) hazards += "front collision risk";
+    if (rearCritical) {
+        if (!hazards.empty()) hazards += ", ";
+        uint8_t rearZoneIdx = rearRiskZoneIndexForIncident();
+        std::string rearZone = rearZoneNameFromIndex(rearZoneIdx);
+        if (rearZone == "LEFT") hazards += "rear left blindspot risk";
+        else if (rearZone == "RIGHT") hazards += "rear right blindspot risk";
+        else if (rearZone == "CENTER") hazards += "rear center obstacle risk";
+        else hazards += "rear blindspot risk";
+    }
+    if (leanCritical) {
+        if (!hazards.empty()) hazards += ", ";
+        hazards += "high lean risk";
+    }
+    if (laneCritical) {
+        if (!hazards.empty()) hazards += ", ";
+        if (laneData.state == 1) hazards += "left lane departure";
+        else if (laneData.state == 2) hazards += "right lane departure";
+        else hazards += "lane departure";
+    }
+    if (hazards.empty()) return "Multiple critical safety warnings were active at the same time.";
+    return "Detected together: " + hazards + ".";
+}
+
 void updateCriticalIncidentDetection(unsigned long nowMs) {
     bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
     bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
@@ -654,7 +687,8 @@ void updateCriticalIncidentDetection(unsigned long nowMs) {
     updateIncidentLatch(laneCritical, LANE_CRITICAL_CONFIRM_MS, laneCriticalStartMs, laneCriticalLogged, lastLaneIncidentMs, nowMs, laneStr, 2, "lane", laneTitle, "A lane departure warning was detected.");
 
     uint8_t seriousCount = (frontCritical?1:0) + (rearCritical?1:0) + (leanCritical?1:0) + (laneCritical?1:0);
-    updateIncidentLatch(seriousCount >= 2, MULTI_HAZARD_CONFIRM_MS, multiHazardStartMs, multiHazardLogged, lastMultiIncidentMs, nowMs, "MULTI_HAZARD", 3, "multiple", "Multiple Safety Warnings", "Multiple critical safety warnings were active at the same time.");
+    std::string multiMsg = multiHazardMessage(frontCritical, rearCritical, leanCritical, laneCritical);
+    updateIncidentLatch(seriousCount >= 2, MULTI_HAZARD_CONFIRM_MS, multiHazardStartMs, multiHazardLogged, lastMultiIncidentMs, nowMs, "MULTI_HAZARD", 3, "multiple", "Multiple Safety Warnings", multiMsg);
 }
 
 json buildIncidentJson(const IncidentRecord &inc) {
@@ -845,9 +879,18 @@ void canListenerThread() {
 
     std::cout << "SocketCAN (can0) successfully bound for bidirectional transfer.\n";
 
+    // --- ADD THIS UDP INITIALIZATION BLOCK ---
+    int udpSock = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in pyAddr{};
+    pyAddr.sin_family = AF_INET;
+    pyAddr.sin_port = htons(5006); // Python script listening port
+    inet_pton(AF_INET, "127.0.0.1", &pyAddr.sin_addr);
+    // -----------------------------------------
+
+
     struct can_frame frame;
     while (true) {
-        int nbytes = read(s, &frame, sizeof(can_frame));
+        int nbytes = read(canSocketFd, &frame, sizeof(can_frame));
         if (nbytes > 0) {
             std::lock_guard<std::mutex> lock(stateMutex);
             unsigned long nowMs = getMillis();
@@ -864,12 +907,23 @@ void canListenerThread() {
                 leanData.online = true;
                 leanData.lastUpdateMs = nowMs;
             }
+
+            if (centerCalibrationRequested && leanData.calibrated) {
+                    brainConfig.centerCalibrated = true;
+                    centerCalibrationRequested = false;
+                    saveConfig();
+                    forceConfigBroadcast = true;
+                }
             
             // ── NEW: Front Sensor CAN Parser (ID 0x200) & UDP Bridge ──
             if (frame.can_id == 0x200 && frame.can_dlc >= 4) {
                 frontData.state = frame.data[0];
-                int16_t distRaw = frame.data[1] | (frame.data[2] << 8);
-                frontData.filteredDistanceCm = distRaw / 10.0f;
+                uint16_t distRaw = frame.data[1] | (frame.data[2] << 8);
+                if (distRaw == 0xFFFF) {
+                    frontData.filteredDistanceCm = -1.0f;
+                } else {
+                    frontData.filteredDistanceCm = distRaw / 10.0f;
+                }
                 frontData.online = true;
                 frontData.lastUpdateMs = nowMs;
 
@@ -907,8 +961,12 @@ void broadcastThread() {
 
         if (!leanOffline && leanData.riskLevel == 2) {
             fusedType = "LEAN_HIGH"; fusedTitle = "High Lean Risk"; fusedMessage = "Vehicle lean angle is high. Reduce speed and stabilize the vehicle."; fusedColor = "#ff3b30"; fusedSeverity = 3;
-        } else if (!frontOffline && frontData.state == 3) {
+        
+        // --- ADD THE VISION GATE HERE ---
+        } else if (!frontOffline && frontData.state == 3 && frontData.visionValidated) {
             fusedType = "FRONT_WARNING"; fusedTitle = "Front Collision Warning"; fusedMessage = "Obstacle ahead with high risk. Brake or slow down."; fusedColor = "#ff3b30"; fusedSeverity = 3;
+        // --------------------------------
+
         } else if (!rearOffline && rearData.overallState == 3) {
             fusedType = "REAR_WARNING"; fusedTitle = "Rear Blindspot Warning"; fusedMessage = "Very close object detected behind the vehicle."; fusedColor = "#ff3b30"; fusedSeverity = 3;
         } else if (!laneOffline && laneData.state == 1) {
@@ -917,12 +975,19 @@ void broadcastThread() {
             fusedType = "LANE_RIGHT"; fusedTitle = "Right Lane Departure"; fusedMessage = "Vehicle is drifting toward the right lane marking."; fusedColor = "#ffb020"; fusedSeverity = 2;
         } else if (!leanOffline && leanData.riskLevel == 1) {
             fusedType = "LEAN_CAUTION"; fusedTitle = "Lean Caution"; fusedMessage = "Vehicle lean is increasing. Drive carefully."; fusedColor = "#ffb020"; fusedSeverity = 2;
-        } else if (!frontOffline && frontData.state == 2) {
+        
+        // --- ADD THE VISION GATE HERE ---
+        } else if (!frontOffline && frontData.state == 2 && frontData.visionValidated) {
             fusedType = "FRONT_APPROACHING"; fusedTitle = "Object Approaching"; fusedMessage = "Object ahead is getting closer."; fusedColor = "#ff7230"; fusedSeverity = 2;
+        // --------------------------------
+
         } else if (!rearOffline && rearData.overallState == 2) {
             fusedType = "REAR_CAUTION"; fusedTitle = "Rear Caution"; fusedMessage = "Object detected close to the rear blindspot area."; fusedColor = "#ffb020"; fusedSeverity = 2;
-        } else if (!frontOffline && frontData.state == 1) {
+        
+        // --- ADD THE VISION GATE HERE ---
+        } else if (!frontOffline && frontData.state == 1 && frontData.visionValidated) {
             fusedType = "FRONT_OBJECT"; fusedTitle = "Object Ahead"; fusedMessage = "Object detected in front."; fusedColor = "#f5c542"; fusedSeverity = 1;
+        // --------------------------------
         } else if (!rearOffline && rearData.overallState == 1) {
             fusedType = "REAR_OBJECT"; fusedTitle = "Rear Object Detected"; fusedMessage = "Object detected behind the vehicle."; fusedColor = "#f5c542"; fusedSeverity = 1;
         }
@@ -940,6 +1005,7 @@ void broadcastThread() {
 
         if (includeConfig) {
             payload["config"]["setupCompleted"] = brainConfig.setupCompleted ? 1 : 0;
+            payload["config"]["wifiConfigured"] = 1;
             payload["config"]["profileName"] = brainConfig.profileName;
             payload["config"]["vehicleType"] = brainConfig.vehicleType;
             payload["config"]["vehicleTypeName"] = vehicleTypeName(brainConfig.vehicleType);
@@ -1065,10 +1131,11 @@ int main() {
                 brainConfig.centerCalibrated = false;
                 saveConfig();
                 forceConfigBroadcast = true;
+                sendLeanCalibrateCommand();
                 return;
             }
 
-            } else if (data == "WIZARD_BUZZER_MUTE") {
+            else if (data == "WIZARD_BUZZER_MUTE") {
                 setupWizardBuzzerMuted = true;
                 setupWizardBuzzerForceEnabled = false;
                 buzzerOff();
@@ -1172,7 +1239,6 @@ int main() {
                         
                         saveConfig();
                         forceConfigBroadcast = true;
-                    }
 
                     } else if (cmd == "testSound") {
                         if (j.contains("pattern")) testBuzzerPattern = j["pattern"].get<int>();
