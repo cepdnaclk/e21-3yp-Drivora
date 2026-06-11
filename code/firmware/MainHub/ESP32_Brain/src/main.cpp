@@ -45,7 +45,19 @@ static const int BUZZER_CHANNEL = 0;
 static const int BUZZER_RESOLUTION = 10;
 
 bool buzzerEnabled = true;
+bool setupWizardBuzzerMuted = false;
 int currentBuzzerFreq = -1;
+int currentBuzzerDuty = -1;
+
+// Buzzer pattern IDs used by Settings/Wizard.
+// 0 = Urgent Triple Pulse, 1 = Wide Double Pulse, 2 = Quick Double Tap, 3 = Two-Tone Stability
+const uint8_t BUZZER_PATTERN_URGENT_TRIPLE = 0;
+const uint8_t BUZZER_PATTERN_WIDE_DOUBLE   = 1;
+const uint8_t BUZZER_PATTERN_QUICK_DOUBLE  = 2;
+const uint8_t BUZZER_PATTERN_TWO_TONE      = 3;
+
+const uint8_t BUZZER_VOLUME_MIN = 30;
+const uint8_t BUZZER_VOLUME_MAX = 100;
 
 // Buzzer state machine.
 // This prevents two practical issues:
@@ -66,6 +78,18 @@ const unsigned long BUZZER_CLEAR_GRACE_MS = 260;
 String currentFusedType = "NONE";
 uint8_t currentFusedSeverity = 0;
 
+// Short manual buzzer test state used by the Settings/Wizard test buttons.
+// It does not affect the saved buzzer on/off preference or active warning logic.
+bool buzzerTestActive = false;
+uint8_t testBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
+uint8_t testBuzzerVolume = 100;
+unsigned long testBuzzerStartMs = 0;
+unsigned long testBuzzerUntilMs = 0;
+int buzzerVolumeOverride = -1;
+
+void buzzerOff();
+void startBuzzerTest(uint8_t pattern, uint8_t volumePercent);
+
 // ================= CONFIG MODEL =================
 struct BrainConfig {
   bool setupCompleted = false;
@@ -81,6 +105,16 @@ struct BrainConfig {
   uint8_t rearSensitivityPreset  = 1; // 0 near, 1 normal, 2 far
 
   bool centerCalibrated = false;
+
+  uint8_t frontBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
+  uint8_t rearBuzzerPattern  = BUZZER_PATTERN_WIDE_DOUBLE;
+  uint8_t laneBuzzerPattern  = BUZZER_PATTERN_QUICK_DOUBLE;
+  uint8_t leanBuzzerPattern  = BUZZER_PATTERN_TWO_TONE;
+
+  uint8_t frontBuzzerVolume = 100;
+  uint8_t rearBuzzerVolume  = 100;
+  uint8_t laneBuzzerVolume  = 100;
+  uint8_t leanBuzzerVolume  = 100;
 };
 
 BrainConfig brainConfig;
@@ -323,6 +357,61 @@ float clampf(float x, float lo, float hi) {
   return x;
 }
 
+
+uint8_t clampBuzzerPattern(int v) {
+  if (v < 0) return 0;
+  if (v > 3) return 3;
+  return (uint8_t)v;
+}
+
+uint8_t clampBuzzerVolume(int v) {
+  if (v < BUZZER_VOLUME_MIN) return BUZZER_VOLUME_MIN;
+  if (v > BUZZER_VOLUME_MAX) return BUZZER_VOLUME_MAX;
+  return (uint8_t)v;
+}
+
+void enforceUniqueBuzzerPatterns() {
+  uint8_t used[4] = {0, 0, 0, 0};
+  uint8_t* patternSlots[4] = {
+    &brainConfig.frontBuzzerPattern,
+    &brainConfig.rearBuzzerPattern,
+    &brainConfig.laneBuzzerPattern,
+    &brainConfig.leanBuzzerPattern
+  };
+
+  for (int i = 0; i < 4; i++) {
+    *patternSlots[i] = clampBuzzerPattern(*patternSlots[i]);
+    if (!used[*patternSlots[i]]) {
+      used[*patternSlots[i]] = 1;
+    } else {
+      for (uint8_t p = 0; p < 4; p++) {
+        if (!used[p]) {
+          *patternSlots[i] = p;
+          used[p] = 1;
+          break;
+        }
+      }
+    }
+  }
+}
+
+bool areBuzzerPatternsUnique(uint8_t frontP, uint8_t rearP, uint8_t laneP, uint8_t leanP) {
+  uint8_t seen[4] = {0, 0, 0, 0};
+  uint8_t values[4] = {
+    clampBuzzerPattern(frontP),
+    clampBuzzerPattern(rearP),
+    clampBuzzerPattern(laneP),
+    clampBuzzerPattern(leanP)
+  };
+
+  for (int i = 0; i < 4; i++) {
+    if (seen[values[i]]) return false;
+    seen[values[i]] = 1;
+  }
+
+  return true;
+}
+
 // ================= PREFERENCES =================
 void loadConfig() {
   prefs.begin("drivora", true);
@@ -341,6 +430,18 @@ void loadConfig() {
 
   brainConfig.centerCalibrated = prefs.getBool("centerCal", false);
 
+  brainConfig.frontBuzzerPattern = prefs.getUChar("fBuzzPat", BUZZER_PATTERN_URGENT_TRIPLE);
+  brainConfig.rearBuzzerPattern  = prefs.getUChar("rBuzzPat", BUZZER_PATTERN_WIDE_DOUBLE);
+  brainConfig.laneBuzzerPattern  = prefs.getUChar("lBuzzPat", BUZZER_PATTERN_QUICK_DOUBLE);
+  brainConfig.leanBuzzerPattern  = prefs.getUChar("nBuzzPat", BUZZER_PATTERN_TWO_TONE);
+
+  brainConfig.frontBuzzerVolume = prefs.getUChar("fBuzzVol", 100);
+  brainConfig.rearBuzzerVolume  = prefs.getUChar("rBuzzVol", 100);
+  brainConfig.laneBuzzerVolume  = prefs.getUChar("lBuzzVol", 100);
+  brainConfig.leanBuzzerVolume  = prefs.getUChar("nBuzzVol", 100);
+
+  buzzerEnabled = prefs.getBool("buzzEn", true);
+
   prefs.end();
 
   brainConfig.vehicleType = constrain(brainConfig.vehicleType, 1, 3);
@@ -350,6 +451,18 @@ void loadConfig() {
   brainConfig.loadCondition = constrain(brainConfig.loadCondition, 0, 2);
   brainConfig.frontSensitivityPreset = constrain(brainConfig.frontSensitivityPreset, 0, 2);
   brainConfig.rearSensitivityPreset = constrain(brainConfig.rearSensitivityPreset, 0, 2);
+
+  brainConfig.frontBuzzerPattern = clampBuzzerPattern(brainConfig.frontBuzzerPattern);
+  brainConfig.rearBuzzerPattern  = clampBuzzerPattern(brainConfig.rearBuzzerPattern);
+  brainConfig.laneBuzzerPattern  = clampBuzzerPattern(brainConfig.laneBuzzerPattern);
+  brainConfig.leanBuzzerPattern  = clampBuzzerPattern(brainConfig.leanBuzzerPattern);
+
+  brainConfig.frontBuzzerVolume = clampBuzzerVolume(brainConfig.frontBuzzerVolume);
+  brainConfig.rearBuzzerVolume  = clampBuzzerVolume(brainConfig.rearBuzzerVolume);
+  brainConfig.laneBuzzerVolume  = clampBuzzerVolume(brainConfig.laneBuzzerVolume);
+  brainConfig.leanBuzzerVolume  = clampBuzzerVolume(brainConfig.leanBuzzerVolume);
+
+  enforceUniqueBuzzerPatterns();
 }
 
 void saveConfig() {
@@ -368,6 +481,17 @@ void saveConfig() {
   prefs.putUChar("rearPre", brainConfig.rearSensitivityPreset);
 
   prefs.putBool("centerCal", brainConfig.centerCalibrated);
+  prefs.putBool("buzzEn", buzzerEnabled);
+
+  prefs.putUChar("fBuzzPat", brainConfig.frontBuzzerPattern);
+  prefs.putUChar("rBuzzPat", brainConfig.rearBuzzerPattern);
+  prefs.putUChar("lBuzzPat", brainConfig.laneBuzzerPattern);
+  prefs.putUChar("nBuzzPat", brainConfig.leanBuzzerPattern);
+
+  prefs.putUChar("fBuzzVol", brainConfig.frontBuzzerVolume);
+  prefs.putUChar("rBuzzVol", brainConfig.rearBuzzerVolume);
+  prefs.putUChar("lBuzzVol", brainConfig.laneBuzzerVolume);
+  prefs.putUChar("nBuzzVol", brainConfig.leanBuzzerVolume);
 
   prefs.end();
 }
@@ -492,6 +616,19 @@ void resetConfigToDefaults() {
   brainConfig.frontSensitivityPreset = 1;
   brainConfig.rearSensitivityPreset = 1;
   brainConfig.centerCalibrated = false;
+
+  brainConfig.frontBuzzerPattern = BUZZER_PATTERN_URGENT_TRIPLE;
+  brainConfig.rearBuzzerPattern  = BUZZER_PATTERN_WIDE_DOUBLE;
+  brainConfig.laneBuzzerPattern  = BUZZER_PATTERN_QUICK_DOUBLE;
+  brainConfig.leanBuzzerPattern  = BUZZER_PATTERN_TWO_TONE;
+
+  brainConfig.frontBuzzerVolume = 100;
+  brainConfig.rearBuzzerVolume  = 100;
+  brainConfig.laneBuzzerVolume  = 100;
+  brainConfig.leanBuzzerVolume  = 100;
+
+  buzzerEnabled = true;
+
   centerCalibrationRequested = false;
   saveConfig();
   forceConfigBroadcast = true;
@@ -653,6 +790,46 @@ void handleIncomingCommand(const String& msg) {
 
   if (msg == "PING") return;
 
+  if (msg == "WIZARD_BUZZER_MUTE") {
+    setupWizardBuzzerMuted = true;
+    buzzerOff();
+    Serial.println("Wizard buzzer temporarily muted");
+    return;
+  }
+
+  if (msg == "WIZARD_BUZZER_ENABLE") {
+    setupWizardBuzzerMuted = false;
+    Serial.println("Wizard buzzer temporarily enabled");
+    return;
+  }
+
+  if (msg == "BUZZER_TOGGLE") {
+    buzzerEnabled = !buzzerEnabled;
+    if (!buzzerEnabled) buzzerOff();
+    saveConfig();
+    forceConfigBroadcast = true;
+    Serial.print("Buzzer ");
+    Serial.println(buzzerEnabled ? "ENABLED" : "DISABLED");
+    return;
+  }
+
+  if (msg == "BUZZER_ON") {
+    buzzerEnabled = true;
+    saveConfig();
+    forceConfigBroadcast = true;
+    Serial.println("Buzzer ENABLED");
+    return;
+  }
+
+  if (msg == "BUZZER_OFF") {
+    buzzerEnabled = false;
+    buzzerOff();
+    saveConfig();
+    forceConfigBroadcast = true;
+    Serial.println("Buzzer DISABLED");
+    return;
+  }
+
   if (msg == "CAL_CENTER") {
     sendLeanCalibrateCommand();
     return;
@@ -672,6 +849,8 @@ void handleIncomingCommand(const String& msg) {
     brainConfig.setupCompleted = false;
     brainConfig.centerCalibrated = false;
     centerCalibrationRequested = false;
+    setupWizardBuzzerMuted = true;
+    buzzerOff();
     saveConfig();
     Serial.println("Setup wizard started; dashboard locked until setup completion");
     return;
@@ -704,6 +883,13 @@ void handleIncomingCommand(const String& msg) {
       return fallback;
     };
 
+    if (msg.indexOf("\"cmd\":\"testSound\"") >= 0) {
+      uint8_t pattern = clampBuzzerPattern(readInt("pattern", BUZZER_PATTERN_URGENT_TRIPLE));
+      uint8_t volume = clampBuzzerVolume(readInt("volume", 100));
+      startBuzzerTest(pattern, volume);
+      return;
+    }
+
     if (msg.indexOf("\"cmd\":\"saveVehicle\"") >= 0) {
       brainConfig.vehicleType = constrain(readInt("vehicleType", brainConfig.vehicleType), 1, 3);
       brainConfig.trackWidth_m = clampf(readNumber("trackWidth_m", brainConfig.trackWidth_m), 0.80f, 4.00f);
@@ -735,6 +921,34 @@ void handleIncomingCommand(const String& msg) {
       return;
     }
 
+    if (msg.indexOf("\"cmd\":\"saveSoundSettings\"") >= 0) {
+      uint8_t frontPattern = clampBuzzerPattern(readInt("frontSoundPattern", brainConfig.frontBuzzerPattern));
+      uint8_t rearPattern  = clampBuzzerPattern(readInt("rearSoundPattern", brainConfig.rearBuzzerPattern));
+      uint8_t lanePattern  = clampBuzzerPattern(readInt("laneSoundPattern", brainConfig.laneBuzzerPattern));
+      uint8_t leanPattern  = clampBuzzerPattern(readInt("leanSoundPattern", brainConfig.leanBuzzerPattern));
+
+      if (!areBuzzerPatternsUnique(frontPattern, rearPattern, lanePattern, leanPattern)) {
+        Serial.println("Sound settings rejected: duplicate buzzer patterns");
+        forceConfigBroadcast = true;
+        return;
+      }
+
+      brainConfig.frontBuzzerPattern = frontPattern;
+      brainConfig.rearBuzzerPattern  = rearPattern;
+      brainConfig.laneBuzzerPattern  = lanePattern;
+      brainConfig.leanBuzzerPattern  = leanPattern;
+
+      brainConfig.frontBuzzerVolume = clampBuzzerVolume(readInt("frontSoundVolume", brainConfig.frontBuzzerVolume));
+      brainConfig.rearBuzzerVolume  = clampBuzzerVolume(readInt("rearSoundVolume", brainConfig.rearBuzzerVolume));
+      brainConfig.laneBuzzerVolume  = clampBuzzerVolume(readInt("laneSoundVolume", brainConfig.laneBuzzerVolume));
+      brainConfig.leanBuzzerVolume  = clampBuzzerVolume(readInt("leanSoundVolume", brainConfig.leanBuzzerVolume));
+
+      saveConfig();
+      forceConfigBroadcast = true;
+      Serial.println("Sound settings saved");
+      return;
+    }
+
     if (msg.indexOf("\"cmd\":\"saveAllSetup\"") >= 0) {
       brainConfig.vehicleType = constrain(readInt("vehicleType", brainConfig.vehicleType), 1, 3);
       brainConfig.trackWidth_m = clampf(readNumber("trackWidth_m", brainConfig.trackWidth_m), 0.80f, 4.00f);
@@ -743,7 +957,26 @@ void handleIncomingCommand(const String& msg) {
       brainConfig.loadCondition = constrain(readInt("loadCondition", brainConfig.loadCondition), 0, 2);
       brainConfig.frontSensitivityPreset = constrain(readInt("frontPreset", brainConfig.frontSensitivityPreset), 0, 2);
       brainConfig.rearSensitivityPreset = constrain(readInt("rearPreset", brainConfig.rearSensitivityPreset), 0, 2);
+
+      uint8_t frontPattern = clampBuzzerPattern(readInt("frontSoundPattern", brainConfig.frontBuzzerPattern));
+      uint8_t rearPattern  = clampBuzzerPattern(readInt("rearSoundPattern", brainConfig.rearBuzzerPattern));
+      uint8_t lanePattern  = clampBuzzerPattern(readInt("laneSoundPattern", brainConfig.laneBuzzerPattern));
+      uint8_t leanPattern  = clampBuzzerPattern(readInt("leanSoundPattern", brainConfig.leanBuzzerPattern));
+
+      if (areBuzzerPatternsUnique(frontPattern, rearPattern, lanePattern, leanPattern)) {
+        brainConfig.frontBuzzerPattern = frontPattern;
+        brainConfig.rearBuzzerPattern  = rearPattern;
+        brainConfig.laneBuzzerPattern  = lanePattern;
+        brainConfig.leanBuzzerPattern  = leanPattern;
+      }
+
+      brainConfig.frontBuzzerVolume = clampBuzzerVolume(readInt("frontSoundVolume", brainConfig.frontBuzzerVolume));
+      brainConfig.rearBuzzerVolume  = clampBuzzerVolume(readInt("rearSoundVolume", brainConfig.rearBuzzerVolume));
+      brainConfig.laneBuzzerVolume  = clampBuzzerVolume(readInt("laneSoundVolume", brainConfig.laneBuzzerVolume));
+      brainConfig.leanBuzzerVolume  = clampBuzzerVolume(readInt("leanSoundVolume", brainConfig.leanBuzzerVolume));
+
       brainConfig.setupCompleted = true;
+      setupWizardBuzzerMuted = false;
       saveConfig();
       forceConfigBroadcast = true;
       sendAllConfigs();
@@ -758,28 +991,142 @@ void buzzerBegin() {
   ledcSetup(BUZZER_CHANNEL, 2000, BUZZER_RESOLUTION);
   ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
   ledcWriteTone(BUZZER_CHANNEL, 0);
+  ledcWrite(BUZZER_CHANNEL, 0);
   currentBuzzerFreq = 0;
+  currentBuzzerDuty = 0;
 }
 
 void buzzerOff();
 
+uint16_t buzzerDutyFromVolume(uint8_t volumePercent) {
+  volumePercent = clampBuzzerVolume(volumePercent);
+
+  // 10-bit PWM. 100% keeps the current/default loudness level.
+  // Minimum is still audible but intentionally limited so vehicle warnings do not become too quiet.
+  return map(volumePercent, BUZZER_VOLUME_MIN, BUZZER_VOLUME_MAX, 155, 512);
+}
+
+uint8_t getBuzzerVolumeForType(const String& buzzerType) {
+  if (buzzerType == "FRONT_ALERT") return brainConfig.frontBuzzerVolume;
+  if (buzzerType == "REAR_ALERT") return brainConfig.rearBuzzerVolume;
+  if (buzzerType == "LANE_WARNING") return brainConfig.laneBuzzerVolume;
+  if (buzzerType == "LEAN_HIGH" || buzzerType == "LEAN_CAUTION") return brainConfig.leanBuzzerVolume;
+  return 100;
+}
+
+uint8_t getBuzzerPatternForType(const String& buzzerType) {
+  if (buzzerType == "FRONT_ALERT") return brainConfig.frontBuzzerPattern;
+  if (buzzerType == "REAR_ALERT") return brainConfig.rearBuzzerPattern;
+  if (buzzerType == "LANE_WARNING") return brainConfig.laneBuzzerPattern;
+  if (buzzerType == "LEAN_HIGH" || buzzerType == "LEAN_CAUTION") return brainConfig.leanBuzzerPattern;
+  return BUZZER_PATTERN_URGENT_TRIPLE;
+}
+
 void buzzerTone(int freq) {
-  if (!buzzerEnabled || freq <= 0) {
+  if (((!buzzerEnabled || setupWizardBuzzerMuted) && !buzzerTestActive) || freq <= 0) {
     buzzerOff();
     return;
   }
 
-  if (currentBuzzerFreq != freq) {
+  uint8_t volumeForTone = (buzzerVolumeOverride >= 0)
+                            ? (uint8_t)buzzerVolumeOverride
+                            : getBuzzerVolumeForType(activeBuzzerType);
+  uint16_t duty = buzzerDutyFromVolume(volumeForTone);
+
+  if (currentBuzzerFreq != freq || currentBuzzerDuty != duty) {
     ledcWriteTone(BUZZER_CHANNEL, freq);
+    ledcWrite(BUZZER_CHANNEL, duty);
     currentBuzzerFreq = freq;
+    currentBuzzerDuty = duty;
   }
 }
 
 void buzzerOff() {
-  if (currentBuzzerFreq != 0) {
+  if (currentBuzzerFreq != 0 || currentBuzzerDuty != 0) {
     ledcWriteTone(BUZZER_CHANNEL, 0);
+    ledcWrite(BUZZER_CHANNEL, 0);
     currentBuzzerFreq = 0;
+    currentBuzzerDuty = 0;
   }
+}
+
+void playAssignedBuzzerPattern(uint8_t pattern, uint8_t severity, unsigned long t) {
+  pattern = clampBuzzerPattern(pattern);
+
+  if (pattern == BUZZER_PATTERN_URGENT_TRIPLE) {
+    unsigned long p;
+    if (severity >= 3) {
+      p = t % 420;
+      if (p < 75 || (p >= 135 && p < 210) || (p >= 270 && p < 345)) buzzerTone(2200);
+      else buzzerOff();
+    } else if (severity == 2) {
+      p = t % 620;
+      if (p < 95 || (p >= 210 && p < 305)) buzzerTone(2200);
+      else buzzerOff();
+    } else {
+      p = t % 850;
+      if (p < 120) buzzerTone(2200);
+      else buzzerOff();
+    }
+    return;
+  }
+
+  if (pattern == BUZZER_PATTERN_WIDE_DOUBLE) {
+    unsigned long p;
+    if (severity >= 3) {
+      p = t % 640;
+      if (p < 130 || (p >= 280 && p < 410)) buzzerTone(2150);
+      else buzzerOff();
+    } else if (severity == 2) {
+      p = t % 780;
+      if (p < 140) buzzerTone(2150);
+      else buzzerOff();
+    } else {
+      p = t % 980;
+      if (p < 110) buzzerTone(2150);
+      else buzzerOff();
+    }
+    return;
+  }
+
+  if (pattern == BUZZER_PATTERN_QUICK_DOUBLE) {
+    unsigned long p = severity >= 3 ? (t % 620) : (t % 820);
+    if (p < 70 || (p >= 145 && p < 215)) buzzerTone(2250);
+    else buzzerOff();
+    return;
+  }
+
+  if (pattern == BUZZER_PATTERN_TWO_TONE) {
+    unsigned long p = severity >= 3 ? (t % 600) : (t % 860);
+    if (severity >= 3) {
+      if (p < 180) buzzerTone(2200);
+      else if (p >= 300 && p < 480) buzzerTone(2350);
+      else buzzerOff();
+    } else {
+      if (p < 130) buzzerTone(2300);
+      else buzzerOff();
+    }
+    return;
+  }
+
+  buzzerOff();
+}
+
+void startBuzzerTest(uint8_t pattern, uint8_t volumePercent) {
+  testBuzzerPattern = clampBuzzerPattern(pattern);
+  testBuzzerVolume = clampBuzzerVolume(volumePercent);
+  testBuzzerStartMs = millis();
+  testBuzzerUntilMs = testBuzzerStartMs + 1800;
+  buzzerTestActive = true;
+  buzzerVolumeOverride = testBuzzerVolume;
+
+  // Stop any live-warning tone briefly so the selected pattern test starts cleanly.
+  buzzerOff();
+
+  Serial.print("Buzzer test | pattern=");
+  Serial.print(testBuzzerPattern);
+  Serial.print(" volume=");
+  Serial.println(testBuzzerVolume);
 }
 
 String normalizeBuzzerType(const String& fusedType, uint8_t fusedSeverity) {
@@ -811,7 +1158,7 @@ String normalizeBuzzerType(const String& fusedType, uint8_t fusedSeverity) {
 }
 
 void selectActiveBuzzerType(const String& requestedType, uint8_t requestedSeverity, unsigned long nowMs) {
-  if (!buzzerEnabled || requestedType == "NONE" || requestedSeverity == 0) {
+  if (!buzzerEnabled || setupWizardBuzzerMuted || requestedType == "NONE" || requestedSeverity == 0) {
     if (activeBuzzerType != "NONE" && buzzerClearCandidateMs == 0) {
       buzzerClearCandidateMs = nowMs;
     }
@@ -854,11 +1201,24 @@ void selectActiveBuzzerType(const String& requestedType, uint8_t requestedSeveri
 }
 
 void updateBuzzerByFusedType(const String& fusedType, uint8_t fusedSeverity, unsigned long nowMs) {
+  if (buzzerTestActive) {
+    if (nowMs >= testBuzzerUntilMs) {
+      buzzerTestActive = false;
+      buzzerVolumeOverride = -1;
+      buzzerOff();
+    } else {
+      buzzerVolumeOverride = testBuzzerVolume;
+      playAssignedBuzzerPattern(testBuzzerPattern, 3, nowMs - testBuzzerStartMs);
+      buzzerVolumeOverride = -1;
+      return;
+    }
+  }
+
   String requestedType = normalizeBuzzerType(fusedType, fusedSeverity);
 
   selectActiveBuzzerType(requestedType, fusedSeverity, nowMs);
 
-  if (!buzzerEnabled || activeBuzzerType == "NONE" || activeBuzzerSeverity == 0) {
+  if (!buzzerEnabled || setupWizardBuzzerMuted || activeBuzzerType == "NONE" || activeBuzzerSeverity == 0) {
     buzzerOff();
     return;
   }
@@ -871,99 +1231,12 @@ void updateBuzzerByFusedType(const String& fusedType, uint8_t fusedSeverity, uns
   unsigned long t = nowMs - buzzerPatternStartMs;
 
   // Loud vehicle-use tone plan:
-  // The buzzer is strongest around 2200 Hz, so all warning families stay close
-  // to that resonant area. Unit identity is separated mainly by cadence/melody,
-  // not by moving far away from the loud frequency range.
-
-  // FRONT ALERT:
-  // Highest priority. Uses the strongest 2200 Hz tone.
-  // Warning  = urgent triple pulse
-  // Caution  = medium double pulse
-  // Object   = slow single pulse
-  if (activeBuzzerType == "FRONT_ALERT") {
-    unsigned long p;
-    if (activeBuzzerSeverity >= 3) {
-      p = t % 420;
-      if (p < 75 || (p >= 135 && p < 210) || (p >= 270 && p < 345)) buzzerTone(2200);
-      else buzzerOff();
-    } else if (activeBuzzerSeverity == 2) {
-      p = t % 620;
-      if (p < 95 || (p >= 210 && p < 305)) buzzerTone(2200);
-      else buzzerOff();
-    } else {
-      p = t % 850;
-      if (p < 120) buzzerTone(2200);
-      else buzzerOff();
-    }
-    return;
-  }
-
-  // REAR ALERT:
-  // Also kept near resonance for volume, but slightly lower and slower than front.
-  // Warning  = slower double pulse
-  // Caution  = single medium pulse
-  // Object   = slow short pulse
-  if (activeBuzzerType == "REAR_ALERT") {
-    unsigned long p;
-    if (activeBuzzerSeverity >= 3) {
-      p = t % 640;
-      if (p < 130 || (p >= 280 && p < 410)) buzzerTone(2150);
-      else buzzerOff();
-    } else if (activeBuzzerSeverity == 2) {
-      p = t % 780;
-      if (p < 140) buzzerTone(2150);
-      else buzzerOff();
-    } else {
-      p = t % 980;
-      if (p < 110) buzzerTone(2150);
-      else buzzerOff();
-    }
-    return;
-  }
-
-  // LANE WARNING:
-  // Short quick double-tap close to resonance. Higher pitch helps it feel
-  // separate from rear while still remaining loud.
-  if (activeBuzzerType == "LANE_WARNING") {
-    unsigned long p = t % 820;
-    if (p < 70 || (p >= 145 && p < 215)) buzzerTone(2250);
-    else buzzerOff();
-    return;
-  }
-
-  // LEAN HIGH:
-  // Distinct two-tone stability warning using two nearby loud frequencies.
-  if (activeBuzzerType == "LEAN_HIGH") {
-    unsigned long p = t % 600;
-    if (p < 180) buzzerTone(2200);
-    else if (p >= 300 && p < 480) buzzerTone(2350);
-    else buzzerOff();
-    return;
-  }
-
-  // LEAN CAUTION:
-  // Slow single pulse, slightly higher but still close to the loud band.
-  if (activeBuzzerType == "LEAN_CAUTION") {
-    unsigned long p = t % 860;
-    if (p < 130) buzzerTone(2300);
-    else buzzerOff();
-    return;
-  }
-
-  // General fallback warnings
-  if (activeBuzzerType == "GENERAL_WARNING") {
-    unsigned long p = t % 560;
-    if (p < 120 || (p >= 250 && p < 370)) buzzerTone(2200);
-    else buzzerOff();
-    return;
-  }
-
-  if (activeBuzzerType == "GENERAL_CAUTION") {
-    unsigned long p = t % 900;
-    if (p < 120) buzzerTone(2250);
-    else buzzerOff();
-    return;
-  }
+  // All selectable patterns stay close to the buzzer's loud/resonant area.
+  // Unit identity is controlled by the assigned pattern, and volume is controlled
+  // by the unit volume sliders.
+  uint8_t assignedPattern = getBuzzerPatternForType(activeBuzzerType);
+  playAssignedBuzzerPattern(assignedPattern, activeBuzzerSeverity, t);
+  return;
 
   buzzerOff();
 }
@@ -1072,7 +1345,16 @@ void broadcastCombinedState(unsigned long nowMs) {
   data += "\"frontPresetName\":\"" + String(presetName(brainConfig.frontSensitivityPreset)) + "\",";
   data += "\"rearPreset\":" + String(brainConfig.rearSensitivityPreset) + ",";
   data += "\"rearPresetName\":\"" + String(presetName(brainConfig.rearSensitivityPreset)) + "\",";
-  data += "\"centerCalibrated\":" + String(brainConfig.centerCalibrated ? 1 : 0);
+  data += "\"centerCalibrated\":" + String(brainConfig.centerCalibrated ? 1 : 0) + ",";
+  data += "\"buzzerEnabled\":" + String(buzzerEnabled ? 1 : 0) + ",";
+  data += "\"frontSoundPattern\":" + String(brainConfig.frontBuzzerPattern) + ",";
+  data += "\"rearSoundPattern\":" + String(brainConfig.rearBuzzerPattern) + ",";
+  data += "\"laneSoundPattern\":" + String(brainConfig.laneBuzzerPattern) + ",";
+  data += "\"leanSoundPattern\":" + String(brainConfig.leanBuzzerPattern) + ",";
+  data += "\"frontSoundVolume\":" + String(brainConfig.frontBuzzerVolume) + ",";
+  data += "\"rearSoundVolume\":" + String(brainConfig.rearBuzzerVolume) + ",";
+  data += "\"laneSoundVolume\":" + String(brainConfig.laneBuzzerVolume) + ",";
+  data += "\"leanSoundVolume\":" + String(brainConfig.leanBuzzerVolume);
   data += "},";
   }
 
@@ -1239,6 +1521,27 @@ const char webpage[] PROGMEM = R"rawliteral(
     font-size:12px;
     line-height:1.45;
   }
+  .soundUnitCard{
+    background:#11151b;
+    border:1px solid #232933;
+    border-radius:12px;
+    padding:10px;
+  }
+  .soundVolumeRow{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    margin-top:8px;
+  }
+  .soundVolumeRow input{
+    flex:1;
+  }
+  .soundVolumeValue{
+    width:46px;
+    text-align:right;
+    color:var(--muted);
+    font-size:12px;
+  }
   @media (max-width: 650px){
     .wizardHealth{grid-template-columns:1fr;}
   }
@@ -1248,7 +1551,7 @@ const char webpage[] PROGMEM = R"rawliteral(
 <body>
 <div class="wrap">
   <div class="topTitle">ADAS Brain Monitor</div>
-  <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="enableAudio()">Enable Sound</button></div>
+  <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="toggleBuzzer()">Buzzer On</button></div>
   <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
 
   <div id="dashboardTab">
@@ -1274,7 +1577,7 @@ const char webpage[] PROGMEM = R"rawliteral(
     </div>
 
     <div id="wizardHeader" class="settingsSection hidden">
-      <div id="wizardProgress" class="wizardProgress">Step 1 of 7</div>
+      <div id="wizardProgress" class="wizardProgress">Step 1 of 8</div>
       <div id="wizardTitle" class="wizardStepTitle">Welcome</div>
       <div id="wizardBody" class="wizardCleanNote">Set up Drivora for this vehicle.</div>
     </div>
@@ -1311,9 +1614,6 @@ const char webpage[] PROGMEM = R"rawliteral(
           <input id="cfgVehicleHeight" type="number" step="0.01" min="0.50" max="6.00">
         </div>
       </div>
-      <div class="settingsButtons normalOnly">
-        <button onclick="saveVehicleSettings()">Save Vehicle Settings</button>
-      </div>
     </div>
 
     <div id="frontSection" class="settingsSection configSection wizardStepSection" data-step="2">
@@ -1329,9 +1629,6 @@ const char webpage[] PROGMEM = R"rawliteral(
           <div class="help">Near gives shorter warning range. Far gives earlier warnings.</div>
         </div>
       </div>
-      <div class="settingsButtons normalOnly">
-        <button onclick="saveFrontPreset()">Apply Front Sensitivity</button>
-      </div>
     </div>
 
     <div id="rearSection" class="settingsSection configSection wizardStepSection" data-step="3">
@@ -1346,9 +1643,6 @@ const char webpage[] PROGMEM = R"rawliteral(
           </select>
           <div class="help">Near gives a tighter rear zone. Far gives earlier rear warnings.</div>
         </div>
-      </div>
-      <div class="settingsButtons normalOnly">
-        <button onclick="saveRearPreset()">Apply Rear Sensitivity</button>
       </div>
     </div>
 
@@ -1391,7 +1685,65 @@ const char webpage[] PROGMEM = R"rawliteral(
       <div id="wizardTestHint" class="help">You can continue after confirming the required units are responding.</div>
     </div>
 
-    <div id="finishSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="6">
+    <div id="soundSection" class="settingsSection configSection wizardStepSection" data-step="6">
+      <div class="settingsTitle">Sound Settings</div>
+      <div class="settingsGrid">
+        <div class="soundUnitCard">
+          <div class="label">Buzzer Output</div>
+          <button id="soundBuzzerBtn" onclick="toggleBuzzer()">Buzzer On</button>
+        </div>
+        <div class="soundUnitCard">
+          <div class="label">Front Unit Pattern</div>
+          <select id="cfgFrontSoundPattern" class="soundPatternSelect">
+            <option value="0">Urgent Triple Pulse</option>
+            <option value="1">Wide Double Pulse</option>
+            <option value="2">Quick Double Tap</option>
+            <option value="3">Two-Tone Stability</option>
+          </select>
+          <div class="label" style="margin-top:8px;">Front Volume</div>
+          <div class="soundVolumeRow"><input id="cfgFrontSoundVolume" type="range" min="30" max="100" step="5"><div id="frontSoundVolumeText" class="soundVolumeValue">100%</div></div>
+          <button class="soundTestBtn" onclick="testSound('front')">Test Front Sound</button>
+        </div>
+        <div class="soundUnitCard">
+          <div class="label">Rear Unit Pattern</div>
+          <select id="cfgRearSoundPattern" class="soundPatternSelect">
+            <option value="0">Urgent Triple Pulse</option>
+            <option value="1">Wide Double Pulse</option>
+            <option value="2">Quick Double Tap</option>
+            <option value="3">Two-Tone Stability</option>
+          </select>
+          <div class="label" style="margin-top:8px;">Rear Volume</div>
+          <div class="soundVolumeRow"><input id="cfgRearSoundVolume" type="range" min="30" max="100" step="5"><div id="rearSoundVolumeText" class="soundVolumeValue">100%</div></div>
+          <button class="soundTestBtn" onclick="testSound('rear')">Test Rear Sound</button>
+        </div>
+        <div class="soundUnitCard">
+          <div class="label">Lane Unit Pattern</div>
+          <select id="cfgLaneSoundPattern" class="soundPatternSelect">
+            <option value="0">Urgent Triple Pulse</option>
+            <option value="1">Wide Double Pulse</option>
+            <option value="2">Quick Double Tap</option>
+            <option value="3">Two-Tone Stability</option>
+          </select>
+          <div class="label" style="margin-top:8px;">Lane Volume</div>
+          <div class="soundVolumeRow"><input id="cfgLaneSoundVolume" type="range" min="30" max="100" step="5"><div id="laneSoundVolumeText" class="soundVolumeValue">100%</div></div>
+          <button class="soundTestBtn" onclick="testSound('lane')">Test Lane Sound</button>
+        </div>
+        <div class="soundUnitCard">
+          <div class="label">Center / Lean Unit Pattern</div>
+          <select id="cfgLeanSoundPattern" class="soundPatternSelect">
+            <option value="0">Urgent Triple Pulse</option>
+            <option value="1">Wide Double Pulse</option>
+            <option value="2">Quick Double Tap</option>
+            <option value="3">Two-Tone Stability</option>
+          </select>
+          <div class="label" style="margin-top:8px;">Center Volume</div>
+          <div class="soundVolumeRow"><input id="cfgLeanSoundVolume" type="range" min="30" max="100" step="5"><div id="leanSoundVolumeText" class="soundVolumeValue">100%</div></div>
+          <button class="soundTestBtn" onclick="testSound('lean')">Test Center Sound</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="finishSection" class="settingsSection configSection wizardStepSection wizardOnly" data-step="7">
       <div class="settingsTitle">Save and Finish</div>
       <div class="help">Save this setup and unlock the dashboard.</div>
       <div class="settingsButtons">
@@ -1403,6 +1755,12 @@ const char webpage[] PROGMEM = R"rawliteral(
       <div class="settingsButtons">
         <button id="wizardBackBtn" onclick="wizardBack()">Back</button>
         <button id="wizardNextBtn" onclick="wizardNext()">Next</button>
+      </div>
+    </div>
+
+    <div id="saveSettingsSection" class="settingsSection normalOnly">
+      <div class="settingsButtons">
+        <button onclick="saveAllNormalSettings()">Save Settings</button>
       </div>
     </div>
 
@@ -1429,11 +1787,7 @@ const char webpage[] PROGMEM = R"rawliteral(
 <script>
 const ws = new WebSocket("ws://" + location.hostname + ":81");
 
-let audioCtx = null;
-let audioEnabled = false;
-let lastFrontBeepMs = 0;
-let lastRearBeepMs = 0;
-let lastLaneBeepMs = 0;
+let buzzerUiEnabled = true;
 
 let leanDotCurrentX = 0;
 let leanDotCurrentY = 0;
@@ -1456,6 +1810,7 @@ let wizardMode = false;
 let forceFormRefresh = false;
 let wizardCalibrationRequested = false;
 let wizardCalibrationStartedAt = 0;
+let previousSoundPatternValues = {};
 
 const DEFAULT_CFG = {
   setupCompleted: 0,
@@ -1466,7 +1821,16 @@ const DEFAULT_CFG = {
   vehicleHeight_m: 1.57,
   frontPreset: 1,
   rearPreset: 1,
-  centerCalibrated: 0
+  centerCalibrated: 0,
+  frontSoundPattern: 0,
+  rearSoundPattern: 1,
+  laneSoundPattern: 2,
+  leanSoundPattern: 3,
+  frontSoundVolume: 100,
+  rearSoundVolume: 100,
+  laneSoundVolume: 100,
+  leanSoundVolume: 100,
+  buzzerEnabled: 1
 };
 
 function $(id){ return document.getElementById(id); }
@@ -1482,6 +1846,8 @@ function showTab(tab){
     $("tabDashboardBtn").classList.add("hidden");
     $("tabSettingsBtn").classList.add("active");
     $("tabSettingsBtn").innerText = "Setup";
+    const audioBtn = $("audioBtn");
+    if (audioBtn) audioBtn.classList.add("hidden");
     setCmdStatus("Complete setup to unlock the dashboard.");
     return;
   }
@@ -1490,6 +1856,8 @@ function showTab(tab){
   $("settingsTab").classList.toggle("hidden", tab !== "settings");
   $("tabDashboardBtn").classList.toggle("active", tab === "dashboard");
   $("tabSettingsBtn").classList.toggle("active", tab === "settings");
+  const audioBtn = $("audioBtn");
+  if (audioBtn) audioBtn.classList.toggle("hidden", tab !== "dashboard");
 }
 
 function setCmdStatus(msg){
@@ -1501,28 +1869,35 @@ ws.onopen = () => setCmdStatus("WebSocket connected.");
 ws.onclose = () => setCmdStatus("WebSocket disconnected. Refresh the page.");
 ws.onerror = () => setCmdStatus("WebSocket error. Refresh the page.");
 
-function enableAudio(){
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  audioCtx.resume().then(() => {
-    audioEnabled = true;
-    $("audioBtn").innerText = "Sound Enabled";
-  });
+function updateBuzzerButton(enabled){
+  buzzerUiEnabled = !!enabled;
+  const label = buzzerUiEnabled ? "Buzzer On" : "Buzzer Off";
+  const btn = $("audioBtn");
+  const soundBtn = $("soundBuzzerBtn");
+  if (btn) btn.innerText = label;
+  if (soundBtn) soundBtn.innerText = label;
 }
 
-function playBeep(freq = 900, durationMs = 80, volume = 0.08){
-  if (!audioEnabled || !audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = "sine";
-  osc.frequency.value = freq;
-  gain.gain.value = volume;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  const n = audioCtx.currentTime;
-  osc.start(n);
-  osc.stop(n + durationMs / 1000);
-  gain.gain.setValueAtTime(volume, n);
-  gain.gain.exponentialRampToValueAtTime(0.0001, n + durationMs / 1000);
+function toggleBuzzer(){
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return;
+  }
+
+  ws.send("BUZZER_TOGGLE");
+  buzzerUiEnabled = !buzzerUiEnabled;
+  updateBuzzerButton(buzzerUiEnabled);
+  setCmdStatus(buzzerUiEnabled ? "Buzzer enabled." : "Buzzer disabled.");
+}
+
+function sendWizardBuzzerMode(){
+  if (ws.readyState !== WebSocket.OPEN) return;
+  if (!(wizardMode || !latestConfig || !latestConfig.setupCompleted)) return;
+
+  // Keep warning beeps silent during setup until the Installation Test step.
+  // This is temporary and does not change the saved user buzzer preference.
+  if (wizardStep >= 5) ws.send("WIZARD_BUZZER_ENABLE");
+  else ws.send("WIZARD_BUZZER_MUTE");
 }
 
 function resizeLeanField(){
@@ -1627,6 +2002,14 @@ function getSetupObj(cmd){
     vehicleHeight_m: parseFloat($("cfgVehicleHeight").value),
     frontPreset: parseInt($("cfgFrontPreset").value),
     rearPreset: parseInt($("cfgRearPreset").value),
+    frontSoundPattern: parseInt($("cfgFrontSoundPattern").value),
+    rearSoundPattern: parseInt($("cfgRearSoundPattern").value),
+    laneSoundPattern: parseInt($("cfgLaneSoundPattern").value),
+    leanSoundPattern: parseInt($("cfgLeanSoundPattern").value),
+    frontSoundVolume: parseInt($("cfgFrontSoundVolume").value),
+    rearSoundVolume: parseInt($("cfgRearSoundVolume").value),
+    laneSoundVolume: parseInt($("cfgLaneSoundVolume").value),
+    leanSoundVolume: parseInt($("cfgLeanSoundVolume").value),
     setupCompleted: true
   };
 }
@@ -1651,8 +2034,77 @@ function saveRearPreset(){
   sendObj({cmd:"saveRearPreset", rearPreset:parseInt($("cfgRearPreset").value)});
 }
 
+function soundPatternsAreUnique(){
+  const vals = [
+    $("cfgFrontSoundPattern").value,
+    $("cfgRearSoundPattern").value,
+    $("cfgLaneSoundPattern").value,
+    $("cfgLeanSoundPattern").value
+  ];
+  return new Set(vals).size === vals.length;
+}
+
+function saveSoundSettings(){
+  if (!soundPatternsAreUnique()) {
+    setCmdStatus("Each beep pattern can be assigned to only one unit.");
+    return false;
+  }
+
+  return sendObj({
+    cmd:"saveSoundSettings",
+    frontSoundPattern:parseInt($("cfgFrontSoundPattern").value),
+    rearSoundPattern:parseInt($("cfgRearSoundPattern").value),
+    laneSoundPattern:parseInt($("cfgLaneSoundPattern").value),
+    leanSoundPattern:parseInt($("cfgLeanSoundPattern").value),
+    frontSoundVolume:parseInt($("cfgFrontSoundVolume").value),
+    rearSoundVolume:parseInt($("cfgRearSoundVolume").value),
+    laneSoundVolume:parseInt($("cfgLaneSoundVolume").value),
+    leanSoundVolume:parseInt($("cfgLeanSoundVolume").value)
+  });
+}
+
+function testSound(unit){
+  const prefixMap = {
+    front: ["cfgFrontSoundPattern", "cfgFrontSoundVolume", "Front"],
+    rear: ["cfgRearSoundPattern", "cfgRearSoundVolume", "Rear"],
+    lane: ["cfgLaneSoundPattern", "cfgLaneSoundVolume", "Lane"],
+    lean: ["cfgLeanSoundPattern", "cfgLeanSoundVolume", "Center"]
+  };
+
+  const cfg = prefixMap[unit];
+  if (!cfg) return;
+
+  if (ws.readyState !== WebSocket.OPEN) {
+    setCmdStatus("WebSocket not connected. Refresh the page.");
+    return;
+  }
+
+  ws.send(JSON.stringify({
+    cmd: "testSound",
+    pattern: parseInt($(cfg[0]).value),
+    volume: parseInt($(cfg[1]).value)
+  }));
+
+  setCmdStatus("Testing " + cfg[2] + " sound...");
+}
+
 function saveAllSetup(){
   return sendObj(getSetupObj("saveAllSetup"));
+}
+
+function saveAllNormalSettings(){
+  if (!soundPatternsAreUnique()) {
+    setCmdStatus("Each beep pattern can be assigned to only one unit.");
+    return false;
+  }
+
+  if (sendObj(getSetupObj("saveAllSetup"))) {
+    settingsDirty = false;
+    setCmdStatus("Settings saved.");
+    return true;
+  }
+
+  return false;
 }
 
 function calibrateCenter(){
@@ -1682,13 +2134,71 @@ function resetDefaults(){
 }
 
 function markSettingsDirtyHandlers(){
-  ["cfgVehicleType","cfgLoadCondition","cfgTrackWidth","cfgWheelBase","cfgVehicleHeight","cfgFrontPreset","cfgRearPreset"].forEach(id => {
+  ["cfgVehicleType","cfgLoadCondition","cfgTrackWidth","cfgWheelBase","cfgVehicleHeight","cfgFrontPreset","cfgRearPreset","cfgFrontSoundVolume","cfgRearSoundVolume","cfgLaneSoundVolume","cfgLeanSoundVolume"].forEach(id => {
     const el = $(id);
     if (el) {
-      el.addEventListener("input", () => settingsDirty = true);
-      el.addEventListener("change", () => settingsDirty = true);
+      el.addEventListener("input", () => { settingsDirty = true; updateVolumeLabels(); });
+      el.addEventListener("change", () => { settingsDirty = true; updateVolumeLabels(); });
     }
   });
+
+  ["cfgFrontSoundPattern","cfgRearSoundPattern","cfgLaneSoundPattern","cfgLeanSoundPattern"].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener("change", () => handleSoundPatternChange(id));
+    }
+  });
+}
+
+function updateVolumeLabels(){
+  const pairs = [
+    ["cfgFrontSoundVolume", "frontSoundVolumeText"],
+    ["cfgRearSoundVolume", "rearSoundVolumeText"],
+    ["cfgLaneSoundVolume", "laneSoundVolumeText"],
+    ["cfgLeanSoundVolume", "leanSoundVolumeText"]
+  ];
+
+  pairs.forEach(pair => {
+    const slider = $(pair[0]);
+    const label = $(pair[1]);
+    if (slider && label) label.innerText = slider.value + "%";
+  });
+}
+
+function captureSoundPatternValues(){
+  ["cfgFrontSoundPattern","cfgRearSoundPattern","cfgLaneSoundPattern","cfgLeanSoundPattern"].forEach(id => {
+    const el = $(id);
+    if (el) previousSoundPatternValues[id] = el.value;
+  });
+}
+
+function handleSoundPatternChange(changedId){
+  const ids = ["cfgFrontSoundPattern","cfgRearSoundPattern","cfgLaneSoundPattern","cfgLeanSoundPattern"];
+  const changedEl = $(changedId);
+  if (!changedEl) return;
+
+  const newVal = changedEl.value;
+  const oldVal = previousSoundPatternValues[changedId] || newVal;
+
+  const otherId = ids.find(id => id !== changedId && $(id) && $(id).value === newVal);
+  if (otherId && $(otherId)) {
+    $(otherId).value = oldVal;
+    previousSoundPatternValues[otherId] = oldVal;
+    setCmdStatus("Sound patterns swapped.");
+  }
+
+  previousSoundPatternValues[changedId] = newVal;
+  settingsDirty = true;
+  updateSoundPatternOptions();
+}
+
+function updateSoundPatternOptions(){
+  const hint = $("soundPatternHint");
+  if (hint) {
+    hint.innerText = soundPatternsAreUnique()
+      ? "Choosing a used pattern automatically swaps it with the other unit."
+      : "Choose a different pattern, or select a used one to swap automatically.";
+  }
 }
 
 function applyConfigToForm(cfg, force = false){
@@ -1702,6 +2212,20 @@ function applyConfigToForm(cfg, force = false){
   $("cfgFrontPreset").value = cfg.frontPreset;
   $("cfgRearPreset").value = cfg.rearPreset;
 
+  $("cfgFrontSoundPattern").value = cfg.frontSoundPattern;
+  $("cfgRearSoundPattern").value = cfg.rearSoundPattern;
+  $("cfgLaneSoundPattern").value = cfg.laneSoundPattern;
+  $("cfgLeanSoundPattern").value = cfg.leanSoundPattern;
+
+  $("cfgFrontSoundVolume").value = cfg.frontSoundVolume;
+  $("cfgRearSoundVolume").value = cfg.rearSoundVolume;
+  $("cfgLaneSoundVolume").value = cfg.laneSoundVolume;
+  $("cfgLeanSoundVolume").value = cfg.leanSoundVolume;
+
+  updateVolumeLabels();
+  captureSoundPatternValues();
+  updateSoundPatternOptions();
+
   settingsUiInitialized = true;
 }
 
@@ -1710,6 +2234,8 @@ function refreshNavigation(cfg){
 
   $("tabDashboardBtn").classList.toggle("hidden", locked);
   $("tabSettingsBtn").innerText = locked ? "Setup" : "Settings";
+  const audioBtn = $("audioBtn");
+  if (audioBtn) audioBtn.classList.toggle("hidden", locked || $("dashboardTab").classList.contains("hidden"));
 
   if (locked) {
     $("dashboardTab").classList.add("hidden");
@@ -1756,6 +2282,7 @@ function updateSettingsUI(cfg){
   }
 
   $("cfgCenterCalStatus").innerText = cfg.centerCalibrated ? "Calibrated" : (wizardCalibrationRequested ? "Calibrating..." : "Not calibrated");
+  if (typeof cfg.buzzerEnabled !== "undefined") updateBuzzerButton(!!cfg.buzzerEnabled);
   $("setupBanner").classList.toggle("hidden", !!cfg.setupCompleted);
   refreshSettingsMode(cfg);
 }
@@ -1781,6 +2308,7 @@ function openSetupWizard(){
   }
 
   safeSend("START_WIZARD");
+  sendWizardBuzzerMode();
   refreshSettingsMode(latestConfig || DEFAULT_CFG);
   window.scrollTo({top:0, behavior:"smooth"});
 }
@@ -1793,7 +2321,7 @@ function wizardBack(){
 }
 
 function wizardNext(){
-  if (wizardStep < 6) {
+  if (wizardStep < 7) {
     wizardStep++;
     refreshSettingsMode(latestConfig || DEFAULT_CFG);
   }
@@ -1808,6 +2336,7 @@ function calibrationReadyForNext(){
 function finishWizardSetup(){
   if (saveAllSetup()) {
     wizardMode = false;
+    if (ws.readyState === WebSocket.OPEN) ws.send("WIZARD_BUZZER_ENABLE");
     wizardCalibrationRequested = false;
     wizardCalibrationStartedAt = 0;
     settingsDirty = false;
@@ -1828,6 +2357,7 @@ function renderWizard(){
     "Rear Sensitivity",
     "Center Calibration",
     "Installation Test",
+    "Warning Sounds",
     "Save and Finish"
   ];
 
@@ -1838,16 +2368,19 @@ function renderWizard(){
     "Choose how early the rear warning should respond.",
     "Calibrate the center unit on level ground.",
     "Confirm that the installed units are responding.",
+    "Choose unique beep patterns and volumes for the warning units.",
     "Save the setup and unlock the dashboard."
   ];
 
-  $("wizardProgress").innerText = "Step " + (wizardStep + 1) + " of 7";
+  $("wizardProgress").innerText = "Step " + (wizardStep + 1) + " of 8";
   $("wizardTitle").innerText = titles[wizardStep];
   $("wizardBody").innerText = bodies[wizardStep];
 
   $("wizardBackBtn").style.display = wizardStep === 0 ? "none" : "inline-block";
-  $("wizardNextBtn").style.display = wizardStep === 6 ? "none" : "inline-block";
+  $("wizardNextBtn").style.display = wizardStep === 7 ? "none" : "inline-block";
   $("wizardNextBtn").innerText = "Next";
+
+  sendWizardBuzzerMode();
 
   if (wizardStep === 4) {
     const ready = calibrationReadyForNext();
@@ -1965,35 +2498,11 @@ ws.onmessage = (evt) => {
   if (lane.state === 1) $("laneLeftMark").classList.add("laneAlert");
   else if (lane.state === 2) $("laneRightMark").classList.add("laneAlert");
 
-  if (wizardStep === 5) updateWizardHealth();
+  if (wizardStep === 6) updateWizardHealth();
 
-  // Beeps
-  const now = Date.now();
-  if (audioEnabled) {
-    if (front.state === 2 && now - lastFrontBeepMs > 700) {
-      playBeep(850, 70, 0.07);
-      lastFrontBeepMs = now;
-    } else if (front.state === 3 && now - lastFrontBeepMs > 250) {
-      playBeep(1250, 90, 0.09);
-      lastFrontBeepMs = now;
-    }
+  // Physical buzzer is controlled by the ESP32 brain.
+  // Smartphone/browser beep sounds are intentionally disabled.
 
-    if (rear.overallState === 1 && now - lastRearBeepMs > 900) {
-      playBeep(820, 70, 0.06);
-      lastRearBeepMs = now;
-    } else if (rear.overallState === 2 && now - lastRearBeepMs > 450) {
-      playBeep(980, 80, 0.07);
-      lastRearBeepMs = now;
-    } else if (rear.overallState === 3 && now - lastRearBeepMs > 180) {
-      playBeep(1250, 90, 0.09);
-      lastRearBeepMs = now;
-    }
-
-    if ((lane.state === 1 || lane.state === 2) && now - lastLaneBeepMs > 220) {
-      playBeep(1100, 80, 0.08);
-      lastLaneBeepMs = now;
-    }
-  }
 };
 </script>
 </body>
@@ -2017,6 +2526,7 @@ void setup() {
   buzzerBegin();
 
   loadConfig();
+  setupWizardBuzzerMuted = !brainConfig.setupCompleted;
 
   Serial2.begin(115200, SERIAL_8N1, LANE_RX_PIN, LANE_TX_PIN);
 
