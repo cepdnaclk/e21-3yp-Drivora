@@ -6,8 +6,8 @@
 #include "driver/twai.h"
 
 // ================= WIFI / WEB =================
-const char* ssid = "ADASBrain";
-const char* password = "12345678";
+const char* DEFAULT_AP_SSID = "Drivora";
+const char* DEFAULT_AP_PASSWORD = "12345678";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
@@ -46,6 +46,7 @@ static const int BUZZER_RESOLUTION = 10;
 
 bool buzzerEnabled = true;
 bool setupWizardBuzzerMuted = false;
+bool setupWizardBuzzerForceEnabled = false;
 int currentBuzzerFreq = -1;
 int currentBuzzerDuty = -1;
 
@@ -93,7 +94,10 @@ void startBuzzerTest(uint8_t pattern, uint8_t volumePercent);
 // ================= CONFIG MODEL =================
 struct BrainConfig {
   bool setupCompleted = false;
+  bool wifiConfigured = true;
   String profileName = "My Vehicle";
+  String apSsid = DEFAULT_AP_SSID;
+  String apPassword = DEFAULT_AP_PASSWORD;
 
   uint8_t vehicleType = 3;          // 1 compact, 2 passenger, 3 tall/SUV
   float trackWidth_m = 1.56f;
@@ -476,7 +480,18 @@ void loadConfig() {
   prefs.begin("drivora", true);
 
   brainConfig.setupCompleted = prefs.getBool("setupDone", false);
+  brainConfig.wifiConfigured = prefs.getBool("wifiDone", true);
   brainConfig.profileName = prefs.getString("profile", "My Vehicle");
+  brainConfig.apSsid = prefs.getString("apSsid", DEFAULT_AP_SSID);
+  brainConfig.apPassword = prefs.getString("apPass", DEFAULT_AP_PASSWORD);
+
+  if (!brainConfig.wifiConfigured) {
+    brainConfig.apSsid = DEFAULT_AP_SSID;
+    brainConfig.apPassword = DEFAULT_AP_PASSWORD;
+  }
+
+  if (brainConfig.apSsid.length() == 0) brainConfig.apSsid = DEFAULT_AP_SSID;
+  if (brainConfig.apPassword.length() < 8) brainConfig.apPassword = DEFAULT_AP_PASSWORD;
 
   brainConfig.vehicleType = prefs.getUChar("vehType", 3);
   brainConfig.trackWidth_m = prefs.getFloat("trackW", 1.56f);
@@ -528,7 +543,10 @@ void saveConfig() {
   prefs.begin("drivora", false);
 
   prefs.putBool("setupDone", brainConfig.setupCompleted);
+  prefs.putBool("wifiDone", brainConfig.wifiConfigured);
   prefs.putString("profile", brainConfig.profileName);
+  prefs.putString("apSsid", brainConfig.apSsid);
+  prefs.putString("apPass", brainConfig.apPassword);
 
   prefs.putUChar("vehType", brainConfig.vehicleType);
   prefs.putFloat("trackW", brainConfig.trackWidth_m);
@@ -666,7 +684,10 @@ void sendAllConfigs() {
 
 void resetConfigToDefaults() {
   brainConfig.setupCompleted = false;
+  brainConfig.wifiConfigured = false;
   brainConfig.profileName = "My Vehicle";
+  brainConfig.apSsid = DEFAULT_AP_SSID;
+  brainConfig.apPassword = DEFAULT_AP_PASSWORD;
   brainConfig.vehicleType = 3;
   brainConfig.trackWidth_m = 1.56f;
   brainConfig.wheelBase_m = 2.67f;
@@ -692,7 +713,9 @@ void resetConfigToDefaults() {
   saveConfig();
   forceConfigBroadcast = true;
   sendAllConfigs();
-  Serial.println("Settings reset to defaults");
+  Serial.println("Settings reset to defaults. Restarting with default WiFi credentials...");
+  delay(400);
+  ESP.restart();
 }
 
 void receiveCANFrames(unsigned long nowMs) {
@@ -1281,6 +1304,7 @@ void handleIncomingCommand(const String& msg) {
 
   if (msg == "WIZARD_BUZZER_MUTE") {
     setupWizardBuzzerMuted = true;
+    setupWizardBuzzerForceEnabled = false;
     buzzerOff();
     Serial.println("Wizard buzzer temporarily muted");
     return;
@@ -1288,7 +1312,17 @@ void handleIncomingCommand(const String& msg) {
 
   if (msg == "WIZARD_BUZZER_ENABLE") {
     setupWizardBuzzerMuted = false;
+    setupWizardBuzzerForceEnabled = true;
     Serial.println("Wizard buzzer temporarily enabled");
+    return;
+  }
+
+  if (msg == "WIZARD_BUZZER_RESTORE") {
+    setupWizardBuzzerMuted = false;
+    setupWizardBuzzerForceEnabled = false;
+    if (!buzzerEnabled) buzzerOff();
+    forceConfigBroadcast = true;
+    Serial.println("Wizard buzzer override cleared");
     return;
   }
 
@@ -1339,6 +1373,7 @@ void handleIncomingCommand(const String& msg) {
     brainConfig.centerCalibrated = false;
     centerCalibrationRequested = false;
     setupWizardBuzzerMuted = true;
+    setupWizardBuzzerForceEnabled = false;
     buzzerOff();
     saveConfig();
     Serial.println("Setup wizard started; dashboard locked until setup completion");
@@ -1372,6 +1407,17 @@ void handleIncomingCommand(const String& msg) {
       return fallback;
     };
 
+    auto readStringValue = [&](const String& key, const String& fallback)->String {
+      String token = "\"" + key + "\":\"";
+      int idx = msg.indexOf(token);
+      if (idx < 0) return fallback;
+      idx += token.length();
+      int end = idx;
+      while (end < (int)msg.length() && msg[end] != '\"') end++;
+      if (end <= idx) return fallback;
+      return msg.substring(idx, end);
+    };
+
     if (msg.indexOf("\"cmd\":\"incidentAck\"") >= 0) {
       uint32_t id = (uint32_t)readInt("incidentId", 0);
       if (id > 0) acknowledgeIncident(id);
@@ -1398,6 +1444,30 @@ void handleIncomingCommand(const String& msg) {
         browserTimeSynced = true;
         Serial.println("Browser time synced");
       }
+      return;
+    }
+
+    if (msg.indexOf("\"cmd\":\"saveWifiSetup\"") >= 0) {
+      String newSsid = readStringValue("ssid", DEFAULT_AP_SSID);
+      String newPass = readStringValue("password", DEFAULT_AP_PASSWORD);
+      newSsid.trim();
+
+      if (newSsid.length() < 1) newSsid = DEFAULT_AP_SSID;
+      if (newSsid.length() > 24) newSsid = newSsid.substring(0, 24);
+      if (newPass.length() < 8) newPass = DEFAULT_AP_PASSWORD;
+      if (newPass.length() > 32) newPass = newPass.substring(0, 32);
+
+      brainConfig.apSsid = newSsid;
+      brainConfig.apPassword = newPass;
+      brainConfig.wifiConfigured = true;
+      brainConfig.setupCompleted = false;
+      saveConfig();
+      forceConfigBroadcast = true;
+
+      Serial.print("WiFi setup saved. Restarting AP as: ");
+      Serial.println(brainConfig.apSsid);
+      delay(500);
+      ESP.restart();
       return;
     }
 
@@ -1500,6 +1570,7 @@ void handleIncomingCommand(const String& msg) {
 
       brainConfig.setupCompleted = true;
       setupWizardBuzzerMuted = false;
+      setupWizardBuzzerForceEnabled = false;
       saveConfig();
       forceConfigBroadcast = true;
       sendAllConfigs();
@@ -1545,8 +1616,12 @@ uint8_t getBuzzerPatternForType(const String& buzzerType) {
   return BUZZER_PATTERN_URGENT_TRIPLE;
 }
 
+bool effectiveBuzzerEnabled() {
+  return buzzerEnabled || setupWizardBuzzerForceEnabled;
+}
+
 void buzzerTone(int freq) {
-  if (((!buzzerEnabled || setupWizardBuzzerMuted) && !buzzerTestActive) || freq <= 0) {
+  if (((!effectiveBuzzerEnabled() || setupWizardBuzzerMuted) && !buzzerTestActive) || freq <= 0) {
     buzzerOff();
     return;
   }
@@ -1681,7 +1756,7 @@ String normalizeBuzzerType(const String& fusedType, uint8_t fusedSeverity) {
 }
 
 void selectActiveBuzzerType(const String& requestedType, uint8_t requestedSeverity, unsigned long nowMs) {
-  if (!buzzerEnabled || setupWizardBuzzerMuted || requestedType == "NONE" || requestedSeverity == 0) {
+  if (!effectiveBuzzerEnabled() || setupWizardBuzzerMuted || requestedType == "NONE" || requestedSeverity == 0) {
     if (activeBuzzerType != "NONE" && buzzerClearCandidateMs == 0) {
       buzzerClearCandidateMs = nowMs;
     }
@@ -1741,7 +1816,7 @@ void updateBuzzerByFusedType(const String& fusedType, uint8_t fusedSeverity, uns
 
   selectActiveBuzzerType(requestedType, fusedSeverity, nowMs);
 
-  if (!buzzerEnabled || setupWizardBuzzerMuted || activeBuzzerType == "NONE" || activeBuzzerSeverity == 0) {
+  if (!effectiveBuzzerEnabled() || setupWizardBuzzerMuted || activeBuzzerType == "NONE" || activeBuzzerSeverity == 0) {
     buzzerOff();
     return;
   }
@@ -1856,6 +1931,8 @@ void broadcastCombinedState(unsigned long nowMs) {
   if (includeConfig) {
     data += "\"config\":{";
   data += "\"setupCompleted\":" + String(brainConfig.setupCompleted ? 1 : 0) + ",";
+  data += "\"wifiConfigured\":" + String(brainConfig.wifiConfigured ? 1 : 0) + ",";
+  data += "\"apSsid\":\"" + brainConfig.apSsid + "\",";
   data += "\"profileName\":\"" + brainConfig.profileName + "\",";
   data += "\"vehicleType\":" + String(brainConfig.vehicleType) + ",";
   data += "\"vehicleTypeName\":\"" + String(vehicleTypeName(brainConfig.vehicleType)) + "\",";
@@ -1977,6 +2054,15 @@ const char webpage[] PROGMEM = R"rawliteral(
   .topTitle{font-size:18px;font-weight:700;margin-bottom:8px;}
   .statusRow,.navRow,.settingsButtons{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
   .badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#2b2f38;font-size:11px;}
+  #frontBadge,#leanBadge,#rearBadge,#laneBadge{display:none!important;}
+  .topUnitStatus{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .unitPill{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:999px;background:#2b2f38;font-size:11px;color:var(--text);}
+  .unitDot{width:8px;height:8px;border-radius:50%;background:#ff3b30;box-shadow:0 0 8px rgba(255,59,48,0.45);}
+  .unitDot.online{background:#1db954;box-shadow:0 0 8px rgba(29,185,84,0.55);}
+  .unitDot.stale{background:#ffb020;box-shadow:0 0 8px rgba(255,176,32,0.55);}
+  .soundTopControl{display:inline-flex;align-items:center;gap:8px;margin-left:auto;}
+  .soundTopControl .labelInline{font-size:12px;color:var(--muted);}
+  #audioBtn,#soundBuzzerBtn{min-width:92px;}
   button,select,input{padding:10px 12px;border:0;border-radius:10px;background:var(--btn);color:white;font-size:13px;}
   button{cursor:pointer;}
   input[type="number"],select{width:100%;background:#20242c;}
@@ -2120,8 +2206,39 @@ const char webpage[] PROGMEM = R"rawliteral(
 <body>
 <div class="wrap">
   <div class="topTitle">ADAS Brain Monitor</div>
-  <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="toggleBuzzer()">Buzzer On</button></div>
+  <div class="statusRow">
+    <div class="topUnitStatus">
+      <span class="unitPill"><span id="topFrontDot" class="unitDot"></span>Front Unit</span>
+      <span class="unitPill"><span id="topRearDot" class="unitDot"></span>Rear Unit</span>
+      <span class="unitPill"><span id="topLeanDot" class="unitDot"></span>Stability Unit</span>
+      <span class="unitPill"><span id="topLaneDot" class="unitDot"></span>Camera Unit</span>
+    </div>
+    <div id="topSoundControl" class="soundTopControl"><span class="labelInline">Sound</span><button id="audioBtn" onclick="toggleBuzzer()">Enabled</button></div>
+  </div>
   <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabStatsBtn" class="navBtn" onclick="showTab('statistics')">Statistics</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
+
+  <div id="wifiSetupTab" class="hidden">
+    <div class="settingsWrap">
+      <div class="settingsSection">
+        <div class="settingsTitle">Network Setup</div>
+        <div class="help">Create a new WiFi name and password for this Drivora system. The system will restart after saving.</div>
+        <div class="settingsGrid">
+          <div>
+            <div class="label">New WiFi Name</div>
+            <input id="wifiSetupSsid" type="text" maxlength="24" placeholder="Drivora">
+          </div>
+          <div>
+            <div class="label">New WiFi Password</div>
+            <input id="wifiSetupPassword" type="password" minlength="8" maxlength="32" placeholder="Minimum 8 characters">
+          </div>
+        </div>
+        <div class="settingsButtons">
+          <button onclick="saveWifiSetup()">Save Network and Restart</button>
+        </div>
+        <div id="wifiSetupStatus" class="help"></div>
+      </div>
+    </div>
+  </div>
 
   <div id="dashboardTab">
     <div id="setupBanner" class="banner hidden"><div style="font-weight:700;margin-bottom:6px;">Setup required</div><div class="help">Complete the guided setup before normal use.</div><div class="settingsButtons"><button onclick="openSetupWizard()">Open Setup Wizard</button></div></div>
@@ -2304,8 +2421,8 @@ const char webpage[] PROGMEM = R"rawliteral(
       <div class="settingsTitle">Sound Settings</div>
       <div class="settingsGrid">
         <div class="soundUnitCard">
-          <div class="label">Buzzer Output</div>
-          <button id="soundBuzzerBtn" onclick="toggleBuzzer()">Buzzer On</button>
+          <div class="label">Sound</div>
+          <button id="soundBuzzerBtn" onclick="toggleBuzzer()">Enabled</button>
         </div>
         <div class="soundUnitCard">
           <div class="label">Front Unit Pattern</div>
@@ -2432,6 +2549,8 @@ const MAX_LOCAL_INCIDENTS = 100;
 
 const DEFAULT_CFG = {
   setupCompleted: 0,
+  wifiConfigured: 1,
+  apSsid: "Drivora",
   vehicleType: 3,
   loadCondition: 1,
   trackWidth_m: 1.56,
@@ -2453,11 +2572,51 @@ const DEFAULT_CFG = {
 
 function $(id){ return document.getElementById(id); }
 
+function isWifiLocked(){
+  return latestConfig && !latestConfig.wifiConfigured;
+}
+
 function isSetupLocked(){
   return wizardMode || !latestConfig || !latestConfig.setupCompleted;
 }
 
+function saveWifiSetup(){
+  const ssid = $("wifiSetupSsid").value.trim();
+  const pass = $("wifiSetupPassword").value;
+
+  if (ssid.length < 1) {
+    $("wifiSetupStatus").innerText = "Enter a WiFi name.";
+    return;
+  }
+
+  if (pass.length < 8) {
+    $("wifiSetupStatus").innerText = "Password must be at least 8 characters.";
+    return;
+  }
+
+  if (ws.readyState !== WebSocket.OPEN) {
+    $("wifiSetupStatus").innerText = "Connection not ready. Refresh the page.";
+    return;
+  }
+
+  ws.send(JSON.stringify({cmd:"saveWifiSetup", ssid:ssid, password:pass}));
+  $("wifiSetupStatus").innerText = "Network saved. Drivora will restart. Reconnect using the new WiFi name and password.";
+}
+
 function showTab(tab){
+  if (isWifiLocked()) {
+    $("wifiSetupTab").classList.remove("hidden");
+    $("dashboardTab").classList.add("hidden");
+    $("statisticsTab").classList.add("hidden");
+    $("settingsTab").classList.add("hidden");
+    $("tabDashboardBtn").classList.add("hidden");
+    $("tabStatsBtn").classList.add("hidden");
+    $("tabSettingsBtn").classList.add("hidden");
+    return;
+  }
+
+  $("wifiSetupTab").classList.add("hidden");
+
   if ((tab === "dashboard" || tab === "statistics") && isSetupLocked()) {
     $("dashboardTab").classList.add("hidden");
     $("statisticsTab").classList.add("hidden");
@@ -2466,8 +2625,6 @@ function showTab(tab){
     $("tabStatsBtn").classList.add("hidden");
     $("tabSettingsBtn").classList.add("active");
     $("tabSettingsBtn").innerText = "Setup";
-    const audioBtn = $("audioBtn");
-    if (audioBtn) audioBtn.classList.add("hidden");
     setCmdStatus("Complete setup to unlock the dashboard and statistics.");
     return;
   }
@@ -2478,9 +2635,6 @@ function showTab(tab){
   $("tabDashboardBtn").classList.toggle("active", tab === "dashboard");
   $("tabStatsBtn").classList.toggle("active", tab === "statistics");
   $("tabSettingsBtn").classList.toggle("active", tab === "settings");
-  const audioBtn = $("audioBtn");
-  if (audioBtn) audioBtn.classList.toggle("hidden", tab !== "dashboard");
-
   if (tab === "statistics") refreshStatisticsPage();
 }
 
@@ -2503,7 +2657,7 @@ ws.onerror = () => setCmdStatus("WebSocket error. Refresh the page.");
 
 function updateBuzzerButton(enabled){
   buzzerUiEnabled = !!enabled;
-  const label = buzzerUiEnabled ? "Buzzer On" : "Buzzer Off";
+  const label = buzzerUiEnabled ? "Enabled" : "Disabled";
   const btn = $("audioBtn");
   const soundBtn = $("soundBuzzerBtn");
   if (btn) btn.innerText = label;
@@ -2599,6 +2753,21 @@ function setUnitStatus(el, obj){
   if (!obj.online) el.classList.add("badText");
   else if (obj.stale) el.classList.add("warnText");
   else el.classList.add("okText");
+}
+
+function setTopUnitDot(id, obj){
+  const dot = $(id);
+  if (!dot) return;
+  dot.classList.remove("online", "stale");
+  if (obj && obj.online && !obj.stale) dot.classList.add("online");
+  else if (obj && obj.online && obj.stale) dot.classList.add("stale");
+}
+
+function updateTopUnitStatus(){
+  setTopUnitDot("topFrontDot", latestHealth.front);
+  setTopUnitDot("topRearDot", latestHealth.rear);
+  setTopUnitDot("topLeanDot", latestHealth.lean);
+  setTopUnitDot("topLaneDot", latestHealth.lane);
 }
 
 function safeSend(msg){
@@ -2761,7 +2930,7 @@ function resetDefaults(){
     applyConfigToForm(DEFAULT_CFG, true);
     refreshSettingsMode(DEFAULT_CFG);
     safeSend("RESET_DEFAULTS");
-    setCmdStatus("Reset command sent. Defaults loaded in UI.");
+    setCmdStatus("Reset command sent. Drivora will restart with the default WiFi name and password.");
   }
 }
 
@@ -2862,13 +3031,28 @@ function applyConfigToForm(cfg, force = false){
 }
 
 function refreshNavigation(cfg){
+  const wifiLocked = !cfg.wifiConfigured;
   const locked = wizardMode || !cfg.setupCompleted;
 
-  $("tabDashboardBtn").classList.toggle("hidden", locked);
-  $("tabStatsBtn").classList.toggle("hidden", locked);
+  $("wifiSetupTab").classList.toggle("hidden", !wifiLocked);
+
+  $("tabDashboardBtn").classList.toggle("hidden", wifiLocked || locked);
+  $("tabStatsBtn").classList.toggle("hidden", wifiLocked || locked);
+  $("tabSettingsBtn").classList.toggle("hidden", wifiLocked);
   $("tabSettingsBtn").innerText = locked ? "Setup" : "Settings";
-  const audioBtn = $("audioBtn");
-  if (audioBtn) audioBtn.classList.toggle("hidden", locked || $("dashboardTab").classList.contains("hidden"));
+
+  const topSound = $("topSoundControl");
+  if (topSound) topSound.classList.toggle("hidden", wifiLocked || locked);
+
+  if (wifiLocked) {
+    $("dashboardTab").classList.add("hidden");
+    $("statisticsTab").classList.add("hidden");
+    $("settingsTab").classList.add("hidden");
+    $("tabDashboardBtn").classList.remove("active");
+    $("tabStatsBtn").classList.remove("active");
+    $("tabSettingsBtn").classList.remove("active");
+    return;
+  }
 
   if (locked) {
     $("dashboardTab").classList.add("hidden");
@@ -2885,6 +3069,14 @@ function refreshSettingsMode(cfg){
   const wizardActive = wizardMode || !setupDone;
 
   refreshNavigation(cfg);
+
+  if (!cfg.wifiConfigured) {
+    $("wizardHeader").classList.add("hidden");
+    $("wizardControls").classList.add("hidden");
+    $("wizardCalibrationStatus").classList.add("hidden");
+    document.querySelectorAll(".normalOnly,.wizardStepSection").forEach(el => el.classList.add("hidden"));
+    return;
+  }
 
   $("wizardHeader").classList.toggle("hidden", !wizardActive);
   $("wizardControls").classList.toggle("hidden", !wizardActive);
@@ -2971,7 +3163,7 @@ function calibrationReadyForNext(){
 function finishWizardSetup(){
   if (saveAllSetup()) {
     wizardMode = false;
-    if (ws.readyState === WebSocket.OPEN) ws.send("WIZARD_BUZZER_ENABLE");
+    if (ws.readyState === WebSocket.OPEN) ws.send("WIZARD_BUZZER_RESTORE");
     wizardCalibrationRequested = false;
     wizardCalibrationStartedAt = 0;
     settingsDirty = false;
@@ -3308,6 +3500,7 @@ ws.onmessage = (evt) => {
   latestHealth.lean = d.lean;
   latestHealth.rear = d.rear;
   latestHealth.lane = d.lane;
+  updateTopUnitStatus();
 
   if (d.config) updateSettingsUI(d.config);
 
@@ -3411,11 +3604,12 @@ void setup() {
 
   loadConfig();
   setupWizardBuzzerMuted = !brainConfig.setupCompleted;
+  setupWizardBuzzerForceEnabled = false;
 
   Serial2.begin(115200, SERIAL_8N1, LANE_RX_PIN, LANE_TX_PIN);
 
   WiFi.mode(WIFI_AP);
-  bool apOk = WiFi.softAP(ssid, password);
+  bool apOk = WiFi.softAP(brainConfig.apSsid.c_str(), brainConfig.apPassword.c_str());
   WiFi.setSleep(false);
 
   Serial.print("AP start: ");
