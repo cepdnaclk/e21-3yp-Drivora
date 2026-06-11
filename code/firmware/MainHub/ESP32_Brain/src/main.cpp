@@ -209,6 +209,65 @@ FrontData frontData;
 RearData rearData;
 LaneData laneData;
 
+// ================= INCIDENT / STATISTICS =================
+const uint8_t INCIDENT_BUFFER_SIZE = 10;
+const unsigned long INCIDENT_RESEND_MS = 700;
+
+struct IncidentRecord {
+  bool used = false;
+  bool pendingAck = false;
+  uint32_t id = 0;
+  unsigned long timestampMs = 0;
+  uint64_t realTimeMs = 0;
+  uint8_t severity = 0;       // 2 warning, 3 critical
+  String eventType = "";
+  String sourceUnit = "";
+  String title = "";
+  String message = "";
+  float frontDistanceCm = -1.0f;
+  float frontSpeedCmS = 0.0f;
+  float rearNearestDistanceCm = -1.0f;
+  String rearZone = "";
+  float rearZoneDistanceCm = -1.0f;
+  float leanRollDeg = 0.0f;
+  float leanPitchDeg = 0.0f;
+  uint8_t laneState = 0;
+};
+
+IncidentRecord incidentBuffer[INCIDENT_BUFFER_SIZE];
+uint32_t nextIncidentId = 1;
+uint32_t lostIncidentCount = 0;
+unsigned long lastIncidentResendMs = 0;
+
+bool browserTimeSynced = false;
+uint64_t browserTimeBaseMs = 0;
+unsigned long browserTimeBaseBrainMs = 0;
+
+unsigned long frontCriticalStartMs = 0;
+unsigned long rearCriticalStartMs = 0;
+unsigned long leanCriticalStartMs = 0;
+unsigned long laneCriticalStartMs = 0;
+unsigned long multiHazardStartMs = 0;
+
+bool frontCriticalLogged = false;
+bool rearCriticalLogged = false;
+bool leanCriticalLogged = false;
+bool laneCriticalLogged = false;
+bool multiHazardLogged = false;
+
+unsigned long lastFrontIncidentMs = 0;
+unsigned long lastRearIncidentMs = 0;
+unsigned long lastLeanIncidentMs = 0;
+unsigned long lastLaneIncidentMs = 0;
+unsigned long lastMultiIncidentMs = 0;
+
+const unsigned long FRONT_CRITICAL_CONFIRM_MS = 700;
+const unsigned long REAR_CRITICAL_CONFIRM_MS  = 700;
+const unsigned long LEAN_CRITICAL_CONFIRM_MS  = 500;
+const unsigned long LANE_CRITICAL_CONFIRM_MS  = 500;
+const unsigned long MULTI_HAZARD_CONFIRM_MS   = 500;
+const unsigned long INCIDENT_COOLDOWN_MS      = 5000;
+
 // ================= TIMING =================
 unsigned long lastBroadcastMs = 0;
 unsigned long lastConfigBroadcastMs = 0;
@@ -783,6 +842,436 @@ void receiveLaneUART(unsigned long nowMs) {
   }
 }
 
+
+// ================= INCIDENT DETECTION / BUFFER =================
+String uint64ToString(uint64_t v) {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+  return String(buf);
+}
+
+uint64_t estimatedRealTimeMs(unsigned long nowMs) {
+  if (!browserTimeSynced) return 0;
+  return browserTimeBaseMs + (uint64_t)(nowMs - browserTimeBaseBrainMs);
+}
+
+uint64_t incidentRealTimeMsForSend(const IncidentRecord& inc) {
+  if (inc.realTimeMs > 0) return inc.realTimeMs;
+  if (!browserTimeSynced) return 0;
+
+  if (inc.timestampMs >= browserTimeBaseBrainMs) {
+    return browserTimeBaseMs + (uint64_t)(inc.timestampMs - browserTimeBaseBrainMs);
+  }
+
+  uint64_t diff = (uint64_t)(browserTimeBaseBrainMs - inc.timestampMs);
+  if (browserTimeBaseMs > diff) return browserTimeBaseMs - diff;
+  return 0;
+}
+
+float rearDistanceBySensorIndex(uint8_t idx) {
+  if (idx == 1) return rearData.leftFilteredDistanceCm;
+  if (idx == 2) return rearData.centerFilteredDistanceCm;
+  if (idx == 3) return rearData.rightFilteredDistanceCm;
+  return -1.0f;
+}
+
+String rearZoneNameFromIndex(uint8_t idx) {
+  if (idx == 1) return "LEFT";
+  if (idx == 2) return "CENTER";
+  if (idx == 3) return "RIGHT";
+  return "UNKNOWN";
+}
+
+uint8_t rearRiskZoneIndexForIncident() {
+  uint8_t bestIdx = 0;
+  float bestDist = 1e9f;
+
+  // Prefer the rear sensor that is actually in WARNING state.
+  // Do not require a valid distance here, because the rear main frame can arrive
+  // slightly before the distance frame. This prevents generic "Rear Blindspot Risk"
+  // incidents when the side is already known from the state frame.
+  if (rearData.leftState == 3) {
+    bestIdx = 1;
+    if (rearData.leftFilteredDistanceCm >= 0.0f) bestDist = rearData.leftFilteredDistanceCm;
+  }
+
+  if (rearData.centerState == 3) {
+    if (bestIdx == 0) {
+      bestIdx = 2;
+      if (rearData.centerFilteredDistanceCm >= 0.0f) bestDist = rearData.centerFilteredDistanceCm;
+    } else if (rearData.centerFilteredDistanceCm >= 0.0f && rearData.centerFilteredDistanceCm < bestDist) {
+      bestIdx = 2;
+      bestDist = rearData.centerFilteredDistanceCm;
+    }
+  }
+
+  if (rearData.rightState == 3) {
+    if (bestIdx == 0) {
+      bestIdx = 3;
+      if (rearData.rightFilteredDistanceCm >= 0.0f) bestDist = rearData.rightFilteredDistanceCm;
+    } else if (rearData.rightFilteredDistanceCm >= 0.0f && rearData.rightFilteredDistanceCm < bestDist) {
+      bestIdx = 3;
+      bestDist = rearData.rightFilteredDistanceCm;
+    }
+  }
+
+  if (bestIdx != 0) return bestIdx;
+
+  // Then use lower-level states if no sensor is currently in full WARNING.
+  if (rearData.leftState >= rearData.centerState && rearData.leftState >= rearData.rightState && rearData.leftState > 0) return 1;
+  if (rearData.centerState >= rearData.leftState && rearData.centerState >= rearData.rightState && rearData.centerState > 0) return 2;
+  if (rearData.rightState >= rearData.leftState && rearData.rightState >= rearData.centerState && rearData.rightState > 0) return 3;
+
+  if (rearData.nearestSensor >= 1 && rearData.nearestSensor <= 3) return rearData.nearestSensor;
+
+  return 0;
+}
+
+String rearIncidentTitleForZone(const String& zone) {
+  if (zone == "LEFT") return "Rear Left Blindspot Risk";
+  if (zone == "RIGHT") return "Rear Right Blindspot Risk";
+  if (zone == "CENTER") return "Rear Center Obstacle Risk";
+  return "Rear Blindspot Risk";
+}
+
+float nearestRearDistanceForIncident() {
+  float best = -1.0f;
+
+  if (rearData.leftFilteredDistanceCm >= 0.0f) {
+    best = rearData.leftFilteredDistanceCm;
+  }
+
+  if (rearData.centerFilteredDistanceCm >= 0.0f &&
+      (best < 0.0f || rearData.centerFilteredDistanceCm < best)) {
+    best = rearData.centerFilteredDistanceCm;
+  }
+
+  if (rearData.rightFilteredDistanceCm >= 0.0f &&
+      (best < 0.0f || rearData.rightFilteredDistanceCm < best)) {
+    best = rearData.rightFilteredDistanceCm;
+  }
+
+  return best;
+}
+
+String escapeJsonString(const String& s) {
+  String out;
+  out.reserve(s.length() + 8);
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"') out += "\\\"";
+    else if (c == '\\') out += "\\\\";
+    else if (c == '\n') out += "\\n";
+    else if (c == '\r') out += "\\r";
+    else out += c;
+  }
+  return out;
+}
+
+int findIncidentSlot() {
+  for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+    if (!incidentBuffer[i].used) return i;
+  }
+
+  for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+    if (!incidentBuffer[i].pendingAck) return i;
+  }
+
+  int oldest = 0;
+  for (int i = 1; i < INCIDENT_BUFFER_SIZE; i++) {
+    if (incidentBuffer[i].timestampMs < incidentBuffer[oldest].timestampMs) {
+      oldest = i;
+    }
+  }
+
+  lostIncidentCount++;
+  return oldest;
+}
+
+String buildIncidentJson(const IncidentRecord& inc) {
+  String data;
+  data.reserve(900);
+
+  data += "{";
+  data += "\"type\":\"incident\",";
+  data += "\"incident\":{";
+  data += "\"id\":" + String(inc.id) + ",";
+  data += "\"timestampMs\":" + String(inc.timestampMs) + ",";
+  data += "\"realTimeMs\":" + uint64ToString(incidentRealTimeMsForSend(inc)) + ",";
+  data += "\"eventType\":\"" + escapeJsonString(inc.eventType) + "\",";
+  data += "\"severity\":" + String(inc.severity) + ",";
+  data += "\"sourceUnit\":\"" + escapeJsonString(inc.sourceUnit) + "\",";
+  data += "\"title\":\"" + escapeJsonString(inc.title) + "\",";
+  data += "\"message\":\"" + escapeJsonString(inc.message) + "\",";
+  data += "\"frontDistanceCm\":" + String(inc.frontDistanceCm, 1) + ",";
+  data += "\"frontSpeedCmS\":" + String(inc.frontSpeedCmS, 1) + ",";
+  data += "\"rearNearestDistanceCm\":" + String(inc.rearNearestDistanceCm, 1) + ",";
+  data += "\"rearZone\":\"" + escapeJsonString(inc.rearZone) + "\",";
+  data += "\"rearZoneDistanceCm\":" + String(inc.rearZoneDistanceCm, 1) + ",";
+  data += "\"leanRollDeg\":" + String(inc.leanRollDeg, 2) + ",";
+  data += "\"leanPitchDeg\":" + String(inc.leanPitchDeg, 2) + ",";
+  data += "\"laneState\":" + String(inc.laneState) + ",";
+  data += "\"lostIncidentCount\":" + String(lostIncidentCount) + ",";
+  data += "\"pendingAck\":1";
+  data += "}}";
+
+  return data;
+}
+
+void storeIncident(
+  const String& eventType,
+  uint8_t severity,
+  const String& sourceUnit,
+  const String& title,
+  const String& message,
+  unsigned long nowMs
+) {
+  int slot = findIncidentSlot();
+
+  String finalTitle = title;
+  String finalMessage = message;
+
+  uint8_t rearZoneIdx = 0;
+  String rearZone = "";
+  float rearZoneDistance = -1.0f;
+
+  if (sourceUnit == "rear") {
+    rearZoneIdx = rearRiskZoneIndexForIncident();
+    rearZone = rearZoneNameFromIndex(rearZoneIdx);
+    rearZoneDistance = rearDistanceBySensorIndex(rearZoneIdx);
+
+    finalTitle = rearIncidentTitleForZone(rearZone);
+    if (rearZoneDistance >= 0.0f) {
+      String zoneText = rearZone;
+      zoneText.toLowerCase();
+      finalMessage = "Object detected in the rear " + zoneText + " zone at " + String(rearZoneDistance, 1) + " cm.";
+    }
+  }
+
+  incidentBuffer[slot].used = true;
+  incidentBuffer[slot].pendingAck = true;
+  incidentBuffer[slot].id = nextIncidentId++;
+  incidentBuffer[slot].timestampMs = nowMs;
+  incidentBuffer[slot].realTimeMs = estimatedRealTimeMs(nowMs);
+  incidentBuffer[slot].severity = severity;
+  incidentBuffer[slot].eventType = eventType;
+  incidentBuffer[slot].sourceUnit = sourceUnit;
+  incidentBuffer[slot].title = finalTitle;
+  incidentBuffer[slot].message = finalMessage;
+  incidentBuffer[slot].frontDistanceCm = frontData.filteredDistanceCm;
+  incidentBuffer[slot].frontSpeedCmS = frontData.closingSpeedCmS;
+  incidentBuffer[slot].rearNearestDistanceCm = nearestRearDistanceForIncident();
+  incidentBuffer[slot].rearZone = rearZone;
+  incidentBuffer[slot].rearZoneDistanceCm = rearZoneDistance;
+  incidentBuffer[slot].leanRollDeg = leanData.rollDeg;
+  incidentBuffer[slot].leanPitchDeg = leanData.pitchDeg;
+  incidentBuffer[slot].laneState = laneData.state;
+
+  Serial.print("INCIDENT STORED | id=");
+  Serial.print(incidentBuffer[slot].id);
+  Serial.print(" type=");
+  Serial.println(eventType);
+
+  String json = buildIncidentJson(incidentBuffer[slot]);
+  webSocket.broadcastTXT(json);
+}
+
+void acknowledgeIncident(uint32_t id) {
+  for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+    if (incidentBuffer[i].used && incidentBuffer[i].id == id) {
+      incidentBuffer[i].used = false;
+      incidentBuffer[i].pendingAck = false;
+      Serial.print("INCIDENT ACK | id=");
+      Serial.println(id);
+      return;
+    }
+  }
+}
+
+void clearIncidentBuffer() {
+  for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+    incidentBuffer[i].used = false;
+    incidentBuffer[i].pendingAck = false;
+  }
+  lostIncidentCount = 0;
+  Serial.println("Incident buffer cleared");
+}
+
+void sendPendingIncidents(unsigned long nowMs) {
+  if (nowMs - lastIncidentResendMs < INCIDENT_RESEND_MS) return;
+  lastIncidentResendMs = nowMs;
+
+  for (int i = 0; i < INCIDENT_BUFFER_SIZE; i++) {
+    if (incidentBuffer[i].used && incidentBuffer[i].pendingAck) {
+      String json = buildIncidentJson(incidentBuffer[i]);
+      webSocket.broadcastTXT(json);
+      delay(2);
+    }
+  }
+}
+
+void updateIncidentLatch(
+  bool active,
+  unsigned long confirmMs,
+  unsigned long& startMs,
+  bool& logged,
+  unsigned long& lastIncidentMs,
+  unsigned long nowMs,
+  const String& eventType,
+  uint8_t severity,
+  const String& sourceUnit,
+  const String& title,
+  const String& message
+) {
+  if (active) {
+    if (startMs == 0) startMs = nowMs;
+
+    if (!logged &&
+        (nowMs - startMs >= confirmMs) &&
+        (nowMs - lastIncidentMs >= INCIDENT_COOLDOWN_MS)) {
+      storeIncident(eventType, severity, sourceUnit, title, message, nowMs);
+      logged = true;
+      lastIncidentMs = nowMs;
+    }
+  } else {
+    startMs = 0;
+    logged = false;
+  }
+}
+
+String multiHazardMessage(
+  bool frontCritical,
+  bool rearCritical,
+  bool leanCritical,
+  bool laneCritical
+) {
+  String hazards = "";
+
+  if (frontCritical) {
+    hazards += "front collision risk";
+  }
+
+  if (rearCritical) {
+    if (hazards.length() > 0) hazards += ", ";
+
+    uint8_t rearZoneIdx = rearRiskZoneIndexForIncident();
+    String rearZone = rearZoneNameFromIndex(rearZoneIdx);
+
+    if (rearZone == "LEFT") hazards += "rear left blindspot risk";
+    else if (rearZone == "RIGHT") hazards += "rear right blindspot risk";
+    else if (rearZone == "CENTER") hazards += "rear center obstacle risk";
+    else hazards += "rear blindspot risk";
+  }
+
+  if (leanCritical) {
+    if (hazards.length() > 0) hazards += ", ";
+    hazards += "high lean risk";
+  }
+
+  if (laneCritical) {
+    if (hazards.length() > 0) hazards += ", ";
+
+    if (laneData.state == 1) hazards += "left lane departure";
+    else if (laneData.state == 2) hazards += "right lane departure";
+    else hazards += "lane departure";
+  }
+
+  if (hazards.length() == 0) return "Multiple critical safety warnings were active at the same time.";
+
+  return "Detected together: " + hazards + ".";
+}
+
+void updateCriticalIncidentDetection(unsigned long nowMs) {
+  bool leanOffline  = isOffline(leanData.lastUpdateMs, nowMs);
+  bool frontOffline = isOffline(frontData.lastUpdateMs, nowMs);
+  bool rearOffline  = isOffline(rearData.lastUpdateMs, nowMs);
+  bool laneOffline  = isOffline(laneData.lastUpdateMs, nowMs);
+
+  bool frontCritical = !frontOffline && frontData.state == 3;
+  bool rearCritical  = !rearOffline && rearData.overallState == 3;
+  bool leanCritical  = !leanOffline && leanData.riskLevel == 2;
+  bool laneCritical  = !laneOffline && laneData.state != 0;
+
+  updateIncidentLatch(
+    frontCritical,
+    FRONT_CRITICAL_CONFIRM_MS,
+    frontCriticalStartMs,
+    frontCriticalLogged,
+    lastFrontIncidentMs,
+    nowMs,
+    "FRONT_CRITICAL",
+    3,
+    "front",
+    "Front Collision Risk",
+    "A critical front collision warning was detected."
+  );
+
+  updateIncidentLatch(
+    rearCritical,
+    REAR_CRITICAL_CONFIRM_MS,
+    rearCriticalStartMs,
+    rearCriticalLogged,
+    lastRearIncidentMs,
+    nowMs,
+    "REAR_CRITICAL",
+    3,
+    "rear",
+    "Rear Blindspot Risk",
+    "A critical rear blindspot warning was detected."
+  );
+
+  updateIncidentLatch(
+    leanCritical,
+    LEAN_CRITICAL_CONFIRM_MS,
+    leanCriticalStartMs,
+    leanCriticalLogged,
+    lastLeanIncidentMs,
+    nowMs,
+    "LEAN_CRITICAL",
+    3,
+    "center",
+    "High Lean Risk",
+    "A critical vehicle lean condition was detected."
+  );
+
+  updateIncidentLatch(
+    laneCritical,
+    LANE_CRITICAL_CONFIRM_MS,
+    laneCriticalStartMs,
+    laneCriticalLogged,
+    lastLaneIncidentMs,
+    nowMs,
+    laneData.state == 1 ? "LANE_LEFT_CRITICAL" : "LANE_RIGHT_CRITICAL",
+    2,
+    "lane",
+    laneData.state == 1 ? "Left Lane Departure" : "Right Lane Departure",
+    "A lane departure warning was detected."
+  );
+
+  uint8_t seriousCount = 0;
+  if (frontCritical) seriousCount++;
+  if (rearCritical) seriousCount++;
+  if (leanCritical) seriousCount++;
+  if (laneCritical) seriousCount++;
+
+  String multiMessage = multiHazardMessage(frontCritical, rearCritical, leanCritical, laneCritical);
+
+  updateIncidentLatch(
+    seriousCount >= 2,
+    MULTI_HAZARD_CONFIRM_MS,
+    multiHazardStartMs,
+    multiHazardLogged,
+    lastMultiIncidentMs,
+    nowMs,
+    "MULTI_HAZARD",
+    3,
+    "multiple",
+    "Multiple Safety Warnings",
+    multiMessage
+  );
+}
+
+
 // ================= COMMANDS FROM WEB UI =================
 void handleIncomingCommand(const String& msg) {
   Serial.print("WS RX: ");
@@ -882,6 +1371,40 @@ void handleIncomingCommand(const String& msg) {
       if (rem.startsWith("false")) return false;
       return fallback;
     };
+
+    if (msg.indexOf("\"cmd\":\"incidentAck\"") >= 0) {
+      uint32_t id = (uint32_t)readInt("incidentId", 0);
+      if (id > 0) acknowledgeIncident(id);
+      return;
+    }
+
+    auto readUInt64 = [&](const String& key, uint64_t fallback)->uint64_t {
+      String token = "\"" + key + "\":";
+      int idx = msg.indexOf(token);
+      if (idx < 0) return fallback;
+      idx += token.length();
+      int end = idx;
+      while (end < (int)msg.length() && isdigit(msg[end])) end++;
+      String num = msg.substring(idx, end);
+      if (num.length() == 0) return fallback;
+      return strtoull(num.c_str(), NULL, 10);
+    };
+
+    if (msg.indexOf("\"cmd\":\"timeSync\"") >= 0) {
+      uint64_t phoneTimeMs = readUInt64("phoneTimeMs", 0);
+      if (phoneTimeMs > 0) {
+        browserTimeBaseMs = phoneTimeMs;
+        browserTimeBaseBrainMs = millis();
+        browserTimeSynced = true;
+        Serial.println("Browser time synced");
+      }
+      return;
+    }
+
+    if (msg.indexOf("\"cmd\":\"clearLocalStats\"") >= 0) {
+      clearIncidentBuffer();
+      return;
+    }
 
     if (msg.indexOf("\"cmd\":\"testSound\"") >= 0) {
       uint8_t pattern = clampBuzzerPattern(readInt("pattern", BUZZER_PATTERN_URGENT_TRIPLE));
@@ -1542,6 +2065,52 @@ const char webpage[] PROGMEM = R"rawliteral(
     color:var(--muted);
     font-size:12px;
   }
+  .statsGrid{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .statsCard{
+    background:#11151b;
+    border:1px solid #232933;
+    border-radius:14px;
+    padding:12px;
+  }
+  .scoreValue{
+    font-size:42px;
+    font-weight:900;
+    line-height:1;
+  }
+  .scoreBand{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:6px;
+  }
+  .incidentList{
+    display:grid;
+    gap:8px;
+    margin-top:10px;
+  }
+  .incidentItem{
+    background:#11151b;
+    border:1px solid #232933;
+    border-radius:12px;
+    padding:10px;
+  }
+  .incidentTitle{
+    font-size:14px;
+    font-weight:800;
+    margin-bottom:4px;
+  }
+  .incidentMeta{
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.4;
+  }
+  @media (max-width: 900px){
+    .statsGrid{grid-template-columns:1fr 1fr;}
+  }
   @media (max-width: 650px){
     .wizardHealth{grid-template-columns:1fr;}
   }
@@ -1552,7 +2121,7 @@ const char webpage[] PROGMEM = R"rawliteral(
 <div class="wrap">
   <div class="topTitle">ADAS Brain Monitor</div>
   <div class="statusRow"><span class="badge">Brain AP: ADASBrain</span><button id="audioBtn" onclick="toggleBuzzer()">Buzzer On</button></div>
-  <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
+  <div class="navRow"><button id="tabDashboardBtn" class="navBtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabStatsBtn" class="navBtn" onclick="showTab('statistics')">Statistics</button><button id="tabSettingsBtn" class="navBtn" onclick="showTab('settings')">Settings</button></div>
 
   <div id="dashboardTab">
     <div id="setupBanner" class="banner hidden"><div style="font-weight:700;margin-bottom:6px;">Setup required</div><div class="help">Complete the guided setup before normal use.</div><div class="settingsButtons"><button onclick="openSetupWizard()">Open Setup Wizard</button></div></div>
@@ -1568,13 +2137,59 @@ const char webpage[] PROGMEM = R"rawliteral(
     </div>
   </div>
 
+  <div id="statisticsTab" class="hidden">
+    <div class="settingsWrap">
+      <div class="statsGrid">
+        <div class="statsCard">
+          <div class="label">Driver Score</div>
+          <div id="driverScore" class="scoreValue">100</div>
+          <div id="driverScoreBand" class="scoreBand">Excellent</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Critical Incidents</div>
+          <div id="criticalIncidentCount" class="value">0</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Front</div>
+          <div id="frontIncidentCount" class="value">0</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Rear</div>
+          <div id="rearIncidentCount" class="value">0</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Lane</div>
+          <div id="laneIncidentCount" class="value">0</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Center / Lean</div>
+          <div id="leanIncidentCount" class="value">0</div>
+        </div>
+        <div class="statsCard">
+          <div class="label">Multi-Hazard</div>
+          <div id="multiIncidentCount" class="value">0</div>
+        </div>
+      </div>
+
+      <div class="settingsSection">
+        <div class="panelHead">
+          <div class="settingsTitle" style="margin-bottom:0;">Recent Incidents</div>
+          <select id="incidentRange" onchange="refreshStatisticsPage()" style="max-width:180px;">
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="all">All local</option>
+          </select>
+        </div>
+        <div id="incidentList" class="incidentList"></div>
+      </div>
+    </div>
+  </div>
+
+
   <div id="settingsTab" class="hidden">
   <div class="settingsWrap">
 
-    <div class="settingsSection">
-      <div class="settingsTitle">Command Status</div>
-      <div id="cmdStatus" class="help">Waiting for WebSocket connection...</div>
-    </div>
+    <div id="cmdStatus" class="help hidden"></div>
 
     <div id="wizardHeader" class="settingsSection hidden">
       <div id="wizardProgress" class="wizardProgress">Step 1 of 8</div>
@@ -1812,6 +2427,9 @@ let wizardCalibrationRequested = false;
 let wizardCalibrationStartedAt = 0;
 let previousSoundPatternValues = {};
 
+const INCIDENT_STORAGE_KEY = "drivora_incidents_v1";
+const MAX_LOCAL_INCIDENTS = 100;
+
 const DEFAULT_CFG = {
   setupCompleted: 0,
   vehicleType: 3,
@@ -1840,24 +2458,30 @@ function isSetupLocked(){
 }
 
 function showTab(tab){
-  if (tab === "dashboard" && isSetupLocked()) {
+  if ((tab === "dashboard" || tab === "statistics") && isSetupLocked()) {
     $("dashboardTab").classList.add("hidden");
+    $("statisticsTab").classList.add("hidden");
     $("settingsTab").classList.remove("hidden");
     $("tabDashboardBtn").classList.add("hidden");
+    $("tabStatsBtn").classList.add("hidden");
     $("tabSettingsBtn").classList.add("active");
     $("tabSettingsBtn").innerText = "Setup";
     const audioBtn = $("audioBtn");
     if (audioBtn) audioBtn.classList.add("hidden");
-    setCmdStatus("Complete setup to unlock the dashboard.");
+    setCmdStatus("Complete setup to unlock the dashboard and statistics.");
     return;
   }
 
   $("dashboardTab").classList.toggle("hidden", tab !== "dashboard");
+  $("statisticsTab").classList.toggle("hidden", tab !== "statistics");
   $("settingsTab").classList.toggle("hidden", tab !== "settings");
   $("tabDashboardBtn").classList.toggle("active", tab === "dashboard");
+  $("tabStatsBtn").classList.toggle("active", tab === "statistics");
   $("tabSettingsBtn").classList.toggle("active", tab === "settings");
   const audioBtn = $("audioBtn");
   if (audioBtn) audioBtn.classList.toggle("hidden", tab !== "dashboard");
+
+  if (tab === "statistics") refreshStatisticsPage();
 }
 
 function setCmdStatus(msg){
@@ -1865,7 +2489,15 @@ function setCmdStatus(msg){
   if (el) el.innerText = msg;
 }
 
-ws.onopen = () => setCmdStatus("WebSocket connected.");
+function syncBrowserTime(){
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({cmd:"timeSync", phoneTimeMs: Date.now()}));
+}
+
+ws.onopen = () => {
+  setCmdStatus("WebSocket connected.");
+  syncBrowserTime();
+};
 ws.onclose = () => setCmdStatus("WebSocket disconnected. Refresh the page.");
 ws.onerror = () => setCmdStatus("WebSocket error. Refresh the page.");
 
@@ -2233,14 +2865,17 @@ function refreshNavigation(cfg){
   const locked = wizardMode || !cfg.setupCompleted;
 
   $("tabDashboardBtn").classList.toggle("hidden", locked);
+  $("tabStatsBtn").classList.toggle("hidden", locked);
   $("tabSettingsBtn").innerText = locked ? "Setup" : "Settings";
   const audioBtn = $("audioBtn");
   if (audioBtn) audioBtn.classList.toggle("hidden", locked || $("dashboardTab").classList.contains("hidden"));
 
   if (locked) {
     $("dashboardTab").classList.add("hidden");
+    $("statisticsTab").classList.add("hidden");
     $("settingsTab").classList.remove("hidden");
     $("tabDashboardBtn").classList.remove("active");
+    $("tabStatsBtn").classList.remove("active");
     $("tabSettingsBtn").classList.add("active");
   }
 }
@@ -2417,8 +3052,257 @@ function updateWizardHealth(){
     : "Waiting for Front, Center, and Rear units to respond.";
 }
 
+
+function loadLocalIncidents(){
+  try {
+    return JSON.parse(localStorage.getItem(INCIDENT_STORAGE_KEY) || "[]");
+  } catch(e) {
+    return [];
+  }
+}
+
+function saveLocalIncidents(items){
+  localStorage.setItem(INCIDENT_STORAGE_KEY, JSON.stringify(items.slice(0, MAX_LOCAL_INCIDENTS)));
+}
+
+function incidentLocalKey(inc){
+  return String(inc.id || 0) + "-" +
+         String(inc.eventType || "") + "-" +
+         String(inc.timestampMs || 0) + "-" +
+         String(inc.realTimeMs || 0);
+}
+
+function storeIncidentLocally(incident){
+  let items = loadLocalIncidents();
+
+  incident.localKey = incidentLocalKey(incident);
+
+  const exists = items.some(x => {
+    if (!x) return false;
+
+    // New records use localKey. This avoids losing new incidents after the brain restarts
+    // and reuses incident IDs from 1 again.
+    if (x.localKey && x.localKey === incident.localKey) return true;
+
+    // Backward compatibility for old records that did not have localKey.
+    return x.id === incident.id &&
+           x.eventType === incident.eventType &&
+           Number(x.timestampMs || 0) === Number(incident.timestampMs || 0);
+  });
+
+  if (!exists) {
+    incident.receivedAtPhoneTime = Date.now();
+    incident.synced = false;
+    items.unshift(incident);
+    saveLocalIncidents(items);
+  }
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({cmd:"incidentAck", incidentId: incident.id}));
+  }
+
+  refreshStatisticsPage();
+}
+
+function incidentBaseTimeMs(inc){
+  const rt = Number(inc.realTimeMs || 0);
+  if (rt > 0) return rt;
+  const ph = Number(inc.receivedAtPhoneTime || 0);
+  if (ph > 0) return ph;
+  return 0;
+}
+
+function formatIncidentTime(inc){
+  const ts = incidentBaseTimeMs(inc);
+  if (ts <= 0) return "Time unavailable";
+
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const time = d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  if (sameDay) return "Today, " + time;
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday, " + time;
+  return d.toLocaleDateString([], {year:"numeric", month:"short", day:"numeric"}) + ", " + time;
+}
+
+function escapeHtml(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function scoreBand(score){
+  if (score >= 90) return "Excellent";
+  if (score >= 75) return "Good";
+  if (score >= 60) return "Moderate";
+  if (score >= 40) return "Risky";
+  return "Critical";
+}
+
+function selectedIncidentRangeDays(){
+  const el = $("incidentRange");
+  if (!el || el.value === "all") return null;
+  return Number(el.value || 7);
+}
+
+function incidentsForSelectedRange(items){
+  const days = selectedIncidentRangeDays();
+  if (!days) return items;
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return items.filter(inc => {
+    const ts = incidentBaseTimeMs(inc);
+    return ts <= 0 || ts >= cutoff;
+  });
+}
+
+function rearZoneDisplay(inc){
+  const z = String(inc.rearZone || "").toUpperCase();
+  if (z === "LEFT") return "Rear Left";
+  if (z === "RIGHT") return "Rear Right";
+  if (z === "CENTER") return "Rear Center";
+  return "Rear";
+}
+
+function incidentFriendlyTitle(inc){
+  const source = inc.sourceUnit || "";
+  if (source === "rear") {
+    const z = String(inc.rearZone || "").toUpperCase();
+    if (z === "LEFT") return "Rear Left Blindspot Risk";
+    if (z === "RIGHT") return "Rear Right Blindspot Risk";
+    if (z === "CENTER") return "Rear Center Obstacle Risk";
+    return "Rear Blindspot Risk";
+  }
+  return inc.title || inc.eventType || "Safety Incident";
+}
+
+function incidentFriendlyDetail(inc){
+  const source = inc.sourceUnit || "unknown";
+
+  if (source === "front") {
+    const dist = Number(inc.frontDistanceCm || -1);
+    const speed = Number(inc.frontSpeedCmS || 0);
+    if (dist >= 0) {
+      return "Obstacle ahead at " + dist.toFixed(1) + " cm. Closing speed: " + (speed >= 0 ? "+" : "") + speed.toFixed(1) + " cm/s.";
+    }
+    return "A critical front collision warning was detected.";
+  }
+
+  if (source === "rear") {
+    const zone = rearZoneDisplay(inc).toLowerCase();
+    const dist = Number((inc.rearZoneDistanceCm >= 0 ? inc.rearZoneDistanceCm : inc.rearNearestDistanceCm) || -1);
+    if (dist >= 0) return "Object detected in the " + zone + " zone at " + dist.toFixed(1) + " cm.";
+    return "A critical rear blindspot warning was detected.";
+  }
+
+  if (source === "center") {
+    return "Vehicle tilt reached a risky level. Roll: " + Number(inc.leanRollDeg || 0).toFixed(2) + " deg, Pitch: " + Number(inc.leanPitchDeg || 0).toFixed(2) + " deg.";
+  }
+
+  if (source === "lane") {
+    if (Number(inc.laneState) === 1) return "Vehicle crossed toward the left lane boundary.";
+    if (Number(inc.laneState) === 2) return "Vehicle crossed toward the right lane boundary.";
+    return "A lane departure warning was detected.";
+  }
+
+  if (source === "multiple") {
+    return inc.message || "Multiple safety warnings were active at the same time.";
+  }
+
+  return inc.message || "Multiple safety warnings were active at the same time.";
+}
+
+function sourceLabel(inc){
+  const source = inc.sourceUnit || "unknown";
+  if (source === "front") return "Front";
+  if (source === "rear") return rearZoneDisplay(inc);
+  if (source === "center") return "Center";
+  if (source === "lane") return "Lane";
+  if (source === "multiple") return "Multi-Hazard";
+  return "Safety";
+}
+
+function refreshStatisticsPage(){
+  const allItems = loadLocalIncidents();
+  const items = incidentsForSelectedRange(allItems);
+
+  let front = 0, rear = 0, lane = 0, lean = 0, multi = 0, critical = 0;
+  items.forEach(inc => {
+    if (!inc) return;
+    if (inc.severity >= 3) critical++;
+    if (inc.sourceUnit === "front") front++;
+    else if (inc.sourceUnit === "rear") rear++;
+    else if (inc.sourceUnit === "lane") lane++;
+    else if (inc.sourceUnit === "center") lean++;
+    else if (inc.sourceUnit === "multiple") multi++;
+  });
+
+  let score = 100;
+  score -= critical * 18;
+  score -= lane * 5;
+  score -= lean * 8;
+  score -= front * 10;
+  score -= rear * 8;
+  score -= multi * 12;
+  score = Math.max(0, Math.min(100, score));
+
+  $("driverScore").innerText = score;
+  $("driverScoreBand").innerText = scoreBand(score);
+  $("criticalIncidentCount").innerText = critical;
+  $("frontIncidentCount").innerText = front;
+  $("rearIncidentCount").innerText = rear;
+  $("laneIncidentCount").innerText = lane;
+  $("leanIncidentCount").innerText = lean;
+  $("multiIncidentCount").innerText = multi;
+
+  const list = $("incidentList");
+  if (!list) return;
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="help">No critical incidents for the selected period.</div>';
+    return;
+  }
+
+  list.innerHTML = items.slice(0, 30).map(inc => {
+    const title = escapeHtml(incidentFriendlyTitle(inc));
+    const time = escapeHtml(formatIncidentTime(inc));
+    const sev = inc.severity >= 3 ? "Critical" : "Warning";
+    const source = escapeHtml(sourceLabel(inc));
+    const detail = escapeHtml(incidentFriendlyDetail(inc));
+
+    return '<div class="incidentItem">' +
+      '<div class="incidentTitle">' + title + '</div>' +
+      '<div class="incidentMeta">' + time + ' - ' + sev + ' - ' + source + '</div>' +
+      '<div class="incidentMeta">' + detail + '</div>' +
+      '</div>';
+  }).join("");
+}
+
+function clearLocalStats(){
+  if (!confirm("Clear local incident statistics from this browser?")) return;
+  localStorage.removeItem(INCIDENT_STORAGE_KEY);
+  refreshStatisticsPage();
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({cmd:"clearLocalStats"}));
+  }
+
+  setCmdStatus("Local statistics cleared.");
+}
+
 ws.onmessage = (evt) => {
   const d = JSON.parse(evt.data);
+
+  if (d.type === "incident" && d.incident) {
+    storeIncidentLocally(d.incident);
+    return;
+  }
 
   latestHealth.front = d.front;
   latestHealth.lean = d.lean;
@@ -2540,7 +3424,7 @@ void setup() {
   Serial.println(WiFi.softAPIP());
 
   server.on("/", []() {
-    server.send_P(200, "text/html", webpage);
+    server.send_P(200, "text/html; charset=utf-8", webpage);
   });
   server.begin();
 
@@ -2563,6 +3447,8 @@ void loop() {
 
   receiveCANFrames(nowMs);
   receiveLaneUART(nowMs);
+  updateCriticalIncidentDetection(nowMs);
+  sendPendingIncidents(nowMs);
 
   // Service buzzer independently from WebSocket broadcasting.
   // This prevents long ON tones if the JSON/web update takes longer than usual.
