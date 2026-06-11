@@ -37,6 +37,35 @@ static const int LANE_RX_PIN = 21;
 static const int LANE_TX_PIN = 22;   // reserved for future use
 String laneRxBuffer = "";
 
+// ================= BUZZER =================
+// Passive piezo buzzer output from brain unit.
+// Recommended pin on ESP32-WROOM-32: GPIO25.
+static const int BUZZER_PIN = 25;
+static const int BUZZER_CHANNEL = 0;
+static const int BUZZER_RESOLUTION = 10;
+
+bool buzzerEnabled = true;
+int currentBuzzerFreq = -1;
+
+// Buzzer state machine.
+// This prevents two practical issues:
+// 1) continuous tone when fused warning type changes repeatedly
+// 2) short silent gaps caused by one-frame NONE/stale transitions
+String activeBuzzerType = "NONE";
+uint8_t activeBuzzerSeverity = 0;
+unsigned long buzzerPatternStartMs = 0;
+unsigned long buzzerSwitchMuteUntilMs = 0;
+unsigned long buzzerClearCandidateMs = 0;
+
+const unsigned long BUZZER_MIN_TYPE_HOLD_MS = 650;
+const unsigned long BUZZER_SWITCH_GAP_MS = 35;
+const unsigned long BUZZER_CLEAR_GRACE_MS = 260;
+
+// Current fused warning snapshot used by the non-blocking buzzer service.
+// This lets the buzzer update every loop, independent of the WebSocket broadcast rate.
+String currentFusedType = "NONE";
+uint8_t currentFusedSeverity = 0;
+
 // ================= CONFIG MODEL =================
 struct BrainConfig {
   bool setupCompleted = false;
@@ -723,6 +752,222 @@ void handleIncomingCommand(const String& msg) {
   }
 }
 
+
+// ================= BUZZER HELPERS =================
+void buzzerBegin() {
+  ledcSetup(BUZZER_CHANNEL, 2000, BUZZER_RESOLUTION);
+  ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
+  ledcWriteTone(BUZZER_CHANNEL, 0);
+  currentBuzzerFreq = 0;
+}
+
+void buzzerOff();
+
+void buzzerTone(int freq) {
+  if (!buzzerEnabled || freq <= 0) {
+    buzzerOff();
+    return;
+  }
+
+  if (currentBuzzerFreq != freq) {
+    ledcWriteTone(BUZZER_CHANNEL, freq);
+    currentBuzzerFreq = freq;
+  }
+}
+
+void buzzerOff() {
+  if (currentBuzzerFreq != 0) {
+    ledcWriteTone(BUZZER_CHANNEL, 0);
+    currentBuzzerFreq = 0;
+  }
+}
+
+String normalizeBuzzerType(const String& fusedType, uint8_t fusedSeverity) {
+  if (fusedSeverity == 0 || fusedType == "NONE") return "NONE";
+
+  // Keep one stable buzzer family for all front states.
+  // This prevents FRONT_WARNING <-> FRONT_APPROACHING <-> FRONT_OBJECT oscillation
+  // from restarting the buzzer pattern and causing stuck/continuous tones.
+  if (fusedType == "FRONT_WARNING" ||
+      fusedType == "FRONT_APPROACHING" ||
+      fusedType == "FRONT_OBJECT") {
+    return "FRONT_ALERT";
+  }
+
+  // Keep one stable buzzer family for all rear states for the same reason.
+  if (fusedType == "REAR_WARNING" ||
+      fusedType == "REAR_CAUTION" ||
+      fusedType == "REAR_OBJECT") {
+    return "REAR_ALERT";
+  }
+
+  if (fusedType == "LANE_LEFT" || fusedType == "LANE_RIGHT") return "LANE_WARNING";
+
+  if (fusedType == "LEAN_HIGH") return "LEAN_HIGH";
+  if (fusedType == "LEAN_CAUTION") return "LEAN_CAUTION";
+
+  if (fusedSeverity >= 3) return "GENERAL_WARNING";
+  return "GENERAL_CAUTION";
+}
+
+void selectActiveBuzzerType(const String& requestedType, uint8_t requestedSeverity, unsigned long nowMs) {
+  if (!buzzerEnabled || requestedType == "NONE" || requestedSeverity == 0) {
+    if (activeBuzzerType != "NONE" && buzzerClearCandidateMs == 0) {
+      buzzerClearCandidateMs = nowMs;
+    }
+
+    if (activeBuzzerType == "NONE" || (nowMs - buzzerClearCandidateMs) >= BUZZER_CLEAR_GRACE_MS) {
+      activeBuzzerType = "NONE";
+      activeBuzzerSeverity = 0;
+      buzzerClearCandidateMs = 0;
+      buzzerOff();
+    }
+    return;
+  }
+
+  buzzerClearCandidateMs = 0;
+
+  if (activeBuzzerType == "NONE") {
+    activeBuzzerType = requestedType;
+    activeBuzzerSeverity = requestedSeverity;
+    buzzerPatternStartMs = nowMs;
+    buzzerSwitchMuteUntilMs = nowMs + BUZZER_SWITCH_GAP_MS;
+    buzzerOff();
+    return;
+  }
+
+  if (requestedType == activeBuzzerType) {
+    activeBuzzerSeverity = requestedSeverity;
+    return;
+  }
+
+  bool holdCompleted = (nowMs - buzzerPatternStartMs) >= BUZZER_MIN_TYPE_HOLD_MS;
+  bool requestedIsMoreUrgent = requestedSeverity > activeBuzzerSeverity;
+
+  if (holdCompleted || requestedIsMoreUrgent) {
+    activeBuzzerType = requestedType;
+    activeBuzzerSeverity = requestedSeverity;
+    buzzerPatternStartMs = nowMs;
+    buzzerSwitchMuteUntilMs = nowMs + BUZZER_SWITCH_GAP_MS;
+    buzzerOff();
+  }
+}
+
+void updateBuzzerByFusedType(const String& fusedType, uint8_t fusedSeverity, unsigned long nowMs) {
+  String requestedType = normalizeBuzzerType(fusedType, fusedSeverity);
+
+  selectActiveBuzzerType(requestedType, fusedSeverity, nowMs);
+
+  if (!buzzerEnabled || activeBuzzerType == "NONE" || activeBuzzerSeverity == 0) {
+    buzzerOff();
+    return;
+  }
+
+  if (nowMs < buzzerSwitchMuteUntilMs) {
+    buzzerOff();
+    return;
+  }
+
+  unsigned long t = nowMs - buzzerPatternStartMs;
+
+  // Loud vehicle-use tone plan:
+  // The buzzer is strongest around 2200 Hz, so all warning families stay close
+  // to that resonant area. Unit identity is separated mainly by cadence/melody,
+  // not by moving far away from the loud frequency range.
+
+  // FRONT ALERT:
+  // Highest priority. Uses the strongest 2200 Hz tone.
+  // Warning  = urgent triple pulse
+  // Caution  = medium double pulse
+  // Object   = slow single pulse
+  if (activeBuzzerType == "FRONT_ALERT") {
+    unsigned long p;
+    if (activeBuzzerSeverity >= 3) {
+      p = t % 420;
+      if (p < 75 || (p >= 135 && p < 210) || (p >= 270 && p < 345)) buzzerTone(2200);
+      else buzzerOff();
+    } else if (activeBuzzerSeverity == 2) {
+      p = t % 620;
+      if (p < 95 || (p >= 210 && p < 305)) buzzerTone(2200);
+      else buzzerOff();
+    } else {
+      p = t % 850;
+      if (p < 120) buzzerTone(2200);
+      else buzzerOff();
+    }
+    return;
+  }
+
+  // REAR ALERT:
+  // Also kept near resonance for volume, but slightly lower and slower than front.
+  // Warning  = slower double pulse
+  // Caution  = single medium pulse
+  // Object   = slow short pulse
+  if (activeBuzzerType == "REAR_ALERT") {
+    unsigned long p;
+    if (activeBuzzerSeverity >= 3) {
+      p = t % 640;
+      if (p < 130 || (p >= 280 && p < 410)) buzzerTone(2150);
+      else buzzerOff();
+    } else if (activeBuzzerSeverity == 2) {
+      p = t % 780;
+      if (p < 140) buzzerTone(2150);
+      else buzzerOff();
+    } else {
+      p = t % 980;
+      if (p < 110) buzzerTone(2150);
+      else buzzerOff();
+    }
+    return;
+  }
+
+  // LANE WARNING:
+  // Short quick double-tap close to resonance. Higher pitch helps it feel
+  // separate from rear while still remaining loud.
+  if (activeBuzzerType == "LANE_WARNING") {
+    unsigned long p = t % 820;
+    if (p < 70 || (p >= 145 && p < 215)) buzzerTone(2250);
+    else buzzerOff();
+    return;
+  }
+
+  // LEAN HIGH:
+  // Distinct two-tone stability warning using two nearby loud frequencies.
+  if (activeBuzzerType == "LEAN_HIGH") {
+    unsigned long p = t % 600;
+    if (p < 180) buzzerTone(2200);
+    else if (p >= 300 && p < 480) buzzerTone(2350);
+    else buzzerOff();
+    return;
+  }
+
+  // LEAN CAUTION:
+  // Slow single pulse, slightly higher but still close to the loud band.
+  if (activeBuzzerType == "LEAN_CAUTION") {
+    unsigned long p = t % 860;
+    if (p < 130) buzzerTone(2300);
+    else buzzerOff();
+    return;
+  }
+
+  // General fallback warnings
+  if (activeBuzzerType == "GENERAL_WARNING") {
+    unsigned long p = t % 560;
+    if (p < 120 || (p >= 250 && p < 370)) buzzerTone(2200);
+    else buzzerOff();
+    return;
+  }
+
+  if (activeBuzzerType == "GENERAL_CAUTION") {
+    unsigned long p = t % 900;
+    if (p < 120) buzzerTone(2250);
+    else buzzerOff();
+    return;
+  }
+
+  buzzerOff();
+}
+
 // ================= JSON BROADCAST =================
 void broadcastCombinedState(unsigned long nowMs) {
   String data;
@@ -800,6 +1045,9 @@ void broadcastCombinedState(unsigned long nowMs) {
     fusedColor = "#f5c542";
     fusedSeverity = 1;
   }
+
+  currentFusedType = fusedType;
+  currentFusedSeverity = fusedSeverity;
 
   bool includeConfig = forceConfigBroadcast || ((nowMs - lastConfigBroadcastMs) >= CONFIG_BROADCAST_MS);
   if (includeConfig) {
@@ -1766,6 +2014,8 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+  buzzerBegin();
+
   loadConfig();
 
   Serial2.begin(115200, SERIAL_8N1, LANE_RX_PIN, LANE_TX_PIN);
@@ -1803,6 +2053,10 @@ void loop() {
 
   receiveCANFrames(nowMs);
   receiveLaneUART(nowMs);
+
+  // Service buzzer independently from WebSocket broadcasting.
+  // This prevents long ON tones if the JSON/web update takes longer than usual.
+  updateBuzzerByFusedType(currentFusedType, currentFusedSeverity, nowMs);
 
   if (nowMs - lastBroadcastMs >= UI_BROADCAST_MS) {
     lastBroadcastMs = nowMs;
