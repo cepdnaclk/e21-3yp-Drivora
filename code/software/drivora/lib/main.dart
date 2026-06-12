@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'providers/user_provider.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/landing_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/registration_screen.dart';
 import 'screens/splash_screen.dart';
@@ -39,9 +41,11 @@ class DrivoraApp extends StatelessWidget {
         home: const SplashScreen(),
         routes: {
           '/splash': (_) => const SplashScreen(),
+          '/landing': (_) => const LandingScreen(),
+          '/login': (_) => const LoginScreen(),
+          '/registration': (_) => const RegistrationScreen(),
           '/onboarding': (_) => const OnboardingScreen(),
           '/dashboard': (_) => const DashboardScreen(),
-          '/registration': (_) => const RegistrationScreen(),
         },
       ),
     );

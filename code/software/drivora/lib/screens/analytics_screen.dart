@@ -1,799 +1,588 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/wifi_sensor_service.dart';
-import '../models/sensor_data.dart';
-import '../theme/app_theme.dart';
 
+// ─── palette (mirrors dashboard) ─────────────────────────────────────────────
+const _kBg      = Color(0xFF080B12);
+const _kSurface = Color(0xFF0C0F1A);
+const _kBorder  = Color(0xFF1C2236);
+const _kGreen   = Color(0xFF34C759);
+const _kAmber   = Color(0xFFFFB020);
+const _kRed     = Color(0xFFFF3B30);
+const _kText1   = Color(0xFFF0F4FF);
+const _kText2   = Color(0xFF6B7A99);
+
+// ─────────────────────────────────────────────────────────────────────────────
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
-
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
-class _AnalyticsScreenState extends State<AnalyticsScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _reveal;
-  late Animation<double> _fade;
+class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  // null = all time; 7 = last 7 days; 30 = last 30 days
+  int? _filterDays = 7;
 
-  @override
-  void initState() {
-    super.initState();
-    _reveal = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    )..forward();
-    _fade = CurvedAnimation(parent: _reveal, curve: Curves.easeOut);
-
-    // Load cloud alert history after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        Provider.of<WiFiSensorService>(context, listen: false).loadAlertHistory();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _reveal.dispose();
-    super.dispose();
-  }
+  static const _filterOptions = [
+    _FilterOption('Last 7 Days',  7),
+    _FilterOption('Last 30 Days', 30),
+    _FilterOption('All Time',     null),
+  ];
 
   @override
   Widget build(BuildContext context) => Consumer<WiFiSensorService>(
-      builder: (context, svc, _) {
-        final history = svc.dataHistory;
-        final activeAlerts = svc.activeAlerts;
-        final cloudHistory = svc.alertHistory
-            .where((a) =>
-                a.severity == AlertSeverity.critical ||
-                a.severity == AlertSeverity.danger)
-            .toList();
+    builder: (context, svc, _) {
+      final score    = svc.driverScore(_filterDays);
+      final total    = svc.totalEventCount(_filterDays);
+      final front    = svc.frontEventCount(_filterDays);
+      final rear     = svc.rearEventCount(_filterDays);
+      final stab     = svc.stabilityEventCount(_filterDays);
+      final lane     = svc.laneEventCount(_filterDays);
+      final incidents = svc.incidentsForRange(_filterDays);
 
-        final avgSpeed = history.isEmpty
-            ? 0.0
-            : history.map((e) => e.speed).reduce((a, b) => a + b) /
-            history.length;
-        final maxSpeed = history.isEmpty
-            ? 0.0
-            : history.map((e) => e.speed).reduce((a, b) => a > b ? a : b);
-        final avgTtc = history.isEmpty
-            ? 0.0
-            : history.map((e) => e.ttc).reduce((a, b) => a + b) /
-            history.length;
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF0F0F5),
-          body: SafeArea(
-            bottom: false,
-            child: FadeTransition(
-              opacity: _fade,
-              child: CustomScrollView(
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(child: _AnalyticsHeader(svc: svc)),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: _StatsRow(
-                        avgSpeed: avgSpeed,
-                        maxSpeed: maxSpeed,
-                        avgTtc: avgTtc,
-                        threatCount: activeAlerts.length,
-                      ),
-                    ),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: _SectionLabel('VELOCITY HISTORY'),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                      child: _SparklineCard(
-                        history: history,
-                        label: 'Speed (KM/H)',
-                        color: AppTheme.accentBlue,
-                        getValue: (d) => d.speed,
-                        maxY: 120,
-                      ),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                      child: _SparklineCard(
-                        history: history,
-                        label: 'TTC (s)',
-                        color: AppTheme.accentAmber,
-                        getValue: (d) => d.ttc,
-                        maxY: 10,
-                        dangerLine: 2.2,
-                      ),
-                    ),
-                  ),
-                  // ── CLOUD ALERT HISTORY ─────────────────────────────────────
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
-                      child: _SectionLabel('CLOUD ALERT HISTORY'),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-                      child: _CloudHistorySubtitle(count: cloudHistory.length),
-                    ),
-                  ),
-                  if (cloudHistory.isEmpty)
-                    SliverToBoxAdapter(
-                      child: _AnalyticsEmptyAlerts(isHistory: true),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (ctx, i) => _HistoryAlertRow(
-                            alert: cloudHistory[i],
-                            index: i,
-                          ),
-                          childCount: cloudHistory.length,
+      return Scaffold(
+        backgroundColor: _kBg,
+        body: SafeArea(
+          bottom: false,
+          child: Row(children: [
+            // ── LEFT: Score gauge — 25% of screen width ─────────────────────
+            SizedBox(
+              width: MediaQuery.of(context).size.width * 0.25,
+              child: _ScorePanel(score: score, total: total),
+            ),
+            Container(width: 1, color: _kBorder),
+            // ── RIGHT: Counters + history ────────────────────────────────────
+            Expanded(
+              child: Column(children: [
+                // Counter row
+                _CounterRow(
+                  total: total, front: front,
+                  rear: rear, stab: stab, lane: lane,
+                ),
+                Container(height: 1, color: _kBorder),
+                // History header + filter
+                _HistoryHeader(
+                  filterDays: _filterDays,
+                  options: _filterOptions,
+                  onChanged: (v) => setState(() => _filterDays = v),
+                  count: incidents.length,
+                ),
+                // Scrollable event list
+                Expanded(
+                  child: incidents.isEmpty
+                      ? _EmptyHistory()
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                          itemCount: incidents.length,
+                          itemBuilder: (ctx, i) =>
+                              _IncidentCard(record: incidents[i]),
                         ),
-                      ),
-                    ),
-                  if (cloudHistory.isNotEmpty)
-                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                ),
+              ]),
+            ),
+          ]),
+        ),
+      );
+    },
+  );
+}
+
+class _FilterOption {
+  const _FilterOption(this.label, this.days);
+  final String label;
+  final int?   days;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEFT PANEL — Score gauge
+// ─────────────────────────────────────────────────────────────────────────────
+class _ScorePanel extends StatelessWidget {
+  const _ScorePanel({required this.score, required this.total});
+  final int score;
+  final int total;
+
+  Color get _scoreColor {
+    if (score >= 80) return _kGreen;
+    if (score >= 50) return _kAmber;
+    return _kRed;
+  }
+
+  String get _scoreBand {
+    if (score >= 80) return 'GOOD';
+    if (score >= 50) return 'WARNING';
+    return 'POOR';
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (_, c) {
+    // Reserve ~117px for the labels/badge around the gauge; gauge fills the rest.
+    final availH    = (c.maxHeight.isFinite && c.maxHeight > 0) ? c.maxHeight : 400.0;
+    final gaugeSize = (availH - 117.0).clamp(60.0, 200.0);
+    final gap1      = (availH * 0.04).clamp(4.0, 20.0);
+    final gap2      = (availH * 0.03).clamp(4.0, 16.0);
+    final gap3      = (availH * 0.03).clamp(4.0, 18.0);
+    final scoreFsz  = (gaugeSize * 0.26).clamp(18.0, 52.0);
+    final pctFsz    = (gaugeSize * 0.09).clamp(10.0, 18.0);
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text('Overall Score',
+            style: GoogleFonts.inter(
+                color: _kText2, fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5)),
+        SizedBox(height: gap1),
+        SizedBox(
+          width: gaugeSize,
+          height: gaugeSize,
+          child: CustomPaint(
+            painter: _GaugePainter(score: score, color: _scoreColor),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('$score',
+                      style: GoogleFonts.inter(
+                          color: _scoreColor, fontSize: scoreFsz,
+                          fontWeight: FontWeight.w800, height: 1)),
+                  Text('%',
+                      style: GoogleFonts.inter(
+                          color: _scoreColor.withOpacity(0.7),
+                          fontSize: pctFsz, fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
           ),
-        );
-      },
-    );
-}
-
-// ── CLOUD HISTORY SUBTITLE ─────────────────────────────────────────────────────
-class _CloudHistorySubtitle extends StatelessWidget {
-  const _CloudHistorySubtitle({required this.count});
-  final int count;
-
-  @override
-  Widget build(BuildContext context) => Text(
-    count == 0
-        ? 'No critical alerts in cloud history'
-        : '$count critical/danger event${count > 1 ? "s" : ""} from cloud',
-    style: const TextStyle(fontSize: 12, color: Color(0xFF6E6E73)),
-  );
-}
-
-// ── HEADER ────────────────────────────────────────────────────────────────────
-class _AnalyticsHeader extends StatelessWidget {
-  const _AnalyticsHeader({required this.svc});
-  final WiFiSensorService svc;
-
-  @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0x0A000000))),
-      ),
-      child: Row(
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'ANALYTICS',
-                style: TextStyle(
-                  fontFamily: 'Orbitron',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1D1D1F),
-                  letterSpacing: 2,
-                ),
-              ),
-              Text(
-                svc.isConnected
-                    ? '${svc.dataHistory.length} samples recorded'
-                    : 'Engage shield to collect data',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF6E6E73)),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: svc.isConnected
-                  ? AppTheme.accentGreen.withOpacity(0.1)
-                  : const Color(0xFFF0F0F5),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: svc.isConnected
-                    ? AppTheme.accentGreen.withOpacity(0.3)
-                    : const Color(0xFFD1D1D6),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: svc.isConnected
-                        ? AppTheme.accentGreen
-                        : const Color(0xFFAEAEB2),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  svc.isConnected ? 'LIVE' : 'IDLE',
-                  style: TextStyle(
-                    fontFamily: 'Orbitron',
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: svc.isConnected
-                        ? AppTheme.accentGreen
-                        : const Color(0xFFAEAEB2),
-                    letterSpacing: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-}
-
-// ── STATS ROW ─────────────────────────────────────────────────────────────────
-class _StatsRow extends StatelessWidget {
-
-  const _StatsRow({
-    required this.avgSpeed,
-    required this.maxSpeed,
-    required this.avgTtc,
-    required this.threatCount,
-  });
-  final double avgSpeed;
-  final double maxSpeed;
-  final double avgTtc;
-  final int threatCount;
-
-  @override
-  Widget build(BuildContext context) => Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            label: 'AVG SPEED',
-            value: avgSpeed.toInt().toString(),
-            unit: 'km/h',
-            color: AppTheme.accentBlue,
-            icon: Icons.speed_rounded,
-          ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _StatCard(
-            label: 'PEAK SPEED',
-            value: maxSpeed.toInt().toString(),
-            unit: 'km/h',
-            color: AppTheme.accentAmber,
-            icon: Icons.trending_up_rounded,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _StatCard(
-            label: 'THREATS',
-            value: threatCount.toString(),
-            unit: 'active',
-            color: threatCount > 0 ? AppTheme.accentRed : AppTheme.accentGreen,
-            icon: threatCount > 0
-                ? Icons.warning_rounded
-                : Icons.shield_rounded,
-          ),
-        ),
-      ],
-    );
-}
-
-class _StatCard extends StatelessWidget {
-
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.color,
-    required this.icon,
-  });
-  final String label;
-  final String value;
-  final String unit;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withOpacity(0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Orbitron',
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              color: color,
-              height: 1,
-            ),
-          ),
-          Text(
-            unit,
-            style: const TextStyle(
-              fontSize: 10,
-              color: Color(0xFFAEAEB2),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              fontFamily: 'Orbitron',
-              fontSize: 7,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF8E8E93),
-              letterSpacing: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-}
-
-// ── SECTION LABEL ─────────────────────────────────────────────────────────────
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Row(
-      children: [
+        SizedBox(height: gap2),
         Container(
-          width: 3,
-          height: 14,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
           decoration: BoxDecoration(
-            color: AppTheme.accentBlue,
-            borderRadius: BorderRadius.circular(2),
+            color: _scoreColor.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _scoreColor.withOpacity(0.35)),
           ),
+          child: Text(_scoreBand,
+              style: GoogleFonts.inter(
+                  color: _scoreColor, fontSize: 15,
+                  fontWeight: FontWeight.w700, letterSpacing: 1.2)),
         ),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: const TextStyle(
-            fontFamily: 'Orbitron',
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF6E6E73),
-            letterSpacing: 2,
-          ),
-        ),
+        SizedBox(height: gap3),
+        Text('$total Total Events',
+            style: GoogleFonts.inter(
+                color: _kText2, fontSize: 13,
+                fontWeight: FontWeight.w500)),
       ],
     );
-}
-
-// ── SPARKLINE CARD ────────────────────────────────────────────────────────────
-class _SparklineCard extends StatelessWidget {
-
-  const _SparklineCard({
-    required this.history,
-    required this.label,
-    required this.color,
-    required this.getValue,
-    required this.maxY,
-    this.dangerLine,
   });
-  final List<DrivoraSensorData> history;
-  final String label;
-  final Color color;
-  final double Function(DrivoraSensorData) getValue;
-  final double maxY;
-  final double? dangerLine;
-
-  @override
-  Widget build(BuildContext context) {
-    final samples = history.length > 80
-        ? history.sublist(history.length - 80)
-        : history;
-    final values = samples.map(getValue).toList();
-    final current = values.isEmpty ? 0.0 : values.last;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0x0A000000)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Orbitron',
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF8E8E93),
-                  letterSpacing: 1.5,
-                ),
-              ),
-              Text(
-                current.toStringAsFixed(1),
-                style: TextStyle(
-                  fontFamily: 'Orbitron',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 72,
-            child: values.isEmpty
-                ? _NoDataPlaceholder(color: color)
-                : CustomPaint(
-              size: const Size(double.infinity, 72),
-              painter: _SparklinePainter(
-                values: values,
-                color: color,
-                maxY: maxY,
-                dangerLine: dangerLine,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-class _NoDataPlaceholder extends StatelessWidget {
-  const _NoDataPlaceholder({required this.color});
+// ─── Circular gauge painter ────────────────────────────────────────────────────
+class _GaugePainter extends CustomPainter {
+  const _GaugePainter({required this.score, required this.color});
+  final int   score;
   final Color color;
-
-  @override
-  Widget build(BuildContext context) => Center(
-      child: Text(
-        'ENGAGE SHIELD TO RECORD',
-        style: TextStyle(
-          fontFamily: 'Orbitron',
-          fontSize: 9,
-          color: color.withOpacity(0.3),
-          letterSpacing: 1,
-        ),
-      ),
-    );
-}
-
-class _SparklinePainter extends CustomPainter {
-
-  _SparklinePainter({
-    required this.values,
-    required this.color,
-    required this.maxY,
-    this.dangerLine,
-  });
-  final List<double> values;
-  final Color color;
-  final double maxY;
-  final double? dangerLine;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (values.isEmpty) return;
+    final cx     = size.width  / 2;
+    final cy     = size.height / 2;
+    final radius = math.min(cx, cy) - 10;
 
-    final w = size.width;
-    final h = size.height;
-    final step = w / (values.length - 1).clamp(1, double.infinity);
+    const startAngle = math.pi * 0.75;   // 135°
+    const sweepFull  = math.pi * 1.50;   // 270° total sweep
 
-    final fillPath = Path();
-    fillPath.moveTo(0, h);
-    for (var i = 0; i < values.length; i++) {
-      final x = i * step;
-      final y = h - (values[i].clamp(0, maxY) / maxY) * h;
-      if (i == 0) {
-        fillPath.lineTo(x, y);
-      } else {
-        final prevX = (i - 1) * step;
-        final prevY = h - (values[i - 1].clamp(0, maxY) / maxY) * h;
-        final cpX = (prevX + x) / 2;
-        fillPath.cubicTo(cpX, prevY, cpX, y, x, y);
-      }
-    }
-    fillPath.lineTo(w, h);
-    fillPath.close();
-
-    canvas.drawPath(
-      fillPath,
+    // Track (background arc)
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: radius),
+      startAngle, sweepFull, false,
       Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [color.withOpacity(0.15), color.withOpacity(0)],
-        ).createShader(Rect.fromLTWH(0, 0, w, h)),
-    );
-
-    final linePath = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = i * step;
-      final y = h - (values[i].clamp(0, maxY) / maxY) * h;
-      if (i == 0) {
-        linePath.moveTo(x, y);
-      } else {
-        final prevX = (i - 1) * step;
-        final prevY = h - (values[i - 1].clamp(0, maxY) / maxY) * h;
-        final cpX = (prevX + x) / 2;
-        linePath.cubicTo(cpX, prevY, cpX, y, x, y);
-      }
-    }
-
-    canvas.drawPath(
-      linePath,
-      Paint()
-        ..color = color
-        ..strokeWidth = 2
+        ..color = _kBorder
         ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
         ..strokeCap = StrokeCap.round,
     );
 
-    if (dangerLine != null) {
-      final dy = h - (dangerLine!.clamp(0, maxY) / maxY) * h;
-      canvas.drawLine(
-        Offset(0, dy),
-        Offset(w, dy),
+    // Score arc
+    final sweepScore = sweepFull * score.clamp(0, 100) / 100;
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: radius),
+      startAngle, sweepScore, false,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Glow on score arc tip
+    if (sweepScore > 0.05) {
+      final tipAngle = startAngle + sweepScore;
+      final tipX = cx + radius * math.cos(tipAngle);
+      final tipY = cy + radius * math.sin(tipAngle);
+      canvas.drawCircle(
+        Offset(tipX, tipY), 7,
         Paint()
-          ..color = AppTheme.accentRed.withOpacity(0.4)
-          ..strokeWidth = 1
-          ..style = PaintingStyle.stroke,
+          ..color = color.withOpacity(0.45)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
       );
     }
-
-    final lastX = (values.length - 1) * step;
-    final lastY = h - (values.last.clamp(0, maxY) / maxY) * h;
-    canvas.drawCircle(Offset(lastX, lastY), 4, Paint()..color = Colors.white);
-    canvas.drawCircle(Offset(lastX, lastY), 3, Paint()..color = color);
   }
 
   @override
-  bool shouldRepaint(covariant _SparklinePainter old) =>
-      old.values != values;
+  bool shouldRepaint(covariant _GaugePainter old) =>
+      old.score != score || old.color != color;
 }
 
-// ── CLOUD HISTORY ALERT ROW ───────────────────────────────────────────────────
-class _HistoryAlertRow extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// COUNTER ROW — 5 stat boxes
+// ─────────────────────────────────────────────────────────────────────────────
+class _CounterRow extends StatelessWidget {
+  const _CounterRow({
+    required this.total, required this.front, required this.rear,
+    required this.stab,  required this.lane,
+  });
+  final int total, front, rear, stab, lane;
 
-  const _HistoryAlertRow({required this.alert, required this.index});
-  final SafetyAlert alert;
-  final int index;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 72,
+    child: Row(children: [
+      _CounterBox(count: total, label: 'Total Events',          color: _kText1),
+      _CounterBox(count: front, label: 'Front Collision',       color: _kRed),
+      _CounterBox(count: rear,  label: 'Rear Blindspot',        color: _kAmber),
+      _CounterBox(count: stab,  label: 'Stability',             color: _kAmber),
+      _CounterBox(count: lane,  label: 'Lane Departure',        color: _kGreen, last: true),
+    ]),
+  );
+}
 
-  String _formatTime(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inDays > 0) return '${diff.inDays}d ago  ${_hm(dt)}';
-    if (diff.inHours > 0) return '${diff.inHours}h ago  ${_hm(dt)}';
+class _CounterBox extends StatelessWidget {
+  const _CounterBox({
+    required this.count, required this.label, required this.color,
+    this.last = false,
+  });
+  final int    count;
+  final String label;
+  final Color  color;
+  final bool   last;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Container(
+      decoration: BoxDecoration(
+        border: Border(
+          right: last ? BorderSide.none : const BorderSide(color: _kBorder),
+        ),
+      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text(count.toString().padLeft(2, '0'),
+            style: GoogleFonts.inter(
+                color: color, fontSize: 26,
+                fontWeight: FontWeight.w800, height: 1)),
+        const SizedBox(height: 3),
+        Text(label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+                color: _kText2, fontSize: 9,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3),
+            maxLines: 2),
+      ]),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HISTORY HEADER with filter dropdown
+// ─────────────────────────────────────────────────────────────────────────────
+class _HistoryHeader extends StatelessWidget {
+  const _HistoryHeader({
+    required this.filterDays, required this.options,
+    required this.onChanged, required this.count,
+  });
+  final int? filterDays;
+  final List<_FilterOption> options;
+  final ValueChanged<int?> onChanged;
+  final int count;
+
+  String get _currentLabel => options
+      .firstWhere((o) => o.days == filterDays,
+          orElse: () => options.last)
+      .label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 46,
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: Row(children: [
+      Text('Critical Event History',
+          style: GoogleFonts.inter(
+              color: _kText1, fontSize: 13,
+              fontWeight: FontWeight.w600)),
+      const SizedBox(width: 8),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: _kRed.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _kRed.withOpacity(0.30)),
+        ),
+        child: Text('$count',
+            style: GoogleFonts.inter(
+                color: _kRed, fontSize: 11,
+                fontWeight: FontWeight.w700)),
+      ),
+      const Spacer(),
+      // Filter dropdown
+      GestureDetector(
+        onTapDown: (d) async {
+          final result = await showMenu<int?>(
+            context: context,
+            position: RelativeRect.fromLTRB(
+                d.globalPosition.dx - 120,
+                d.globalPosition.dy + 8,
+                d.globalPosition.dx,
+                d.globalPosition.dy + 100),
+            color: const Color(0xFF141826),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: _kBorder)),
+            items: options.map((o) => PopupMenuItem<int?>(
+              value: o.days,
+              child: Text(o.label,
+                  style: GoogleFonts.inter(
+                      color: o.days == filterDays ? _kGreen : _kText1,
+                      fontSize: 12, fontWeight: FontWeight.w500)),
+            )).toList(),
+          );
+          if (result != filterDays) onChanged(result ?? (filterDays == null ? 7 : null));
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: _kSurface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _kBorder),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(_currentLabel,
+                style: GoogleFonts.inter(
+                    color: _kText2, fontSize: 11,
+                    fontWeight: FontWeight.w500)),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_drop_down, color: _kText2, size: 16),
+          ]),
+        ),
+      ),
+    ]),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INCIDENT CARD
+// ─────────────────────────────────────────────────────────────────────────────
+class _IncidentCard extends StatelessWidget {
+  const _IncidentCard({required this.record});
+  final Map<String, dynamic> record;
+
+  Color _severityColor(int sev) {
+    if (sev >= 3) return _kRed;
+    if (sev == 2) return _kAmber;
+    return _kText2;
+  }
+
+  String _severityLabel(int sev) {
+    if (sev >= 3) return 'CRITICAL';
+    if (sev == 2) return 'WARNING';
+    return 'INFO';
+  }
+
+  IconData _sourceIcon(String src) {
+    switch (src) {
+      case 'front':    return Icons.arrow_upward_rounded;
+      case 'rear':     return Icons.arrow_downward_rounded;
+      case 'center':   return Icons.radio_button_checked_outlined;
+      case 'lane':     return Icons.edit_road_rounded;
+      default:         return Icons.warning_amber_rounded;
+    }
+  }
+
+  String _sourceLabel(String src) {
+    switch (src) {
+      case 'front':    return 'Front';
+      case 'rear':     return 'Rear';
+      case 'center':   return 'Stability';
+      case 'lane':     return 'Lane';
+      default:         return 'Multiple';
+    }
+  }
+
+  String _timeAgo(int tsMs) {
+    final dt   = DateTime.fromMillisecondsSinceEpoch(tsMs);
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 0)    return '${diff.inDays}d ago';
+    if (diff.inHours > 0)   return '${diff.inHours}h ago';
     if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
     return 'Just now';
   }
 
-  String _hm(DateTime dt) =>
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-
-  String _fullDate(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}  ${_hm(dt)}';
-
-  Color _color(AlertSeverity s) {
-    switch (s) {
-      case AlertSeverity.critical: return AppTheme.accentRed;
-      case AlertSeverity.danger:   return AppTheme.accentAmber;
-      case AlertSeverity.warning:  return const Color(0xFFFF9F0A);
-      case AlertSeverity.info:     return AppTheme.accentBlue;
-    }
+  String _formatDate(int tsMs) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(tsMs);
+    final h  = dt.hour.toString().padLeft(2, '0');
+    final m  = dt.minute.toString().padLeft(2, '0');
+    final d  = dt.day.toString().padLeft(2, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    return '$d/$mo  $h:$m';
   }
 
-  String _badge(AlertSeverity s) {
-    switch (s) {
-      case AlertSeverity.critical: return 'CRITICAL';
-      case AlertSeverity.danger:   return 'DANGER';
-      case AlertSeverity.warning:  return 'WARNING';
-      case AlertSeverity.info:     return 'INFO';
+  String _detail() {
+    final src = record['sourceUnit'] as String? ?? '';
+    switch (src) {
+      case 'front':
+        final dist = (record['frontDistanceCm'] as num?)?.toDouble();
+        final spd  = (record['frontSpeedCmS']   as num?)?.toDouble();
+        if (dist != null && dist > 0) {
+          final dm = (dist / 100).toStringAsFixed(1);
+          if (spd != null && spd > 0) {
+            final sk = (spd * 0.036).toStringAsFixed(0);
+            return '${dm}m  ·  $sk km/h';
+          }
+          return '${dm}m';
+        }
+        return '';
+      case 'rear':
+        final dist = (record['rearNearestDistanceCm'] as num?)?.toDouble();
+        final zone = record['rearZone'] as String?;
+        if (dist != null && dist > 0) {
+          final dm = (dist / 100).toStringAsFixed(1);
+          return zone != null ? '${dm}m  ·  $zone zone' : '${dm}m';
+        }
+        return '';
+      case 'center':
+        final roll  = (record['leanRollDeg']  as num?)?.toDouble();
+        final pitch = (record['leanPitchDeg'] as num?)?.toDouble();
+        if (roll != null || pitch != null) {
+          return 'Roll ${roll?.toStringAsFixed(1) ?? '—'}°  ·  Pitch ${pitch?.toStringAsFixed(1) ?? '—'}°';
+        }
+        return '';
+      default:
+        return '';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _color(alert.severity);
+    final sev    = (record['severity'] as int?) ?? 2;
+    final src    = record['sourceUnit'] as String? ?? 'multiple';
+    final title  = record['title']     as String? ?? 'Safety Event';
+    final msg    = record['message']   as String? ?? '';
+    final tsMs   = (record['realTimeMs'] as int?) ?? (record['receivedAtMs'] as int?) ?? 0;
+    final color  = _severityColor(sev);
+    final detail = _detail();
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.20)),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.warning_rounded, color: color, size: 18),
+      child: Row(children: [
+        // Source icon
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(9),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(
-                      alert.title,
-                      style: TextStyle(
-                        fontFamily: 'Orbitron',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: color,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _badge(alert.severity),
-                      style: TextStyle(
-                        fontFamily: 'Orbitron',
-                        fontSize: 7,
-                        fontWeight: FontWeight.w800,
-                        color: color,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 3),
-                Text(
-                  alert.message,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF6E6E73)),
-                ),
-                const SizedBox(height: 4),
-                Row(children: [
-                  const Icon(Icons.access_time_rounded, size: 11, color: Color(0xFFAEAEB2)),
-                  const SizedBox(width: 4),
-                  Text(
-                    _fullDate(alert.timestamp),
-                    style: const TextStyle(
-                      fontFamily: 'Orbitron',
-                      fontSize: 8,
-                      color: Color(0xFFAEAEB2),
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '· ${_formatTime(alert.timestamp)}',
-                    style: const TextStyle(fontSize: 10, color: Color(0xFFAEAEB2)),
-                  ),
-                ]),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Icon(_sourceIcon(src), color: color, size: 18),
+        ),
+        const SizedBox(width: 10),
+
+        // Title + message + detail
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                alert.unitSource,
-                style: const TextStyle(
-                  fontFamily: 'Orbitron',
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF8E8E93),
-                ),
-              ),
+              Text(title,
+                  style: GoogleFonts.inter(
+                      color: color, fontSize: 12,
+                      fontWeight: FontWeight.w700),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (msg.isNotEmpty) ...[
+                const SizedBox(height: 1),
+                Text(msg,
+                    style: GoogleFonts.inter(
+                        color: _kText2, fontSize: 10,
+                        fontWeight: FontWeight.w400),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+              if (detail.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(detail,
+                    style: GoogleFonts.inter(
+                        color: _kText1.withOpacity(0.6), fontSize: 10,
+                        fontWeight: FontWeight.w500)),
+              ],
             ],
           ),
-        ],
-      ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // Right: source badge + time
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: color.withOpacity(0.30)),
+            ),
+            child: Text(_severityLabel(sev),
+                style: GoogleFonts.inter(
+                    color: color, fontSize: 8,
+                    fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+          ),
+          const SizedBox(height: 3),
+          Text(_sourceLabel(src),
+              style: GoogleFonts.inter(
+                  color: _kText2, fontSize: 9,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          Text(tsMs > 0 ? _timeAgo(tsMs) : '—',
+              style: GoogleFonts.inter(
+                  color: _kText2, fontSize: 9)),
+          if (tsMs > 0)
+            Text(_formatDate(tsMs),
+                style: GoogleFonts.inter(
+                    color: _kText2.withOpacity(0.6), fontSize: 8)),
+        ]),
+      ]),
     );
   }
 }
 
-class _AnalyticsEmptyAlerts extends StatelessWidget {
-  const _AnalyticsEmptyAlerts({this.isHistory = false});
-  final bool isHistory;
-
+// ─── Empty state ──────────────────────────────────────────────────────────────
+class _EmptyHistory extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Container(
-      margin: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-      padding: const EdgeInsets.symmetric(vertical: 36),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0x0A000000)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            isHistory ? Icons.cloud_off_rounded : Icons.check_circle_outline_rounded,
-            size: 44,
-            color: AppTheme.accentGreen.withOpacity(0.4),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isHistory ? 'NO HISTORY IN CLOUD' : 'NO EVENTS DETECTED',
-            style: const TextStyle(
-              fontFamily: 'Orbitron',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.accentGreen,
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            isHistory
-                ? 'Connect to internet to load past alerts'
-                : 'System operating within safe parameters',
-            style: const TextStyle(fontSize: 12, color: Color(0xFFAEAEB2)),
-          ),
-        ],
-      ),
-    );
+  Widget build(BuildContext context) => Center(
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.shield_outlined, color: _kGreen.withOpacity(0.35), size: 40),
+      const SizedBox(height: 10),
+      Text('No Events Recorded',
+          style: GoogleFonts.inter(
+              color: _kGreen, fontSize: 13,
+              fontWeight: FontWeight.w600)),
+      const SizedBox(height: 4),
+      Text('Drive with Drivora connected to log events.',
+          style: GoogleFonts.inter(
+              color: _kText2, fontSize: 11)),
+    ]),
+  );
 }

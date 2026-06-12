@@ -35,3 +35,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/raw_sensor_data.json
+    - assets/car_top.png

@@ -1,441 +1,402 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
-import '../theme/app_theme.dart';
-import '../services/wifi_sensor_service.dart';
 import '../services/cloud_service.dart';
-import '../providers/user_provider.dart';
-import 'dashboard_screen.dart';
-import 'dart:math' as math;
+import '../theme/app_theme.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
-
   @override
   State<RegistrationScreen> createState() => _RegistrationScreenState();
 }
 
-class _RegistrationScreenState extends State<RegistrationScreen> with SingleTickerProviderStateMixin {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _carModelController = TextEditingController();
-  final _vehicleTypeController = TextEditingController();
-  final _heightController = TextEditingController(text: '1.5');
-  final _widthController = TextEditingController(text: '1.8');
-  
-  late AnimationController _animationController;
-  bool _isRegistering = false;
-  String? _errorMessage;
+class _RegistrationScreenState extends State<RegistrationScreen>
+    with SingleTickerProviderStateMixin {
+  final _nameCtrl    = TextEditingController();
+  final _emailCtrl   = TextEditingController();
+  final _passCtrl    = TextEditingController();
+  final _confirmCtrl = TextEditingController();
+  final _modelCtrl   = TextEditingController();
+  String _vehicleCategory = 'Sedan';
+
+  bool _obscurePass    = true;
+  bool _obscureConfirm = true;
+  bool _loading = false;
+  String? _error;
+
+  late AnimationController _bgCtrl;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 10),
-    )..repeat();
+    _bgCtrl = AnimationController(
+        vsync: this, duration: const Duration(seconds: 12))
+      ..repeat();
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
-    _nameController.dispose();
-    _emailController.dispose();
-    _carModelController.dispose();
-    _vehicleTypeController.dispose();
-    _heightController.dispose();
-    _widthController.dispose();
+    _bgCtrl.dispose();
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    _confirmCtrl.dispose();
+    _modelCtrl.dispose();
     super.dispose();
   }
 
+  // ── Validation & submit ───────────────────────────────────────────────────
+  Future<void> _register() async {
+    final name    = _nameCtrl.text.trim();
+    final email   = _emailCtrl.text.trim();
+    final pass    = _passCtrl.text;
+    final confirm = _confirmCtrl.text;
+    final model   = _modelCtrl.text.trim();
+
+    if (name.isEmpty) {
+      setState(() => _error = 'Full name is required.'); return;
+    }
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Enter a valid email address.'); return;
+    }
+    if (pass.length < 6) {
+      setState(() => _error = 'Password must be at least 6 characters.'); return;
+    }
+    if (pass != confirm) {
+      setState(() => _error = 'Passwords do not match.'); return;
+    }
+    if (model.isEmpty) {
+      setState(() => _error = 'Vehicle model is required.'); return;
+    }
+
+    setState(() { _loading = true; _error = null; });
+
+    final ok = await CloudService().registerUser(
+      name:            name,
+      email:           email,
+      password:        pass,
+      vehicleModel:    model,
+      vehicleCategory: _vehicleCategory,
+    );
+
+    if (!mounted) return;
+
+    if (ok) {
+      Navigator.of(context).pushReplacementNamed('/onboarding');
+    } else {
+      setState(() {
+        _loading = false;
+        _error = 'Registration failed. Email may already be in use or check your connection.';
+      });
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) => Scaffold(
-      backgroundColor: AppTheme.background,
-      body: Stack(
-        children: [
-          // Background Tech Art
-          Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _animationController,
-              builder: (context, child) => CustomPaint(
-                  painter: _TechArtPainter(rotation: _animationController.value),
-                ),
-            ),
+    backgroundColor: AppTheme.background,
+    body: Stack(children: [
+      // Background tech art
+      Positioned.fill(
+        child: AnimatedBuilder(
+          animation: _bgCtrl,
+          builder: (_, __) => CustomPaint(
+            painter: _TechArtPainter(rotation: _bgCtrl.value),
+          ),
+        ),
+      ),
+
+      SafeArea(
+        child: Column(children: [
+          // Back button row
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 8),
+            child: Row(children: [
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_ios_rounded,
+                    color: AppTheme.accentCyan, size: 22),
+                padding: EdgeInsets.zero,
+              ),
+            ]),
           ),
 
-          SafeArea(
+          Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 40),
-                    _buildHeader(),
-                    const SizedBox(height: 32),
-                    
-                    // ERROR MESSAGE
-                    if (_errorMessage != null)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accentRed.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.accentRed.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 20),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: const TextStyle(
-                                  color: AppTheme.accentRed,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+
+                  // ── Header ─────────────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.textPrimary,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: AppTheme.shadow,
+                    ),
+                    child: const Icon(Icons.shield_rounded,
+                        color: AppTheme.accentGreen, size: 30),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('Create Account',
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary,
+                          height: 1.1)),
+                  Text('DRIVORA U-ADAS SETUP',
+                      style: GoogleFonts.orbitron(
+                          fontSize: 11,
+                          letterSpacing: 3,
+                          color: AppTheme.accentBlue,
+                          fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 28),
+
+                  // ── Error ───────────────────────────────────────────────
+                  if (_error != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentRed.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: AppTheme.accentRed.withOpacity(0.3)),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.error_outline,
+                            color: AppTheme.accentRed, size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(_error!,
+                            style: const TextStyle(
+                                color: AppTheme.accentRed,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600))),
+                      ]),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // ── Vehicle info ────────────────────────────────────────
+                  _sectionTitle('VEHICLE INFORMATION'),
+                  const SizedBox(height: 10),
+                  _inputLabel('VEHICLE MODEL'),
+                  _textField(_modelCtrl, 'e.g. Toyota Vitz 2018',
+                      Icons.directions_car_outlined),
+                  const SizedBox(height: 14),
+                  _inputLabel('VEHICLE CATEGORY'),
+                  _dropdown(),
+                  const SizedBox(height: 22),
+
+                  // ── Driver info ────────────────────────────────────────
+                  _sectionTitle('DRIVER INFORMATION'),
+                  const SizedBox(height: 10),
+                  _inputLabel('FULL NAME'),
+                  _textField(_nameCtrl, 'e.g. Sachith Nirmal',
+                      Icons.person_outline),
+                  const SizedBox(height: 14),
+                  _inputLabel('EMAIL ADDRESS'),
+                  _textField(_emailCtrl, 'sachith@example.com',
+                      Icons.email_outlined,
+                      keyboard: TextInputType.emailAddress),
+                  const SizedBox(height: 14),
+                  _inputLabel('PASSWORD'),
+                  _passwordField(_passCtrl, '••••••••', _obscurePass,
+                      () => setState(() => _obscurePass = !_obscurePass)),
+                  const SizedBox(height: 14),
+                  _inputLabel('CONFIRM PASSWORD'),
+                  _passwordField(_confirmCtrl, '••••••••', _obscureConfirm,
+                      () => setState(
+                          () => _obscureConfirm = !_obscureConfirm)),
+                  const SizedBox(height: 36),
+
+                  // ── Register button ────────────────────────────────────
+                  Container(
+                    width: double.infinity,
+                    height: 62,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: const LinearGradient(
+                          colors: [AppTheme.accentBlue, Colors.blueAccent]),
+                      boxShadow: [
+                        BoxShadow(
+                            color: AppTheme.accentBlue.withOpacity(0.3),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10)),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _loading ? null : _register,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                        disabledBackgroundColor: Colors.transparent,
+                      ),
+                      child: _loading
+                          ? const SizedBox(
+                              width: 24, height: 24,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
+                          : Text('REGISTER',
+                              style: GoogleFonts.orbitron(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2,
+                                  color: Colors.white)),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+                  Center(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(context, '/login');
+                      },
+                      child: RichText(
+                        text: TextSpan(
+                          style: GoogleFonts.rajdhani(
+                              color: AppTheme.textSecondary, fontSize: 14),
+                          children: const [
+                            TextSpan(text: 'Already registered?  '),
+                            TextSpan(
+                              text: 'Login',
+                              style: TextStyle(
+                                  color: AppTheme.accentCyan,
+                                  fontWeight: FontWeight.w800),
                             ),
                           ],
                         ),
                       ),
-                    
-                    // DRIVER INFO SECTION
-                    _buildSectionTitle('DRIVER INFORMATION'),
-                    const SizedBox(height: 12),
-                    _buildInputLabel('FULL NAME'),
-                    _buildTextField('John Doe', Icons.person_outline, _nameController, validator: _validateName),
-                    const SizedBox(height: 16),
-                    _buildInputLabel('EMAIL ADDRESS'),
-                    _buildTextField('john@example.com', Icons.email_outlined, _emailController, validator: _validateEmail),
-                    const SizedBox(height: 24),
-                    
-                    // VEHICLE INFO SECTION
-                    _buildSectionTitle('VEHICLE CONFIGURATION'),
-                    const SizedBox(height: 12),
-                    _buildInputLabel('VEHICLE TYPE'),
-                    _buildTextField('Sedan / SUV / Truck', Icons.directions_car_outlined, _vehicleTypeController, validator: _validateRequired),
-                    const SizedBox(height: 16),
-                    _buildInputLabel('VEHICLE MODEL'),
-                    _buildTextField('Tesla Model 3', Icons.build_circle_outlined, _carModelController, validator: _validateRequired),
-                    const SizedBox(height: 16),
-                    
-                    // CALIBRATION SECTION
-                    _buildSectionTitle('VEHICLE CALIBRATION'),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildInputLabel('HEIGHT (meters)'),
-                              _buildTextField('1.5', Icons.height, _heightController, isNumber: true, validator: _validateNumber),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildInputLabel('WIDTH (meters)'),
-                              _buildTextField('1.8', Icons.width_normal, _widthController, isNumber: true, validator: _validateNumber),
-                            ],
-                          ),
-                        ),
-                      ],
                     ),
-                    const SizedBox(height: 40),
-                    _buildCreateAccountButton(),
-                    const SizedBox(height: 30),
-                    Center(
-                      child: Text(
-                        'DRIVORA U-ADAS CORE V1.0',
-                        style: GoogleFonts.orbitron(
-                          fontSize: 10,
-                          letterSpacing: 2,
-                          color: AppTheme.textSecondary.withOpacity(0.4),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
               ),
             ),
           ),
-        ],
+        ]),
       ),
-    );
-
-  String? _validateRequired(String? value) {
-    if (value == null || value.isEmpty) return 'FIELD REQUIRED';
-    return null;
-  }
-
-  String? _validateName(String? value) {
-    if (value == null || value.isEmpty) return 'NAME REQUIRED';
-    if (value.length < 2) return 'NAME TOO SHORT';
-    return null;
-  }
-
-  String? _validateEmail(String? value) {
-    if (value == null || value.isEmpty) return 'EMAIL REQUIRED';
-    if (!value.contains('@')) return 'INVALID EMAIL FORMAT';
-    return null;
-  }
-
-  String? _validateNumber(String? value) {
-    if (value == null || value.isEmpty) return 'VALUE REQUIRED';
-    final num = double.tryParse(value);
-    if (num == null) return 'INVALID NUMBER';
-    if (num <= 0) return 'VALUE MUST BE POSITIVE';
-    return null;
-  }
-
-  Widget _buildSectionTitle(String title) => Text(
-    title,
-    style: GoogleFonts.rajdhani(
-      fontWeight: FontWeight.w900,
-      letterSpacing: 1.5,
-      fontSize: 11,
-      color: AppTheme.accentCyan,
-    ),
+    ]),
   );
 
-  Widget _buildHeader() => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppTheme.textPrimary,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: AppTheme.shadow,
-          ),
-          child: const Icon(Icons.shield_rounded, color: AppTheme.accentGreen, size: 32),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'Activate Shield',
-          style: GoogleFonts.rajdhani(
-            fontSize: 40,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textPrimary,
-            height: 1.1,
-          ),
-        ),
-        Text(
-          'UNIVERSAL ADAS INTERFACE',
-          style: GoogleFonts.orbitron(
-            fontSize: 12,
-            letterSpacing: 3,
-            color: AppTheme.accentBlue,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ],
-    );
+  // ── Widget helpers ─────────────────────────────────────────────────────────
 
-  Widget _buildInputLabel(String label) => Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(
-        label,
-        style: GoogleFonts.orbitron(
-          fontSize: 10,
+  Widget _sectionTitle(String t) => Text(t,
+      style: GoogleFonts.rajdhani(
+          fontWeight: FontWeight.w900,
           letterSpacing: 1.5,
-          color: AppTheme.textSecondary,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
+          fontSize: 11,
+          color: AppTheme.accentCyan));
 
-  Widget _buildTextField(String hint, IconData icon, TextEditingController controller, {bool isNumber = false, String? Function(String?)? validator}) => Container(
-      decoration: BoxDecoration(
-        color: AppTheme.panel,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppTheme.shadow,
-      ),
-      child: TextFormField(
-        controller: controller,
-        keyboardType: isNumber ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 16,
-          color: AppTheme.textPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: AppTheme.textSecondary.withOpacity(0.3)),
-          prefixIcon: Icon(icon, color: AppTheme.accentBlue, size: 22),
-          border: OutlineInputBorder(
+  Widget _inputLabel(String t) => Padding(
+    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    child: Text(t,
+        style: GoogleFonts.orbitron(
+            fontSize: 10,
+            letterSpacing: 1.5,
+            color: AppTheme.textSecondary,
+            fontWeight: FontWeight.bold)),
+  );
+
+  Widget _textField(TextEditingController ctrl, String hint, IconData icon,
+          {TextInputType keyboard = TextInputType.text}) =>
+      Container(
+        decoration: BoxDecoration(
+            color: AppTheme.panel,
             borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
+            boxShadow: AppTheme.shadow),
+        child: TextField(
+          controller: ctrl,
+          keyboardType: keyboard,
+          style: GoogleFonts.rajdhani(
+              fontSize: 16,
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w600),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle:
+                TextStyle(color: AppTheme.textSecondary.withOpacity(0.3)),
+            prefixIcon: Icon(icon, color: AppTheme.accentBlue, size: 22),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
         ),
-        validator: validator,
-      ),
-    );
-
-  Widget _buildCreateAccountButton() => Container(
-      width: double.infinity,
-      height: 64,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(
-          colors: [AppTheme.accentBlue, Colors.blueAccent],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.accentBlue.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: _isRegistering ? null : _handleRegistration,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          disabledBackgroundColor: Colors.transparent,
-        ),
-        child: _isRegistering
-            ? const SizedBox(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeWidth: 2,
-                ),
-              )
-            : Text(
-                'INITIALIZE SYSTEM',
-                style: GoogleFonts.orbitron(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
-                  color: Colors.white,
-                ),
-              ),
-      ),
-    );
-
-  Future<void> _handleRegistration() async {
-    if (!_formKey.currentState!.validate()) {
-      setState(() => _errorMessage = 'Please fill all fields correctly');
-      return;
-    }
-
-    setState(() {
-      _isRegistering = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final height = double.parse(_heightController.text);
-      final width = double.parse(_widthController.text);
-
-      print('🔴 Registration: Starting registration for ${_emailController.text}...');
-      
-      // 1. Save user data to Firebase Cloud
-      final cloud = CloudService();
-      final registered = await cloud.registerUserFirebase(
-        name: _nameController.text,
-        email: _emailController.text,
-        carModel: _carModelController.text,
-        height: height,
-        width: width,
       );
 
-      if (!registered) {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'Firebase registration failed. Check your connection.';
-            _isRegistering = false;
-          });
-        }
-        return;
-      }
-
-      print('🔴 Registration: Firebase registration successful');
-
-      // 2. Save calibration data to Firebase
-      if (mounted) {
-        final cloud = CloudService();
-        final onboardingSaved = await cloud.saveOnboardingData(
-          driverName: _nameController.text,
-          driverEmail: _emailController.text,
-          driverExperience: 'NOT SET',
-          vehicleType: _vehicleTypeController.text,
-          vehicleModel: _carModelController.text,
-          vehicleHeight: height,
-          vehicleWidth: width,
-          alertSensitivity: 5,
-          audioVolume: 5,
-        );
-        print('🔴 Registration: Onboarding saved to Firebase: $onboardingSaved');
-      }
-
-      // 3. Update UserProvider with new registration data
-      if (mounted) {
-        final userProvider = Provider.of<UserProvider>(context, listen: false);
-        print('🔴 Registration: Calling userProvider.initializeUser()...');
-        await userProvider.initializeUser();
-        print('🔴 Registration: After initializeUser, isUserRegistered=${userProvider.isUserRegistered}, email=${userProvider.userEmail}');
-      }
-
-      // 4. Send Calibration directly to ESP32 Hardware (fire and forget)
-      if (mounted) {
-        final sensorService = Provider.of<WiFiSensorService>(context, listen: false);
-        sensorService.sendCalibrationToHardware(
-          height: height,
-          width: width,
-        );
-      }
-
-      // 5. Navigate to Dashboard
-      if (mounted) {
-        print('🔴 Registration: Navigating to Dashboard...');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✓ Registration Successful! Welcome ${_nameController.text}'),
-            backgroundColor: AppTheme.accentGreen,
-            duration: const Duration(seconds: 2),
+  Widget _passwordField(TextEditingController ctrl, String hint, bool obscure,
+          VoidCallback toggle) =>
+      Container(
+        decoration: BoxDecoration(
+            color: AppTheme.panel,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: AppTheme.shadow),
+        child: TextField(
+          controller: ctrl,
+          obscureText: obscure,
+          style: GoogleFonts.rajdhani(
+              fontSize: 16,
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w600),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle:
+                TextStyle(color: AppTheme.textSecondary.withOpacity(0.3)),
+            prefixIcon: const Icon(Icons.lock_outline,
+                color: AppTheme.accentBlue, size: 22),
+            suffixIcon: IconButton(
+              icon: Icon(
+                  obscure
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: AppTheme.textSecondary,
+                  size: 20),
+              onPressed: toggle,
+            ),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
           ),
-        );
-        
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const DashboardScreen()),
-            );
-          }
-        });
-      }
-    } catch (e) {
-      print('🔴 Registration Error: $e');
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Registration error: ${e.toString().split('\n').first}';
-          _isRegistering = false;
-        });
-      }
-    }
-  }
+        ),
+      );
+
+  Widget _dropdown() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    decoration: BoxDecoration(
+        color: AppTheme.panel,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppTheme.shadow),
+    child: DropdownButton<String>(
+      value: _vehicleCategory,
+      isExpanded: true,
+      underline: const SizedBox.shrink(),
+      dropdownColor: AppTheme.panel,
+      style: GoogleFonts.rajdhani(
+          color: AppTheme.textPrimary,
+          fontSize: 16,
+          fontWeight: FontWeight.w600),
+      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+          color: AppTheme.accentBlue),
+      items: const ['Compact', 'Sedan', 'SUV / Tall', 'Pickup / Van']
+          .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+          .toList(),
+      onChanged: (v) { if (v != null) setState(() => _vehicleCategory = v); },
+    ),
+  );
 }
 
+// ─── Background painter ────────────────────────────────────────────────────────
 class _TechArtPainter extends CustomPainter {
-  _TechArtPainter({required this.rotation});
+  const _TechArtPainter({required this.rotation});
   final double rotation;
 
   @override
@@ -445,32 +406,27 @@ class _TechArtPainter extends CustomPainter {
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
-    final center = Offset(size.width * 0.8, size.height * 0.2);
-
-    // Draw rotating tech rings
+    final center = Offset(size.width * 0.8, size.height * 0.15);
     for (var i = 0; i < 3; i++) {
-      final radius = 100.0 + (i * 40.0);
+      final radius = 100.0 + i * 45.0;
       canvas.drawCircle(center, radius, paint);
-
-      // Draw markers on rings
-      final angle = (rotation * 2 * math.pi) + (i * math.pi / 4);
-      final markerPos = center + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
-      canvas.drawCircle(markerPos, 4, Paint()..color = AppTheme.accentBlue.withOpacity(0.1));
+      final angle = rotation * 2 * math.pi + i * math.pi / 4;
+      canvas.drawCircle(
+          center + Offset(math.cos(angle) * radius, math.sin(angle) * radius),
+          4,
+          Paint()..color = AppTheme.accentBlue.withOpacity(0.08));
     }
-
-    // Draw grid lines
     final gridPaint = Paint()
       ..color = Colors.black.withOpacity(0.01)
       ..strokeWidth = 0.5;
-
-    for (var i = 0.0; i < size.width; i += 40.0) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), gridPaint);
+    for (var x = 0.0; x < size.width; x += 40) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
-    for (var i = 0.0; i < size.height; i += 40.0) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
+    for (var y = 0.0; y < size.height; y += 40) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(_TechArtPainter old) => old.rotation != rotation;
 }

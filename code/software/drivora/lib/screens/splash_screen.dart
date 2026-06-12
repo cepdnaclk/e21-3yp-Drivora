@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
-import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -65,16 +65,17 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('userEmail') ?? '';
-    final setupDone = prefs.getBool('setupComplete') ?? false;
-
-    if (mounted) {
-      if (email.isNotEmpty && setupDone) {
-        Navigator.of(context).pushReplacementNamed('/dashboard');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/onboarding');
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // Already logged in — check if onboarding is complete
+      final prefs = await SharedPreferences.getInstance();
+      final setupDone = prefs.getBool('setupComplete') ?? false;
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(
+            setupDone ? '/dashboard' : '/onboarding');
       }
+    } else {
+      if (mounted) Navigator.of(context).pushReplacementNamed('/landing');
     }
   }
 
@@ -231,7 +232,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                 width: 2,
               ),
             ),
-            child: Center(
+            child: const Center(
               child: Icon(
                 Icons.directions_car_rounded,
                 size: 80,
@@ -248,10 +249,10 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       child: Stack(
         alignment: Alignment.center,
         children: List.generate(3, (index) => RotationTransition(
-            turns: Tween(begin: 0.0, end: 1.0).animate(
+            turns: Tween<double>(begin: 0, end: 1).animate(
               CurvedAnimation(
                 parent: _glowController,
-                curve: Interval(index * 0.15, 1.0, curve: Curves.linear),
+                curve: Interval(index * 0.15, 1, curve: Curves.linear),
               ),
             ),
             child: Container(
