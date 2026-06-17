@@ -36,60 +36,82 @@ title: Drivora
 
 ## Introduction
 
-Drivora is a Distributed Retrofit Safety System designed to modernize legacy vehicles that lack contemporary safety technology. It serves as a four-unit hardware suite communicating over a robust CAN-Bus backbone to create a "Safety Shield" around the vehicle. By combining radar-based distance sensing, inertial motion tracking, and computer vision, it provides real-time audio-visual alerts to help prevent collisions and rollovers. This system specifically targets owners of older passenger vehicles and commercial vehicle operators who face massive blind spots and stability risks.
+Drivora is a Distributed Retrofit Safety System designed to improve driver awareness in legacy vehicles that lack modern safety assistance features. It uses multiple hardware units placed around the vehicle to monitor the front area, rear blind spots, lane position, and vehicle lean condition. These units communicate through a CAN-Bus backbone, while a Raspberry Pi 3 Model B acts as the central brain for camera processing, data fusion, warning generation, audio alerts, and dashboard hosting. The system targets older passenger vehicles and small-scale retrofit applications where built-in ADAS features are not available.
 
 ## Solution Architecture
 
-The system utilizes a decentralized architecture with four discrete units linked via a vehicle-wide communication backbone. 
+The system utilizes a decentralized architecture with distributed sensing units linked through a vehicle-wide CAN-Bus communication backbone.
 
-* **Unit A (Front Radar Array):** Positioned at the front bumper to monitor forward collision risks and relative velocity.
-* **Unit B (Rear Safety Hub):** Centrally located within the chassis with three distributed probes at the bumper corners and center for blind-spot monitoring and reverse safety.
-* **Unit C (COG & Dynamics Unit):** Mounted at the vehicle's geometric center to track orientation, lateral G-forces, and vibration signatures.
-* **Unit D (Windshield Hub):** Attached to the upper windshield to handle AI-vision processing and manage the user interface via a smartphone.
+* **Unit A (Front Unit):** Positioned near the front bumper/grille area to monitor front obstacles using ultrasonic sensing and support front collision warning.
+* **Unit B (Rear Safety Hub):** Mounted at the rear side of the vehicle with three waterproof ultrasonic probes placed at the left, center, and right rear zones for blind-spot monitoring and reverse safety.
+* **Unit C (Center / Lean Monitoring Unit):** Mounted inside the vehicle to track vehicle tilt and lean behavior using an IMU sensor.
+* **Unit D (Brain Unit):** Built using a Raspberry Pi 3 Model B and Raspberry Pi Camera Module 3 to handle lane detection, camera-based object detection, warning fusion, local dashboard hosting, and audio warning output.
 
 ## Hardware and Software Designs
 
-Drivora integrates high-performance microcontrollers and specialized sensors to deliver its safety features.
+Drivora integrates distributed microcontroller-based sensor units with a Raspberry Pi-based central processing unit to deliver real-time safety warnings.
 
 ### Hardware Architecture
-* **Central Processor:** An ESP32-S3 with 8MB PSRAM for high-speed image processing and smartphone data streaming.
-* **Distributed Controllers:** ESP32-C3 SuperMini modules acting as localized controllers for edge units.
-* **Sensing Suite:** Dual 24GHz CDM324 Doppler radars for front detection and waterproof JSN-SR04T ultrasonic sensors for rear/side coverage.
-* **Stability Tracking:** A high-precision BNO055 9-axis IMU with internal fusion for real-time Center of Gravity (COG) and tilt monitoring.
+* **Central Processor:** Raspberry Pi 3 Model B used as the main brain for camera processing, warning fusion, dashboard hosting, and system control.
+* **Camera Module:** Raspberry Pi Camera Module 3 used for lane departure detection and camera-based front object detection.
+* **Distributed Controllers:** ESP32-C3 Super Mini modules used as localized controllers for the front, rear, and center sensor units.
+* **Sensing Suite:** Ultrasonic sensors are used for front obstacle detection and rear left, center, and right zone monitoring.
+* **Stability Tracking:** MPU-6050 IMU sensor used to monitor vehicle tilt and lean condition.
+* **CAN Communication:** TJA1050 CAN modules are used to connect the distributed units through the CAN-Bus backbone. An ESP32-C3 CAN bridge is used to pass CAN data to the Raspberry Pi brain.
 
 ### Software Features
-* **Collision Detection:** Algorithms calculate Time-to-Collision (TTC) using Doppler shift data from the front radar array.
-* **Lane Departure Warning:** A computer vision pipeline identifying road markings to detect unintentional drifting.
-* **Stability Scoring:** Processing tilt and G-force data to identify rollover risks in high-profile vehicles.
-* **Maintenance Diagnostics:** Frequency analysis of chassis oscillations to identify worn-out shock absorbers.
+* **Collision Detection:** Front sensor data and camera-based object detection are combined to identify possible collision risks in front of the vehicle.
+* **Lane Departure Warning:** A computer vision pipeline running on the Raspberry Pi processes camera input to detect lane markings and warn about unintentional lane drifting.
+* **Rear Blind-Spot Monitoring:** Rear ultrasonic sensor data is processed as left, center, and right zones to support blind-spot and reverse obstacle warnings.
+* **Lean Monitoring:** IMU data is processed to detect unsafe vehicle lean or tilt conditions.
+* **Warning Fusion:** The Raspberry Pi brain combines incoming data from all units and displays the most critical warning clearly on the dashboard.
+* **Local Dashboard:** A smartphone can connect to the Raspberry Pi hotspot and view the real-time dashboard through a local web interface.
 
 ## Testing
 
 Comprehensive testing ensures the system's reliability in a high-vibration automotive environment.
-* **Sensor Validation:** Evaluating the detection range and accuracy of both the Doppler radar and ultrasonic arrays at various vehicle speeds.
-* **Vision Accuracy:** Testing the ESP32-S3's ability to identify lane markings under diverse lighting conditions through the windshield.
-* **Network Integrity:** Verifying that the CAN-Bus backbone maintains data synchronization between the four units without latency issues.
-* **HMI Performance:** Testing the reliability of the Bluetooth connection and the real-time responsiveness of the smartphone-based dashboard.
+* **Sensor Validation:** Evaluating the detection range and consistency of front and rear ultrasonic sensors under different obstacle positions and distances.
+* **Vision Accuracy:** Testing the Raspberry Pi Camera Module 3 and vision pipeline for lane marking detection and front object detection under different lighting and road conditions.
+* **Network Integrity:** Verifying that the CAN-Bus backbone maintains data synchronization between the distributed units and the Raspberry Pi brain without noticeable delay.
+* **HMI Performance:** Testing the responsiveness, readability, and reliability of the smartphone-based dashboard connected through the Raspberry Pi hotspot.
+* **Vehicle Fitment Testing:** Checking the mounting positions, wiring paths, enclosure stability, and rear bumper sensor probe placement on the demonstration vehicle.
 
 ## Detailed budget
 
 | Item | Quantity | Unit Cost (LKR) | Total (LKR) |
 | :--- | :---: | :---: | :---: |
-| ESP32-S3 (Main Hub) | 1 | 2,100 | 2,100 |
-| ESP32-C3 SuperMini | 3 | 800 | 2,400 |
-| CDM324 Radar | 2 | 1,500 | 3,000 |
-| JSN-SR04T Waterproof Ultrasonic | 3 | 1,266 | 3,800 |
-| BNO055 (IMU) | 1 | 2,500 | 2,500 |
-| OV2640 Camera | 1 | 1,200 | 1,200 |
-| CAN Transceivers (SN65HVD230) | 4 | 500 | 2,000 |
-| XL4015 5A Buck Converter | 1 | 540 | 540 |
-| Cigarette Plug Adapter | 1 | 170 | 170 |
-| Misc (Enclosures / Wires / Switches) | - | - | 7,000 |
-| **Total** | | | **24,710 (Approx.)** |
+| CDM324 Radar Sensor | 1 | 522.00 | 522.00 |
+| ESP32-C3 Super Mini Board | 3 | 790.00 | 2,370.00 |
+| MPU-6050 IMU sensor | 1 | 680.00 | 680.00 |
+| TJA1050 CAN Module | 4 | 250.00 | 1,000.00 |
+| JSN-SR04T Ultrasonic Sensor | 3 | 1,100.00 | 3,300.00 |
+| LM358 Gain Amplification Module | 2 | 160.00 | 320.00 |
+| XL4016 Buck Converter | 1 | 750.00 | 750.00 |
+| 1N5408 Diode | 2 | 10.00 | 20.00 |
+| Jumper wire set Female-to-Female | 1 | 130.00 | 130.00 |
+| Courier fee for Tronic LK | 1 | 480.00 | 480.00 |
+| JSN-SR04T Ultrasonic Sensor 3.0 | 1 | 1,890.00 | 1,890.00 |
+| Male to Male jumper wire set (20) | 1 | 110.00 | 110.00 |
+| JSN-SR04T Ultrasonic Sensor 3.0 | 1 | 1,880.00 | 1,880.00 |
+| MCP2515 CAN Module | 1 | 400.00 | 400.00 |
+| Twine Wire | 4 | 100.00 | 400.00 |
+| JSN-SR04T Ultrasonic Sensor 3.0 | 3 | 1,850.00 | 5,550.00 |
+| Glass Fuse 5x20mm | 1 | 10.00 | 10.00 |
+| Waterproof Connectors | 6 | 310.00 | 1,860.00 |
+| Courier fee for Tronic LK | 1 | 600.00 | 600.00 |
+| Heat Shrink Tubes 2mm | 1 | 35.00 | 35.00 |
+| Heat Shrink Tubes 10mm | 1 | 75.00 | 75.00 |
+| Brass Threaded Inserts | 2 | 225.00 | 450.00 |
+| M3 Screws + Nuts | 20 | 4.50 | 90.00 |
+| Cable Ties (Zip Ties) | 5 | 6.00 | 30.00 |
+| 4 Core Wires | 8 | 225.00 | 1,800.00 |
+| 3D print of Front Unit | 1 | 3,500.00 | 3,500.00 |
+| 3D print of Rear Unit and MainHub mounts | 1 | 2,250.00 | 2,250.00 |
+| **Total** | | | **30,502.00** |
 
 ## Conclusion
 
-Drivora provides a comprehensive and affordable safety modernization path for legacy and commercial vehicles. By leveraging a distributed multi-unit architecture and low-cost edge computing, the system achieves complex features like Forward Collision Warning and Stability Monitoring. Future work will focus on refining the experimental Overtake Warning System and enhancing the cloud-based telematics platform for long-term vehicle health tracking.
+Drivora provides an affordable safety modernization approach for legacy vehicles by combining distributed sensing, CAN-based communication, Raspberry Pi-based vision processing, and a real-time smartphone dashboard. The current prototype demonstrates front obstacle warning, rear blind-spot and reverse safety monitoring, lane departure warning, lean monitoring, audio alerts, and fused warning display. Future work will focus on improving detection accuracy, refining enclosure and vehicle installation methods, and enhancing long-term data logging and driver safety analytics.
 
 ## Links
 
