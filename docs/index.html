@@ -1,74 +1,86 @@
 <!DOCTYPE html>
+
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Drivora | Universal Advanced Driver Assistance System</title>
-  <meta name="description"
-    content="Drivora is a distributed retrofit ADAS safety system providing forward collision warning, blind spot detection, lane departure alerts, and rollover prevention for any vehicle." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>Drivora | Distributed Universal Advanced Driver Assistance System</title>
+  <meta
+    content="Drivora is a distributed retrofit ADAS safety system with CAN-connected sensor units, Raspberry Pi-based camera processing, front collision warning, rear blind-spot detection, lane departure alerts, and lean monitoring for legacy vehicles."
+    name="description" />
+  <link href="https://fonts.googleapis.com" rel="preconnect" />
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lexend:wght@400;500;600;700;800&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Lexend:wght@400;500;600;700;800&amp;display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
+  <link href="styles.css" rel="stylesheet" />
 </head>
 
 <body>
-
   <!-- ===== HEADER / NAV ===== -->
   <header id="site-header">
     <div class="header-inner">
       <!-- Logo -->
-      <a href="#hero" class="logo-link" aria-label="Drivora Home">
-        <img src="logo.png" alt="Drivora Logo" class="logo-img" id="logo-img" />
+      <a aria-label="Drivora Home" class="logo-link" href="#hero">
+        <img alt="Drivora Logo" class="logo-img" id="logo-img" src="logo.png" />
       </a>
-
       <!-- Centered nav -->
-      <nav class="main-nav" aria-label="Main Navigation">
+      <nav aria-label="Main Navigation" class="main-nav">
         <ul>
-          <li><a href="#introduction" data-section="introduction">Introduction</a></li>
-          <li><a href="#architecture" data-section="architecture">Architecture</a></li>
-          <li><a href="#designs" data-section="designs">Designs</a></li>
-          <li><a href="#testing" data-section="testing">Testing</a></li>
-          <li><a href="#budget" data-section="budget">Budget</a></li>
-          <li><a href="#conclusion" data-section="conclusion">Conclusion</a></li>
-          <li><a href="#team" data-section="team">Team</a></li>
+          <li><a data-section="introduction" href="#introduction">Introduction</a></li>
+          <li><a data-section="architecture" href="#architecture">Architecture</a></li>
+          <li><a data-section="designs" href="#designs">Designs</a></li>
+          <li><a data-section="testing" href="#testing">Testing</a></li>
+          <li><a data-section="gallery" href="#gallery">Gallery</a></li>
+          <li><a data-section="budget" href="#budget">Budget</a></li>
+          <li><a data-section="conclusion" href="#conclusion">Conclusion</a></li>
+          <li><a data-section="team" href="#team">Team</a></li>
         </ul>
       </nav>
-
       <!-- Right side actions -->
       <div class="header-actions">
-        <a href="https://github.com/cepdnaclk/e21-3yp-Drivora" id="github-btn" class="btn-github" target="_blank"
-          rel="noopener noreferrer" aria-label="GitHub Repository">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"
-            aria-hidden="true">
+        <a aria-label="GitHub Repository" class="btn-github" href="https://github.com/cepdnaclk/e21-3yp-Drivora"
+          id="github-btn" rel="noopener noreferrer" target="_blank">
+          <svg aria-hidden="true" fill="currentColor" height="18" viewbox="0 0 24 24" width="18"
+            xmlns="http://www.w3.org/2000/svg">
             <path
-              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z">
+            </path>
           </svg>
           GitHub
         </a>
       </div>
     </div>
   </header>
-
   <!-- ===== HERO ===== -->
-  <section id="hero" class="section-hero">
+  <section class="section-hero" id="hero">
+    <div aria-hidden="true" class="hero-radar-bg">
+      <div class="radar-ring r1"></div>
+      <div class="radar-ring r2"></div>
+      <div class="radar-ring r3"></div>
+    </div>
+    <div aria-hidden="true" class="hero-scan-line"></div>
     <div class="hero-overlay"></div>
-    <img src="Hero image.jpg" alt="Drivora Hardware System" class="hero-bg-img" />
+    <img alt="Drivora Hardware System" class="hero-bg-img" src="Hero image.jpg" />
     <div class="hero-content">
-      <div class="hero-badge">3rd Year Project</div>
-      <h1 class="hero-title">Drivora</h1>
-      <p class="hero-subtitle">Universal Advanced Driver Assistance System</p>
-      <p class="hero-tagline">Distributed Retrofit Safety for Underserved Vehicles</p>
+      <div class="hero-badges-row">
+        <div class="hero-badge">3rd Year Project</div>
+        <div class="hero-sys-status"><span></span>SYS ACTIVE</div>
+      </div>
+      <h1 class="hero-title">
+        <img src="logo.png" alt="Drivora" class="hero-logo-img" />
+      </h1>
+      <p class="hero-subtitle">Distributed Universal Advanced Driver Assistance System</p>
+      <p class="hero-tagline">Distributed Retrofit Safety for Legacy Vehicles</p>
       <div class="hero-cta-row">
-        <a href="#introduction" class="btn-primary">Explore Project</a>
-        <a href="https://github.com/cepdnaclk/e21-3yp-Drivora" id="hero-github-btn" class="btn-outline" target="_blank"
-          rel="noopener noreferrer">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+        <a class="btn-primary" href="#introduction">Explore Project</a>
+        <a class="btn-outline" href="https://github.com/cepdnaclk/e21-3yp-Drivora" id="hero-github-btn"
+          rel="noopener noreferrer" target="_blank">
+          <svg fill="currentColor" height="16" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
             <path
-              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+              d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z">
+            </path>
           </svg>
           View on GitHub
         </a>
@@ -78,12 +90,11 @@
       <span></span>
     </div>
   </section>
-
   <!-- ===== STATS BAND ===== -->
   <div class="stats-band">
     <div class="stat-item">
-      <span class="stat-number">70%</span>
-      <span class="stat-label">Vehicles lack modern ADAS</span>
+      <span class="stat-number">CAN</span>
+      <span class="stat-label">Distributed safety backbone</span>
     </div>
     <div class="stat-divider"></div>
     <div class="stat-item">
@@ -92,55 +103,53 @@
     </div>
     <div class="stat-divider"></div>
     <div class="stat-item">
-      <span class="stat-number">360°</span>
+      <span class="stat-number">Multi</span>
       <span class="stat-label">Safety coverage</span>
     </div>
     <div class="stat-divider"></div>
     <div class="stat-item">
-      <span class="stat-number">Rs. 9,710</span>
-      <span class="stat-label">Actual component spend</span>
+      <span class="stat-number">Rs. 30,502</span>
+      <span class="stat-label">Updated prototype budget</span>
     </div>
   </div>
-
   <!-- ===== INTRODUCTION ===== -->
-  <section id="introduction" class="section-content">
+  <section class="section-content" id="introduction">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">01 / Introduction</span>
         <h2 class="section-title">The Problem We're Solving</h2>
       </div>
-
       <div class="intro-lead">
-        <p class="lead-text"><strong>70% of vehicles lack modern ADAS</strong> - leaving drivers without collision
-          warnings, blind-spot alerts, or stability monitoring.</p>
+        <p class="lead-text"><strong>Many legacy vehicles lack modern ADAS</strong> - leaving drivers without collision
+          warnings, blind-spot alerts, lane assistance, or stability monitoring.</p>
         <p class="intro-sub">Drivora is a <strong>distributed retrofit safety system</strong> that brings comprehensive
           driver assistance to any vehicle at a fraction of the cost of a new car.</p>
       </div>
-
       <div class="problem-cards">
         <div class="problem-card">
-          <div class="problem-icon"><img src="assets/icons/warning.svg" alt="Warning" /></div>
+          <div class="problem-icon"><img alt="Warning" src="assets/icons/warning.svg" /></div>
           <h3>Blind Spots</h3>
           <p>Large vehicles have massive blind spot zones that cause accidents during low-speed maneuvering.</p>
         </div>
         <div class="problem-card">
-          <div class="problem-icon"><img src="assets/icons/rollover.svg" alt="Rollover" /></div>
-          <h3>Rollover Risk</h3>
-          <p>High center of gravity creates dangerous rollover conditions during sharp turns or sudden maneuvers.</p>
+          <div class="problem-icon"><img alt="Lean and stability" src="assets/icons/rollover.svg" /></div>
+          <h3>Lean &amp; Stability Risk</h3>
+          <p>Unsafe leaning or sudden vehicle movement can create risky driving conditions, especially during turns and
+            quick maneuvers.</p>
         </div>
         <div class="problem-card">
-          <div class="problem-icon-car"><img src="assets/icons/car.svg" alt="Vehicle" /></div>
+          <div class="problem-icon-car"><img alt="Vehicle" src="assets/icons/car.svg" /></div>
           <h3>Legacy Vehicles</h3>
-          <p>85% of older vehicles and 95% of commercial fleets have no collision warning or safety monitoring.</p>
+          <p>Many older vehicles still do not include collision warning, blind-spot monitoring, lane assistance, or
+            real-time safety visualization.</p>
         </div>
       </div>
-
       <!-- Target Audience -->
       <div class="subsection">
         <h3 class="subsection-title">Target Audiences</h3>
         <div class="audience-grid">
           <div class="audience-card">
-            <div class="audience-icon-car"><img src="assets/icons/passenger-car.svg" alt="Passenger car" /></div>
+            <div class="audience-icon-car"><img alt="Passenger car" src="assets/icons/passenger-car.svg" /></div>
             <h4>Older Passenger Vehicles</h4>
             <p>Owners of classic and older vehicles who want modern safety features without the cost of purchasing a new
               vehicle.</p>
@@ -151,112 +160,118 @@
             </ul>
           </div>
           <div class="audience-card">
-            <div class="audience-icon"><img src="assets/icons/truck.svg" alt="Commercial vehicle" /></div>
+            <div class="audience-icon"><img alt="Commercial vehicle" src="assets/icons/truck.svg" /></div>
             <h4>Commercial Vehicles</h4>
             <p>Operators of buses, lorries, and delivery trucks with massive blind spots and high centers of gravity.
             </p>
             <ul class="pain-list">
               <li>Massive blind spot zones</li>
-              <li>High rollover probability</li>
+              <li>High unsafe lean conditions</li>
               <li>Low-speed collision risk</li>
             </ul>
           </div>
         </div>
       </div>
-
       <!-- Key Features -->
       <div class="subsection">
         <h3 class="subsection-title">Key Safety Features</h3>
-        <div class="features-grid">
-          <div class="feature-card">
-            <div class="feature-number">01</div>
-            <h4>Forward Collision Warning</h4>
-            <p>Ultrasonic sensor-based front distance monitoring with proximity detection for proactive collision
-              prevention.</p>
+        <div class="features-list">
+          <div class="feature-row">
+            <span class="feature-idx">01</span>
+            <div class="feature-body">
+              <h4>Forward Collision Warning</h4>
+              <p>Front ultrasonic sensing and camera-based object detection work together to identify possible frontal
+                obstacles.</p>
+            </div>
           </div>
-          <div class="feature-card">
-            <div class="feature-number">02</div>
-            <h4>Blind Spot & Rear Safety</h4>
-            <p>Three rear sensors providing comprehensive blind spot monitoring and rear-cross traffic alerts.</p>
+          <div class="feature-row">
+            <span class="feature-idx">02</span>
+            <div class="feature-body">
+              <h4>Blind Spot &amp; Rear Safety</h4>
+              <p>Three rear ultrasonic sensors monitor left, center, and right rear zones for blind-spot and reverse
+                safety alerts.</p>
+            </div>
           </div>
-          <div class="feature-card">
-            <div class="feature-number">03</div>
-            <h4>Lane Departure Warning</h4>
-            <p>Camera-based road marking identification with immediate audible alerts to keep drivers in lane.</p>
+          <div class="feature-row">
+            <span class="feature-idx">03</span>
+            <div class="feature-body">
+              <h4>Lane Departure Warning</h4>
+              <p>Raspberry Pi camera-based road marking detection with immediate audible alerts to support lane keeping.
+              </p>
+            </div>
           </div>
-          <div class="feature-card">
-            <div class="feature-number">04</div>
-            <h4>Rollover Prevention</h4>
-            <p>Real-time center of gravity tracking with stability scoring to warn against dangerous maneuvers.</p>
+          <div class="feature-row">
+            <span class="feature-idx">04</span>
+            <div class="feature-body">
+              <h4>Lean &amp; Stability Monitoring</h4>
+              <p>IMU-based lean and tilt monitoring to warn the driver about unsafe vehicle movement conditions.</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
   </section>
-
   <!-- ===== ARCHITECTURE ===== -->
-  <section id="architecture" class="section-alt">
+  <section class="section-alt" id="architecture">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">02 / Solution Architecture</span>
         <h2 class="section-title">System Architecture</h2>
       </div>
-
       <p class="section-intro">Drivora is built as a distributed system with four hardware modules communicating over a
-        CAN-Bus backbone, all connected to a central Dashboard Hub that handles sensor fusion and decision logic.</p>
-
+        CAN-Bus backbone, all connected to a Raspberry Pi brain unit that handles vision processing, sensor fusion,
+        decision logic, dashboard hosting, and audio alerts.</p>
       <!-- Architecture Diagram -->
       <div class="arch-diagram">
-        <img src="assets/images/system-architecture.png" alt="Drivora System Architecture Diagram"
-          class="arch-diagram-img" />
+        <img alt="Drivora System Architecture Diagram" class="arch-diagram-img"
+          src="assets/images/system-architecture.jpg" />
       </div>
-
       <!-- Prototype Implementation -->
       <div class="subsection">
         <h3 class="subsection-title">Prototype Implementation</h3>
         <p class="section-intro" style="margin-bottom:1.5rem;">Component-level view of the physical prototype, showing
           how each hardware module is wired and integrated within the vehicle.</p>
         <div class="arch-diagram">
-          <img src="assets/images/prototype-implementation.png" alt="Drivora Prototype Implementation Component Diagram"
-            class="arch-diagram-img" />
+          <img alt="Drivora Prototype Implementation Component Diagram" class="arch-diagram-img"
+            src="assets/images/prototype-implementation.png" />
         </div>
       </div>
-
       <!-- Data Flow -->
       <div class="subsection">
-        <h3 class="subsection-title">Data & Control Flow</h3>
+        <h3 class="subsection-title">Data &amp; Control Flow</h3>
         <div class="flow-grid">
           <div class="flow-step">
-            <div class="flow-icon"><img src="assets/icons/radar.svg" alt="Sensors" /></div>
+            <div class="flow-icon"><img alt="Sensors" src="assets/icons/radar.svg" /></div>
             <h4>Sensors</h4>
-            <p>Ultrasonic, IMU, and Camera collect raw environmental and vehicle data.</p>
+            <p>Front/rear ultrasonic sensors, IMU, and Raspberry Pi camera collect environmental and vehicle motion
+              data.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img src="assets/icons/link.svg" alt="CAN-Bus" /></div>
+            <div class="flow-icon"><img alt="CAN-Bus" src="assets/icons/link.svg" /></div>
             <h4>CAN-Bus</h4>
-            <p>All modules transmit data to the Dashboard Hub via the CAN-Bus backbone.</p>
+            <p>Sensor units transmit data through the CAN-Bus backbone to the Raspberry Pi brain via an ESP32-C3 CAN
+              bridge.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img src="assets/icons/cpu.svg" alt="Processing" /></div>
+            <div class="flow-icon"><img alt="Processing" src="assets/icons/cpu.svg" /></div>
             <h4>Processing</h4>
-            <p>ESP32 WROOM 32 fuses sensor data and applies decision logic to generate warnings.</p>
+            <p>The Raspberry Pi fuses CAN sensor data with camera processing results and applies decision logic to
+              generate warnings.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img src="assets/icons/smartphone.svg" alt="Output" /></div>
+            <div class="flow-icon"><img alt="Output" src="assets/icons/smartphone.svg" /></div>
             <h4>Output</h4>
-            <p>Audio alerts, visual display warnings, smartphone app, and cloud event logging.</p>
+            <p>Audio alerts and real-time visual warnings are shown through the local smartphone dashboard.</p>
           </div>
         </div>
-
         <!-- Data Flow Diagram -->
         <div class="arch-diagram" style="margin-top:1.8rem;">
-          <img src="assets/images/dataflow.png" alt="Drivora Data Flow Diagram" class="arch-diagram-img" />
+          <img alt="Drivora Data Flow Diagram" class="arch-diagram-img" src="assets/images/dataflow.jpg" />
         </div>
       </div>
-
       <!-- Communication table -->
       <div class="subsection">
         <h3 class="subsection-title">Communication Methods</h3>
@@ -281,9 +296,9 @@
                 <td>Hub → Phone</td>
               </tr>
               <tr>
-                <td><span class="tag">Internet</span></td>
-                <td>Critical event logging to cloud database</td>
-                <td>Hub → Cloud</td>
+                <td><span class="tag">Internet Sync</span></td>
+                <td>Cloud event logging and analytics</td>
+                <td>Brain → Cloud</td>
               </tr>
             </tbody>
           </table>
@@ -291,93 +306,81 @@
       </div>
     </div>
   </section>
-
   <!-- ===== HARDWARE & SOFTWARE DESIGNS ===== -->
-  <section id="designs" class="section-content">
+  <section class="section-content" id="designs">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">03 / Hardware & Software Designs</span>
+        <span class="section-tag">03 / Hardware &amp; Software Designs</span>
         <h2 class="section-title">Detailed System Designs</h2>
       </div>
-
       <!-- Hardware -->
       <div class="subsection">
         <h3 class="subsection-title">Hardware Design</h3>
-
         <div class="design-subsection">
           <h4 class="design-subtitle">Sensors</h4>
-          <div class="sensors-grid">
-            <div class="sensor-card">
-              <div class="sensor-icon"><img src="assets/icons/speaker.svg" alt="Ultrasonic Front" /></div>
-              <h5>Front Ultrasonic Sensor Array</h5>
-              <p>Waterproof ultrasonic sensors for precise distance and proximity measurement in the forward direction.
-              </p>
-              <div class="sensor-specs-group">
-                <div class="sensor-spec"><span>Qty:</span> 2×</div>
-                <div class="sensor-spec"><span>Type:</span> Waterproof Ultrasonic</div>
-                <div class="sensor-spec"><span>Application:</span> Forward collision</div>
-              </div>
-            </div>
-            <div class="sensor-card">
-              <div class="sensor-icon"><img src="assets/icons/speaker.svg" alt="Ultrasonic" /></div>
-              <h5>Rear Ultrasonic Sensor Array</h5>
-              <p>Waterproof ultrasonic sensors for rear proximity and side blind-spot coverage.</p>
-              <div class="sensor-specs-group">
-                <div class="sensor-spec"><span>Qty:</span> 3×</div>
-                <div class="sensor-spec"><span>Type:</span> Waterproof Ultrasonic</div>
-                <div class="sensor-spec"><span>Application:</span> Rear / blind spot</div>
-              </div>
-            </div>
-            <div class="sensor-card">
-              <div class="sensor-icon"><img src="assets/icons/compass.svg" alt="IMU" /></div>
-              <h5>IMU Sensor</h5>
-              <p>9-axis high-precision motion tracking sensor measuring acceleration, gyroscope, and magnetometer data.
-              </p>
-              <div class="sensor-specs-group">
-                <div class="sensor-spec"><span>Qty:</span> 1×</div>
-                <div class="sensor-spec"><span>Type:</span> 9-Axis IMU</div>
-                <div class="sensor-spec"><span>Application:</span> Rollover / COG</div>
-              </div>
-            </div>
-            <div class="sensor-card">
-              <div class="sensor-icon"><img src="assets/icons/camera.svg" alt="Camera" /></div>
-              <h5>Camera Module</h5>
-              <p>OV2640 camera for real-time lane marking detection and road line identification.</p>
-              <div class="sensor-specs-group">
-                <div class="sensor-spec"><span>Qty:</span> 1×</div>
-                <div class="sensor-spec"><span>Type:</span> OV2640</div>
-                <div class="sensor-spec"><span>Application:</span> Lane detection</div>
-              </div>
-            </div>
+          <div class="table-wrapper">
+            <table class="data-table sensor-table">
+              <thead>
+                <tr>
+                  <th>Sensor</th>
+                  <th>Model</th>
+                  <th>Qty</th>
+                  <th>Application</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Front Ultrasonic</strong></td>
+                  <td>JSN-SR04T 3.0 (Waterproof)</td>
+                  <td>2&times;</td>
+                  <td>Forward collision detection</td>
+                </tr>
+                <tr>
+                  <td><strong>Rear Ultrasonic</strong></td>
+                  <td>JSN-SR04T 3.0 (Waterproof)</td>
+                  <td>3&times;</td>
+                  <td>Rear / blind-spot coverage</td>
+                </tr>
+                <tr>
+                  <td><strong>IMU</strong></td>
+                  <td>MPU-6050</td>
+                  <td>1&times;</td>
+                  <td>Lean &amp; stability monitoring</td>
+                </tr>
+                <tr>
+                  <td><strong>Camera</strong></td>
+                  <td>Raspberry Pi Camera Module 3</td>
+                  <td>1&times;</td>
+                  <td>Lane detection &amp; object detection</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-
         <div class="design-subsection">
           <h4 class="design-subtitle">Processing Units</h4>
           <div class="proc-grid">
             <div class="proc-card">
               <div class="proc-badge">MCU</div>
-              <h5>ESP32 WROOM 32 - Dashboard Hub</h5>
-              <p>Primary processing unit handling sensor fusion, decision logic, Local Wi-Fi communication, and user
-                interface management. This is the brain of the Drivora system.</p>
+              <h5>Raspberry Pi 3 Model B - Brain Unit</h5>
+              <p>Primary processing unit handling camera processing, sensor fusion, decision logic, local Wi-Fi hotspot
+                dashboard hosting, and audio warning control. This is the brain of the Drivora system.</p>
             </div>
             <div class="proc-card">
               <div class="proc-badge">MCU</div>
-              <h5>ESP32 C3 - Module Controllers</h5>
-              <p>Three additional ESP32 units deployed in the Front FCW Unit, Rear Blindspot Monitoring Unit, and Lean
-                Monitor Unit to handle local
+              <h5>ESP32-C3 - Sensor Unit Controllers and CAN Bridge</h5>
+              <p>ESP32-C3 boards are used in the front unit, rear unit, center lean unit, and CAN bridge to handle local
                 sensor reading and CAN-Bus communication.</p>
             </div>
           </div>
         </div>
-
         <div class="design-subsection">
           <h4 class="design-subtitle">Communication Hardware</h4>
           <div class="comm-grid">
             <div class="comm-card">
               <h5>CAN Transceivers</h5>
-              <p>4× long-distance CAN transceiver modules enable reliable, noise-resistant communication between all
-                system modules across the vehicle.</p>
+              <p>4× TJA1050 CAN modules enable reliable communication between the distributed sensor units and the
+                Raspberry Pi brain through the CAN bridge.</p>
             </div>
             <div class="comm-card">
               <h5>Power Systems</h5>
@@ -385,214 +388,275 @@
                 power rail.</p>
             </div>
             <div class="comm-card">
-              <h5>Enclosures & Wiring</h5>
-              <p>Waterproof housings protect all outdoor modules (Front FCW Unit, Rear Blindspot Monitoring Unit, Lean
-                Monitoring Unit) from environmental
-                exposure.</p>
+              <h5>Enclosures &amp; Wiring</h5>
+              <p>3D printed housings and waterproof connectors protect the outdoor front and rear units while supporting
+                secure vehicle installation.</p>
             </div>
           </div>
         </div>
       </div>
-
       <!-- Software -->
       <div class="subsection">
         <h3 class="subsection-title">Software Design</h3>
-
         <div class="design-subsection">
-          <h4 class="design-subtitle">Dashboard Hub Firmware</h4>
+          <h4 class="design-subtitle">Raspberry Pi Brain Software</h4>
           <div class="sw-flow">
-            <div class="sw-block">Sensor Data Reception<br /><small>via CAN-Bus</small></div>
+            <div class="sw-block">CAN Data Reception<br /><small>via ESP32-C3 bridge</small></div>
             <div class="sw-arrow">→</div>
             <div class="sw-block">Sensor Fusion<br /><small>Data normalization</small></div>
             <div class="sw-arrow">→</div>
             <div class="sw-block">Decision Logic<br /><small>Threshold evaluation</small></div>
             <div class="sw-arrow">→</div>
-            <div class="sw-block">Alert Generation<br /><small>Audio / Visual / Wi-Fi</small></div>
+            <div class="sw-block">Alert Generation<br /><small>Audio / Web Dashboard</small></div>
             <div class="sw-arrow">→</div>
-            <div class="sw-block">Cloud Logging<br /><small>Critical events</small></div>
+            <div class="sw-block">Local Dashboard<br /><small>Smartphone view</small></div>
           </div>
         </div>
-
         <div class="design-subsection">
-          <h4 class="design-subtitle">Mobile Application</h4>
+          <h4 class="design-subtitle">Smartphone Dashboard</h4>
           <div class="app-features">
             <div class="app-feature">
-              <span class="app-icon"><img src="assets/icons/chart.svg" alt="Dashboard" /></span>
+              <span class="app-icon"><img alt="Dashboard" src="assets/icons/chart.svg" /></span>
               <div>
                 <strong>Live Safety Dashboard</strong>
                 <p>Real-time display of all sensor readings and safety status indicators.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img src="assets/icons/bell.svg" alt="Alerts" /></span>
+              <span class="app-icon"><img alt="Alerts" src="assets/icons/bell.svg" /></span>
               <div>
                 <strong>Alert Notifications</strong>
-                <p>Immediate push notifications for critical safety events.</p>
+                <p>Immediate visual and audio warning indications for critical safety events.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img src="assets/icons/clipboard.svg" alt="Logs" /></span>
+              <span class="app-icon"><img alt="Logs" src="assets/icons/clipboard.svg" /></span>
               <div>
                 <strong>Critical Event Logs</strong>
-                <p>Historical log of all safety events with timestamps for review.</p>
+                <p>Recent warning and sensor states shown in a simple driver-focused interface.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img src="assets/icons/settings.svg" alt="Settings" /></span>
+              <span class="app-icon"><img alt="Settings" src="assets/icons/settings.svg" /></span>
               <div>
                 <strong>System Configuration</strong>
-                <p>Adjust warning thresholds and sensitivity settings remotely.</p>
+                <p>View unit status and basic system state through the local dashboard interface.</p>
               </div>
             </div>
           </div>
         </div>
-
         <div class="design-subsection">
-          <h4 class="design-subtitle">Cloud Database</h4>
-          <p class="design-desc">Critical safety events are transmitted via the internet to a cloud database for logging
-            and analysis. Events logged include:</p>
+          <h4 class="design-subtitle">Future Data Logging</h4>
+          <p class="design-desc">The current prototype focuses on real-time local warnings, while future development can
+            add long-term logging and analytics. Possible events to log include:</p>
           <div class="event-tags">
-            <span class="event-tag">High-G Maneuvers</span>
+            <span class="event-tag">High Lean Events</span>
             <span class="event-tag">Lane Departures</span>
             <span class="event-tag">Forward Collision Warnings</span>
             <span class="event-tag">Blind Spot Triggers</span>
-            <span class="event-tag">Rollover Risk Events</span>
+            <span class="event-tag">Lean &amp; Stability Risk Events</span>
             <span class="event-tag">System Faults</span>
+          </div>
+        </div>
+      </div>
+      <!-- Enclosures -->
+      <div class="subsection">
+        <h3 class="subsection-title">Enclosures</h3>
+        <p class="section-intro" style="margin-bottom:1.8rem;">Custom 3D-printed waterproof housings designed to protect
+          each sensor unit in outdoor vehicle-mounted conditions.</p>
+        <div class="enclosure-split">
+          <div class="enclosure-col">
+            <p class="enclosure-col-label">CAD Designs</p>
+            <div class="enclosure-grid">
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-cad-1.png" alt="Enclosure CAD Design 1" />
+                <span class="enc-caption">Front Unit Housing</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-cad-2.png" alt="Enclosure CAD Design 2" />
+                <span class="enc-caption">Rear Unit Housing</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-cad-3.png" alt="Enclosure CAD Design 3" />
+                <span class="enc-caption">Brain Unit Enclosure</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-cad-4.png" alt="Enclosure CAD Design 4" />
+                <span class="enc-caption">Lean Unit Housing</span>
+              </div>
+            </div>
+          </div>
+          <div class="enclosure-col">
+            <p class="enclosure-col-label">Physical Prototypes</p>
+            <div class="enclosure-grid">
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-photo-1.jpeg" alt="Enclosure Photo 1" />
+                <span class="enc-caption">Front Unit</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-photo-2.jpeg" alt="Enclosure Photo 2" />
+                <span class="enc-caption">Rear Unit</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-photo-3.jpeg" alt="Enclosure Photo 3" />
+                <span class="enc-caption">Brain Unit</span>
+              </div>
+              <div class="enc-img-wrap">
+                <img src="assets/images/enclosure-photo-4.jpeg" alt="Enclosure Photo 4" />
+                <span class="enc-caption">Lean Unit</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- ===== MOBILE APP UI ===== -->
+  <section class="section-alt" id="app-ui">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">03b / Mobile App</span>
+        <h2 class="section-title">Drivora Flutter App</h2>
+      </div>
+      <p class="section-intro">A dedicated <strong>Flutter application</strong> connects to the Drivora system over a
+        local Wi-Fi network, providing the driver with a real-time landscape dashboard - live sensor data, safety
+        alerts, and event statistics in a purpose-built UI.</p>
+      <div class="app-showcase landscape-showcase">
+        <div class="ls-screen-wrap side-screen ls-left">
+          <div class="ls-frame">
+            <div class="ls-screen">
+              <img src="assets/images/app-screen-1.jpg" alt="Settings Screen" loading="lazy" />
+            </div>
+          </div>
+          <p class="ls-caption">Settings Screen</p>
+        </div>
+        <div class="ls-screen-wrap center-screen">
+          <div class="ls-frame ls-frame-featured">
+            <div class="ls-screen">
+              <img src="assets/images/app-screen-2.jpg" alt="Dashboard Screen" loading="lazy" />
+            </div>
+          </div>
+          <p class="ls-caption ls-caption-featured">Dashboard Screen</p>
+        </div>
+        <div class="ls-screen-wrap side-screen ls-right">
+          <div class="ls-frame">
+            <div class="ls-screen">
+              <img src="assets/images/app-screen-3.jpg" alt="Statistics Screen" loading="lazy" />
+            </div>
+          </div>
+          <p class="ls-caption">Statistics Screen</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== TESTING ===== -->
-  <section id="testing" class="section-alt">
+
+  <section class="section-alt" id="testing">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">04 / Testing</span>
-        <h2 class="section-title">Testing & Validation</h2>
+        <h2 class="section-title">Testing &amp; Validation</h2>
       </div>
+      <p class="section-intro">Drivora follows a multi-level testing strategy, from isolated sensor validation through
+        integration, vehicle fitment, and real-world prototype testing.</p>
+      <div class="testing-editorial">
 
-      <p class="section-intro">Drivora follows a three-phase testing strategy, from isolated module validation through
-        to real-world traffic testing.</p>
-
-      <div class="testing-phases">
-        <div class="testing-phase">
-          <div class="phase-header">
-            <span class="phase-number">Phase 01</span>
+        <div class="test-phase-row">
+          <div class="test-phase-label">
+            <span class="phase-num">01</span>
             <h3>Module Testing</h3>
+            <p class="phase-obj">Validate each hardware module independently using simulated inputs before system
+              integration.</p>
           </div>
-          <p class="phase-objective">Validate each hardware module independently using simulated inputs before system
-            integration.</p>
-          <div class="test-items">
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Front Ultrasonic Distance Accuracy</strong>
+          <div class="test-phase-items">
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Front Ultrasonic Distance Accuracy</strong>
                 <p>Verify ultrasonic measurements against known reference distances at various ranges.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Ultrasonic Echo Timing</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Ultrasonic Echo Timing</strong>
                 <p>Validate round-trip echo timing and distance computation accuracy.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>IMU Tilt / Vibration Response</strong>
-                <p>Test 9-axis readings under controlled tilt and vibration conditions.</p>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>IMU Tilt / Vibration Response</strong>
+                <p>Test MPU-6050 readings under controlled tilt and vibration conditions.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Camera Lane Detection</strong>
-                <p>Evaluate lane marking detection accuracy under varied lighting conditions.</p>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Camera Lane Detection</strong>
+                <p>Evaluate Raspberry Pi camera-based lane detection under varied lighting conditions.</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="testing-phase">
-          <div class="phase-header">
-            <span class="phase-number">Phase 02</span>
+        <div class="test-phase-row">
+          <div class="test-phase-label">
+            <span class="phase-num">02</span>
             <h3>Integration Testing</h3>
+            <p class="phase-obj">Test CAN-Bus communication and system-level functionality with all modules connected.
+            </p>
           </div>
-          <p class="phase-objective">Test CAN-Bus communication and system-level functionality with all modules
-            connected.</p>
-          <div class="test-items">
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>CAN Data Transmission</strong>
+          <div class="test-phase-items">
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>CAN Data Transmission</strong>
                 <p>Verify data integrity and latency across the CAN-Bus network under load.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Sensor Integration Accuracy</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Sensor Integration Accuracy</strong>
                 <p>Validate sensor fusion output against combined sensor scenarios.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Alert Response Time</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Alert Response Time</strong>
                 <p>Measure end-to-end latency from sensor trigger to driver alert generation.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Error Handling</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Error Handling</strong>
                 <p>Validate graceful degradation when a module fails or disconnects.</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="testing-phase">
-          <div class="phase-header">
-            <span class="phase-number">Phase 03</span>
+        <div class="test-phase-row">
+          <div class="test-phase-label">
+            <span class="phase-num">03</span>
             <h3>Real-World Testing</h3>
+            <p class="phase-obj">Validate the complete Drivora system in live traffic conditions on public roads.</p>
           </div>
-          <p class="phase-objective">Validate the complete Drivora system in live traffic conditions on public roads.
-          </p>
-          <div class="test-items">
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Forward Collision Warning</strong>
+          <div class="test-phase-items">
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Forward Collision Warning</strong>
                 <p>Test warning generation at realistic approach speeds in controlled traffic scenarios.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Blind Spot Detection</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Blind Spot Detection</strong>
                 <p>Validate detection accuracy for vehicles in blind spot zones during lane changes.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Lane Departure Accuracy</strong>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Lane Departure Accuracy</strong>
                 <p>Evaluate false positive/negative rates across road types and weather conditions.</p>
               </div>
             </div>
-            <div class="test-item">
-              <span class="test-status pending">⬤</span>
-              <div>
-                <strong>Rollover Prediction</strong>
-                <p>Test COG stability scoring during aggressive cornering on test track.</p>
+            <div class="test-item"><span class="test-status pending">⬤</span>
+              <div><strong>Lean Warning Validation</strong>
+                <p>Test lean warning behavior during controlled vehicle turns and movement conditions.</p>
               </div>
             </div>
           </div>
         </div>
+
       </div>
+
 
       <!-- Timeline -->
       <div class="subsection">
@@ -600,10 +664,10 @@
         <div class="gtl-wrapper">
           <!-- Track -->
           <div class="gtl-track">
-            <div class="gtl-progress" style="width: 57.5%"></div>
+            <div class="gtl-progress" style="width: 85%"></div>
             <!-- Week 12 cursor: (12/20)*100 = 60% -->
-            <div class="gtl-cursor" style="left: 57.5%">
-              <span class="gtl-cursor-label">Week 12</span>
+            <div class="gtl-cursor" style="left: 85%">
+              <span class="gtl-cursor-label">Week 17</span>
             </div>
           </div>
           <!-- Phase markers -->
@@ -623,14 +687,14 @@
               </div>
             </div>
             <div class="gtl-phase" style="left: 50%; width: 30%">
-              <div class="gtl-phase-dot gtl-active"></div>
+              <div class="gtl-phase-dot gtl-done"></div>
               <div class="gtl-phase-label">
                 <span class="gtl-phase-name">Integration &amp; Software</span>
                 <span class="gtl-phase-weeks">Wk 11 – 16</span>
               </div>
             </div>
             <div class="gtl-phase" style="left: 80%; width: 20%">
-              <div class="gtl-phase-dot gtl-pending"></div>
+              <div class="gtl-phase-dot gtl-active"></div>
               <div class="gtl-phase-label">
                 <span class="gtl-phase-name">Testing &amp; Refinement</span>
                 <span class="gtl-phase-weeks">Wk 17 – 20</span>
@@ -645,197 +709,159 @@
       </div>
     </div>
   </section>
+  <!-- ===== GALLERY ===== -->
+  <section class="section-content" id="gallery">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">05 / Gallery</span>
+        <h2 class="section-title">Project Gallery</h2>
+      </div>
+      <p class="section-intro">A visual record of our build process - hardware assembly, testing sessions, and prototype
+        integration milestones.</p>
+      <div class="gallery-grid">
+        <div class="gallery-item"><img src="assets/images/gallery-1.jpg" alt="Gallery photo 1" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-2.jpg" alt="Gallery photo 2" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-3.jpg" alt="Gallery photo 3" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-4.jpg" alt="Gallery photo 4" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-5.jpg" alt="Gallery photo 5" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-6.jpg" alt="Gallery photo 6" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-7.jpg" alt="Gallery photo 7" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-8.jpg" alt="Gallery photo 8" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-9.jpg" alt="Gallery photo 9" loading="lazy" /></div>
+        <div class="gallery-item"><img src="assets/images/gallery-10.jpg" alt="Gallery photo 10" loading="lazy" /></div>
+
+      </div>
+    </div>
+  </section>
 
   <!-- ===== BUDGET ===== -->
-  <section id="budget" class="section-content">
+  <section class="section-content" id="budget">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">05 / Budget</span>
         <h2 class="section-title">Detailed Budget</h2>
       </div>
-
       <div class="budget-header-card">
         <div class="budget-total">
-          <span class="budget-amount">Rs. 9,710</span>
-          <span class="budget-label">Actual Spend (used items)</span>
+          <span class="budget-amount">Rs. 30,502</span>
+          <span class="budget-label">Updated Prototype Budget</span>
         </div>
-        <p class="budget-desc">Real costs incurred to date. A separate set of components were procured during
-          prototyping but ultimately superseded by the final design.</p>
+        <p class="budget-desc">Updated project cost based on the latest component, wiring, connector, courier, and 3D
+          printing expense list.</p>
       </div>
-
-      <!-- Used Items -->
-      <h3 class="subsection-title" style="margin-top: 2rem;">Used Items</h3>
+      <!-- Prototype Expense Items -->
+      <h3 class="subsection-title" style="margin-top: 2rem;">Grouped Expense Items</h3>
       <div class="table-wrapper">
         <table class="data-table budget-table">
           <thead>
             <tr>
               <th>#</th>
-              <th>Item</th>
-              <th class="text-right">Amount (Rs.)</th>
+              <th>Budget Group</th>
+              <th>Included Items</th>
+              <th class="text-right">Total (Rs.)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>1</td>
-              <td><strong>ESP32-C3 Super Mini Board</strong> &times;3</td>
-              <td class="text-right">2,370.00</td>
+              <td><strong>Sensor &amp; Signal Modules</strong></td>
+              <td>CDM324 radar sensor, MPU-6050 IMU, JSN-SR04T ultrasonic sensors, LM358 amplification modules</td>
+              <td class="text-right">14,142.00</td>
             </tr>
             <tr>
               <td>2</td>
-              <td><strong>MPU-6050 IMU Sensor</strong></td>
-              <td class="text-right">680.00</td>
-            </tr>
-            <tr>
-              <td>3</td>
-              <td><strong>TJA1050 CAN Module</strong> &times;4</td>
-              <td class="text-right">1,000.00</td>
-            </tr>
-            <tr>
-              <td>4</td>
-              <td><strong>XL4016 Buck Converter</strong></td>
-              <td class="text-right">750.00</td>
-            </tr>
-            <tr>
-              <td>5</td>
-              <td><strong>1N5408 Diode</strong> &times;2</td>
-              <td class="text-right">20.00</td>
-            </tr>
-            <tr>
-              <td>6</td>
-              <td><strong>Female-to-Female Jumper Wire Set</strong></td>
-              <td class="text-right">130.00</td>
-            </tr>
-            <tr>
-              <td>7</td>
-              <td><strong>JSN-SR04T Ultrasonic Sensor 3.0</strong> &times;2</td>
+              <td><strong>Controller &amp; CAN Communication Modules</strong></td>
+              <td>ESP32-C3 Super Mini boards, TJA1050 CAN modules, MCP2515 CAN module</td>
               <td class="text-right">3,770.00</td>
             </tr>
             <tr>
-              <td>8</td>
-              <td><strong>Male-to-Male Jumper Wire Set</strong> (20 pcs)</td>
-              <td class="text-right">110.00</td>
-            </tr>
-            <tr>
-              <td>9</td>
-              <td><strong>Twine Wire</strong> (4 m)</td>
-              <td class="text-right">400.00</td>
-            </tr>
-            <tr>
-              <td>10</td>
-              <td><strong>Delivery Fees</strong></td>
-              <td class="text-right">480.00</td>
-            </tr>
-            <tr class="budget-total-row">
-              <td colspan="2"><strong>Used Items Total</strong></td>
-              <td class="text-right"><strong>9,710.00</strong></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Unused Items -->
-      <h3 class="subsection-title" style="margin-top: 2.5rem;">
-        Unused Items
-        <span class="tag" style="margin-left: 0.6rem; vertical-align: middle; font-size: 0.65rem;">Prototyping /
-          Superseded</span>
-      </h3>
-      <div class="table-wrapper">
-        <table class="data-table budget-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Item</th>
-              <th class="text-right">Amount (Rs.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>1</td>
-              <td><strong>CDM324 Radar Sensor</strong></td>
-              <td class="text-right">522.00</td>
-            </tr>
-            <tr>
-              <td>2</td>
-              <td><strong>JSN-SR04T Ultrasonic Sensor 2.0</strong> &times;3</td>
-              <td class="text-right">3,300.00</td>
-            </tr>
-            <tr>
               <td>3</td>
-              <td><strong>LM358 Gain Amplification Module</strong> &times;2</td>
-              <td class="text-right">320.00</td>
+              <td><strong>Power &amp; Protection Components</strong></td>
+              <td>XL4016 buck converter, 1N5408 diodes, glass fuse</td>
+              <td class="text-right">780.00</td>
             </tr>
             <tr>
               <td>4</td>
-              <td><strong>MCP2515 CAN Module</strong></td>
-              <td class="text-right">400.00</td>
+              <td><strong>Wiring, Connectors &amp; Cable Accessories</strong></td>
+              <td>Jumper wires, twine wire, waterproof connectors, heat shrink tubes, cable ties, 4-core wires</td>
+              <td class="text-right">4,440.00</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td><strong>Mechanical Mounting &amp; 3D Printed Parts</strong></td>
+              <td>Brass threaded inserts, M3 screws and nuts, front unit 3D print, rear unit and main hub mounts</td>
+              <td class="text-right">6,290.00</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td><strong>Courier Fees</strong></td>
+              <td>Courier charges for component orders</td>
+              <td class="text-right">1,080.00</td>
             </tr>
             <tr class="budget-total-row">
-              <td colspan="2"><strong>Unused Items Total</strong></td>
-              <td class="text-right"><strong>4,542.00</strong></td>
+              <td colspan="3"><strong>Grouped Expense Total</strong></td>
+              <td class="text-right"><strong>30,502.00</strong></td>
             </tr>
           </tbody>
         </table>
       </div>
+      <!-- Final Cost Summary -->
 
-      <!-- Cost Summary -->
-      <h3 class="subsection-title" style="margin-top: 2.5rem;">Cost Summary</h3>
+      <h3 class="subsection-title" style="margin-top: 2.5rem;">Final Cost Summary</h3>
       <div class="table-wrapper">
         <table class="data-table budget-table">
           <tbody>
             <tr>
-              <td>Used Items Total</td>
-              <td class="text-right">Rs. 9,710.00</td>
+              <td>Detailed Expense Items Total</td>
+              <td class="text-right">Rs. 30,502.00</td>
             </tr>
             <tr>
-              <td>Unused Items Total</td>
-              <td class="text-right">Rs. 4,542.00</td>
+              <td>Additional Adjustment</td>
+              <td class="text-right">Rs. 0.00</td>
             </tr>
             <tr class="budget-total-row">
-              <td><strong>Sub Total</strong></td>
-              <td class="text-right"><strong>Rs. 14,252.00</strong></td>
+              <td><strong>Final Prototype Budget</strong></td>
+              <td class="text-right"><strong>Rs. 30,502.00</strong></td>
             </tr>
           </tbody>
         </table>
       </div>
-
-      <p class="table-note">* Unused items were procured during early prototyping phases and superseded by final
-        hardware design choices.</p>
+      <p class="table-note">* Similar items have been grouped to keep the budget section concise while preserving the
+        total from the latest expense table.</p>
     </div>
   </section>
-
   <!-- ===== CONCLUSION ===== -->
-  <section id="conclusion" class="section-alt">
+  <section class="section-alt" id="conclusion">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">06 / Conclusion</span>
-        <h2 class="section-title">Conclusion & Future Work</h2>
+        <h2 class="section-title">Conclusion &amp; Future Work</h2>
       </div>
-
       <div class="conclusion-grid">
         <div class="conclusion-block">
           <h3>What Was Achieved</h3>
           <p>Drivora demonstrates a viable, low-cost approach to retrofitting modern ADAS capabilities onto any vehicle.
-            By distributing four specialized hardware modules across the vehicle and connecting them via a CAN-Bus
-            backbone, the system provides comprehensive 360° safety coverage including forward collision warning, blind
-            spot detection, lane departure alerts, and rollover prevention.</p>
-          <p>The actual component spend of <strong>Rs. 9,710</strong> (used items) - with a combined project total of
-            Rs. 14,252 including prototyping - makes this safety upgrade highly accessible to the vast majority of
-            vehicle owners who currently have no safety technology.</p>
+            By distributing sensor units across the vehicle and connecting them via a CAN-Bus backbone, the system
+            provides front collision warning, rear blind-spot and reverse safety monitoring, lane departure alerts, lean
+            monitoring, and real-time dashboard visualization.</p>
+          <p>The updated prototype budget of <strong>Rs. 30,502</strong> includes the main electronic components, sensor
+            modules, wiring, waterproof connectors, courier charges, and 3D printed enclosures used during prototype
+            development.</p>
         </div>
-
         <div class="conclusion-block">
           <h3>Future Developments</h3>
           <ul class="future-list">
             <li>
-              <span class="future-icon"><img src="assets/icons/ai-brain.svg" alt="AI" /></span>
+              <span class="future-icon"><img alt="AI" src="assets/icons/ai-brain.svg" /></span>
               <div>
                 <strong>AI-based Threat Assessment</strong>
-                <p>Integrate on-device machine learning for smarter collision prediction and false positive reduction.
+                <p>Improve camera-based object detection and fusion logic for smarter collision prediction and false
+                  positive reduction.
                 </p>
               </div>
             </li>
             <li>
-              <span class="future-icon"><img src="assets/icons/globe.svg" alt="Cloud" /></span>
+              <span class="future-icon"><img alt="Cloud" src="assets/icons/globe.svg" /></span>
               <div>
                 <strong>Fleet Management Cloud Platform</strong>
                 <p>Develop a dedicated cloud dashboard for fleet operators to monitor multiple vehicles in real time.
@@ -843,189 +869,187 @@
               </div>
             </li>
             <li>
-              <span class="future-icon"><img src="assets/icons/wifi.svg" alt="OTA" /></span>
+              <span class="future-icon"><img alt="OTA" src="assets/icons/wifi.svg" /></span>
               <div>
                 <strong>OTA Firmware Updates</strong>
-                <p>Enable over-the-air firmware updates for all modules to deploy improvements without physical access.
+                <p>Improve remote update and maintenance support for the Raspberry Pi brain and ESP32-C3 sensor units.
                 </p>
               </div>
             </li>
             <li>
-              <span class="future-icon"><img src="assets/icons/radar.svg" alt="V2V" /></span>
+              <span class="future-icon"><img alt="V2V" src="assets/icons/radar.svg" /></span>
               <div>
                 <strong>V2V Communication</strong>
-                <p>Explore vehicle-to-vehicle communication for cooperative collision avoidance.</p>
+                <p>Explore additional vehicle-to-vehicle or cloud-assisted safety features for future versions.</p>
               </div>
             </li>
           </ul>
         </div>
-
         <div class="conclusion-block conclusion-block--full">
           <h3>Commercialization Plans</h3>
           <div class="commercial-grid">
             <div class="commercial-card">
               <div class="commercial-step">01</div>
               <h4>Pilot Program</h4>
-              <p>Partner with 2–3 commercial fleet operators in Sri Lanka for a real-world pilot deployment and data
+              <p>Partner with vehicle owners or small fleet operators for real-world prototype trials and data
                 collection.</p>
             </div>
             <div class="commercial-card">
               <div class="commercial-step">02</div>
               <h4>Certification</h4>
-              <p>Pursue relevant vehicle aftermarket and electronics safety certifications for Sri Lanka and regional
-                markets.</p>
+              <p>Improve hardware reliability, enclosure durability, and installation safety before larger-scale
+                deployment.</p>
             </div>
             <div class="commercial-card">
               <div class="commercial-step">03</div>
               <h4>Product Launch</h4>
-              <p>Launch Drivora as a commercial aftermarket product targeting vehicle service centers and fleet
-                operators.</p>
+              <p>Refine Drivora into an aftermarket safety add-on that can be installed through vehicle service centers.
+              </p>
             </div>
             <div class="commercial-card">
               <div class="commercial-step">04</div>
               <h4>Regional Scale</h4>
-              <p>Expand to other South and Southeast Asian markets where legacy vehicles dominate the road.</p>
+              <p>Scale the solution for wider use in regions where many vehicles still lack modern safety systems.</p>
             </div>
           </div>
         </div>
       </div>
-
       <blockquote class="project-quote">
         "Every vehicle deserves a second chance at safety."
       </blockquote>
     </div>
   </section>
-
   <!-- ===== TEAM ===== -->
-  <section id="team" class="section-content">
+  <section class="section-content" id="team">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">07 / Team</span>
         <h2 class="section-title">Meet the Team</h2>
       </div>
-
       <!-- Team Members -->
       <h3 class="subsection-title">Project Members</h3>
       <div class="team-grid">
         <div class="team-card">
           <div class="team-avatar">
-            <img src="assets/images/member1.jpg" alt="Thakshila Bandara" class="team-photo"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img alt="Thakshila Bandara" class="team-photo"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+              src="assets/images/member1.jpg" />
             <div class="avatar-placeholder" style="display:none">TB</div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Thakshila Bandara</h4>
             <span class="team-role">E/21/050</span>
-            <a href="mailto:e21050@eng.pdn.ac.lk" class="team-email">e21050@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:e21050@eng.pdn.ac.lk">e21050@eng.pdn.ac.lk</a>
           </div>
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img src="assets/images/member2.jpg" alt="Prasadi Bandara" class="team-photo"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img alt="Prasadi Bandara" class="team-photo"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+              src="assets/images/member2.jpg" />
             <div class="avatar-placeholder" style="display:none">PB</div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Prasadi Bandara</h4>
             <span class="team-role">E/21/052</span>
-            <a href="mailto:e21052@eng.pdn.ac.lk" class="team-email">e21052@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:e21052@eng.pdn.ac.lk">e21052@eng.pdn.ac.lk</a>
           </div>
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img src="assets/images/member3.jpg" alt="Shamishka Darshana" class="team-photo"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img alt="Shamishka Darshana" class="team-photo"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+              src="assets/images/member3.jpg" />
             <div class="avatar-placeholder" style="display:none">SD</div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Shamishka Darshana</h4>
             <span class="team-role">E/21/077</span>
-            <a href="mailto:e21077@eng.pdn.ac.lk" class="team-email">e21077@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:e21077@eng.pdn.ac.lk">e21077@eng.pdn.ac.lk</a>
           </div>
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img src="assets/images/member4.jpg" alt="Sachith Nirmal" class="team-photo"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img alt="Sachith Nirmal" class="team-photo"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+              src="assets/images/member4.jpg" />
             <div class="avatar-placeholder" style="display:none">SN</div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Sachith Nirmal</h4>
             <span class="team-role">E/21/269</span>
-            <a href="mailto:e21269@eng.pdn.ac.lk" class="team-email">e21269@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:e21269@eng.pdn.ac.lk">e21269@eng.pdn.ac.lk</a>
           </div>
         </div>
       </div>
-
       <!-- Supervisors -->
       <h3 class="subsection-title" style="margin-top: 3rem;">Project Supervisors</h3>
       <div class="team-grid team-grid--supervisors">
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img src="assets/icons/profile.svg" alt="Supervisor" />
+              <img alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Ms. Yasodha Vimukthi</h4>
             <span class="team-role">Project Supervisor</span>
-            <a href="mailto:yasodhav@eng.pdn.ac.lk" class="team-email">yasodhav@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:yasodhav@eng.pdn.ac.lk">yasodhav@eng.pdn.ac.lk</a>
           </div>
         </div>
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img src="assets/icons/profile.svg" alt="Supervisor" />
+              <img alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Dr. Isuru Nawinne</h4>
             <span class="team-role">Project Supervisor</span>
-            <a href="mailto:isurunawinne@eng.pdn.ac.lk" class="team-email">isurunawinne@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:isurunawinne@eng.pdn.ac.lk">isurunawinne@eng.pdn.ac.lk</a>
           </div>
         </div>
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img src="assets/icons/profile.svg" alt="Supervisor" />
+              <img alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
             <h4 class="team-name">Mr. Thilina Gunarathne</h4>
             <span class="team-role">Project Supervisor</span>
-            <a href="mailto:thilinag@eng.pdn.ac.lk" class="team-email">thilinag@eng.pdn.ac.lk</a>
+            <a class="team-email" href="mailto:thilinag@eng.pdn.ac.lk">thilinag@eng.pdn.ac.lk</a>
           </div>
         </div>
       </div>
     </div>
   </section>
-
   <!-- ===== GITHUB CTA ===== -->
   <div class="github-cta">
     <div class="container">
       <div class="github-cta-inner">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28"
-          aria-hidden="true">
+        <svg aria-hidden="true" fill="currentColor" height="28" viewbox="0 0 24 24" width="28"
+          xmlns="http://www.w3.org/2000/svg">
           <path
-            d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+            d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z">
+          </path>
         </svg>
         <div class="github-cta-text">
           <strong>View on GitHub</strong>
           <span>Source code, firmware, schematics and documentation</span>
         </div>
-        <a href="https://github.com/cepdnaclk/e21-3yp-Drivora" id="github-main-link" class="btn-primary" target="_blank"
-          rel="noopener noreferrer">View Repository →</a>
+        <a class="btn-primary" href="https://github.com/cepdnaclk/e21-3yp-Drivora" id="github-main-link"
+          rel="noopener noreferrer" target="_blank">View Repository →</a>
       </div>
     </div>
   </div>
-
   <!-- ===== FOOTER ===== -->
   <footer class="site-footer">
     <div class="container">
       <div class="footer-inner">
         <div class="footer-brand">
-          <img src="logo.png" alt="Drivora" class="footer-logo" />
-          <p>Universal Advanced Driver Assistance System<br />3rd Year Project</p>
+          <img alt="Drivora" class="footer-logo" src="logo.png" />
+          <p>Distributed Universal Advanced Driver Assistance System<br />3rd Year Project</p>
         </div>
         <div class="footer-links-col">
           <a href="#introduction">Introduction</a>
@@ -1038,46 +1062,45 @@
         </div>
         <div class="footer-inst-col">
           <p class="footer-col-label">Institutional Links</p>
-          <a href="http://www.ce.pdn.ac.lk/" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/graduation.svg" alt="" />
+          <a class="footer-inst-link" href="http://www.ce.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/graduation.svg" />
             Department of Computer Engineering
           </a>
-          <a href="https://eng.pdn.ac.lk/" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/faculty.svg" alt="" />
+          <a class="footer-inst-link" href="https://eng.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/faculty.svg" />
             Faculty of Engineering
           </a>
-          <a href="https://www.pdn.ac.lk/" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/university.svg" alt="" />
+          <a class="footer-inst-link" href="https://www.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/university.svg" />
             University of Peradeniya
           </a>
         </div>
         <div class="footer-eportfolio-col">
           <p class="footer-col-label">CN ePortfolio</p>
-          <a href="https://www.thecn.com/EB1200" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/folder.svg" alt="" />
+          <a class="footer-inst-link" href="https://www.thecn.com/EB1200" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/folder.svg" />
             Thakshila Bandara
           </a>
-          <a href="https://www.thecn.com/HB844" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/folder.svg" alt="" />
+          <a class="footer-inst-link" href="https://www.thecn.com/HB844" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/folder.svg" />
             Prasadi Bandara
           </a>
-          <a href="https://www.thecn.com/ED694" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/folder.svg" alt="" />
+          <a class="footer-inst-link" href="https://www.thecn.com/ED694" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/folder.svg" />
             Shamishka Darshana
           </a>
-          <a href="https://www.thecn.com/EN409" class="footer-inst-link" target="_blank" rel="noopener noreferrer">
-            <img src="assets/icons/folder.svg" alt="" />
+          <a class="footer-inst-link" href="https://www.thecn.com/EN409" rel="noopener noreferrer" target="_blank">
+            <img alt="" src="assets/icons/folder.svg" />
             Sachith Nirmal
           </a>
         </div>
       </div>
       <div class="footer-bottom">
         <p>"Every vehicle deserves a second chance at safety."</p>
-        <p>© 2025 Drivora Project Team. Department of Computer Engineering.</p>
+        <p>© 2026 Drivora Project Team. Department of Computer Engineering.</p>
       </div>
     </div>
   </footer>
-
   <script src="script.js"></script>
 </body>
 
