@@ -807,7 +807,76 @@ void resetConfigToDefaults() {
     saveConfig();
 }
 
+
+// ================= RESET BUTTON & STATUS LED CONFIG =================
+const int RESET_BUTTON_PIN = 21;                // Physical Pin 40
+const int STATUS_LED_PIN = 20;                  // Physical Pin 38
+const unsigned long RESET_HOLD_TIME_MS = 10000; // 10 seconds
+
+void wipeWifiCredentials() {
+    std::cout << "[RESET] Wiping Wi-Fi credentials and resetting network configuration...\n";
+    // system("sudo nmcli connection delete id 'YourSavedWifi' > /dev/null 2>&1");
+}
+
+
 // ================= HARDWARE THREADS =================
+
+void resetButtonThreadLoop() {
+    gpioSetMode(RESET_BUTTON_PIN, PI_INPUT);
+    gpioSetPullUpDown(RESET_BUTTON_PIN, PI_PUD_DOWN); 
+    gpioSetMode(STATUS_LED_PIN, PI_OUTPUT);
+    gpioWrite(STATUS_LED_PIN, 1); 
+
+    unsigned long pressStartMs = 0;
+    unsigned long releaseStartMs = 0; 
+    bool resetExecuted = false;
+    const unsigned long DEBOUNCE_TIME_MS = 50; 
+
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
+
+        int state = gpioRead(RESET_BUTTON_PIN);
+        unsigned long now = getMillis();
+
+        if (state == 1) { 
+            releaseStartMs = 0; 
+            if (pressStartMs == 0) {
+                pressStartMs = now;
+                resetExecuted = false;
+            } else if (!resetExecuted && (now - pressStartMs >= RESET_HOLD_TIME_MS)) {
+                
+                std::cout << "\n===========================================\n";
+                std::cout << "  FACTORY RESET TRIGGERED VIA HARDWARE BUTTON \n";
+                std::cout << "===========================================\n\n";
+
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    resetConfigToDefaults();
+                    sendAllConfigs();
+                    forceConfigBroadcast = true;
+                }
+
+                wipeWifiCredentials();
+
+                for (int i = 0; i < 5; i++) {
+                    gpioWrite(STATUS_LED_PIN, 0); 
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    gpioWrite(STATUS_LED_PIN, 1); 
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+
+                resetExecuted = true;
+            }
+        } else { 
+            if (releaseStartMs == 0) {
+                releaseStartMs = now;
+            } else if (now - releaseStartMs > DEBOUNCE_TIME_MS) {
+                pressStartMs = 0;
+                resetExecuted = false;
+            }
+        }
+    }
+}
 
 void buzzerThreadLoop() {
     while (true) {
@@ -1257,7 +1326,9 @@ int main() {
     std::thread can(canListenerThread);
     std::thread broadcast(broadcastThread);
     std::thread buzzer(buzzerThreadLoop);
-    udp.detach(); can.detach(); broadcast.detach(); buzzer.detach();
+    std::thread resetButton(resetButtonThreadLoop);
+
+    udp.detach(); can.detach(); broadcast.detach(); buzzer.detach(); resetButton.detach();
 
     app.port(80).multithreaded().run();
     gpioTerminate();
