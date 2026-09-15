@@ -2196,7 +2196,7 @@ strong {
     display: block;
     width: 20px;
     height: 2px;
-    background: var(--text-main);
+    background: var(--light);
     border-radius: 2px;
     transition: transform 0.3s ease, opacity 0.3s ease;
     transform-origin: center;
@@ -3278,7 +3278,7 @@ body {
   align-items: center;
   gap: 1.2rem;
   text-decoration: none;
-  color: var(--text-main);
+  color: var(--text);
   transition: all var(--transition);
 }
 
