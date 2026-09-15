@@ -133,18 +133,18 @@
       </div>
       <div class="problem-cards">
         <div class="problem-card">
-          <div class="problem-icon"><img alt="Warning" src="assets/icons/warning.svg" /></div>
+          <div class="problem-icon"><img loading="lazy" alt="Warning" src="assets/icons/warning.svg" /></div>
           <h3>Blind Spots</h3>
           <p>Large vehicles have massive blind spot zones that cause accidents during low-speed maneuvering.</p>
         </div>
         <div class="problem-card">
-          <div class="problem-icon"><img alt="Lean and stability" src="assets/icons/rollover.svg" /></div>
+          <div class="problem-icon"><img loading="lazy" alt="Lean and stability" src="assets/icons/rollover.svg" /></div>
           <h3>Lean &amp; Stability Risk</h3>
           <p>Unsafe leaning or sudden vehicle movement can create risky driving conditions, especially during turns and
             quick maneuvers.</p>
         </div>
         <div class="problem-card">
-          <div class="problem-icon-car"><img alt="Vehicle" src="assets/icons/car.svg" /></div>
+          <div class="problem-icon-car"><img loading="lazy" alt="Vehicle" src="assets/icons/car.svg" /></div>
           <h3>Legacy Vehicles</h3>
           <p>Many older vehicles still do not include collision warning, blind-spot monitoring, lane assistance, or
             real-time safety visualization.</p>
@@ -155,7 +155,7 @@
         <h3 class="subsection-title">Target Audiences</h3>
         <div class="audience-grid">
           <div class="audience-card">
-            <div class="audience-icon-car"><img alt="Passenger car" src="assets/icons/passenger-car.svg" /></div>
+            <div class="audience-icon-car"><img loading="lazy" alt="Passenger car" src="assets/icons/passenger-car.svg" /></div>
             <h4>Older Passenger Vehicles</h4>
             <p>Owners of classic and older vehicles who want modern safety features without the cost of purchasing a new
               vehicle.</p>
@@ -166,7 +166,7 @@
             </ul>
           </div>
           <div class="audience-card">
-            <div class="audience-icon"><img alt="Commercial vehicle" src="assets/icons/truck.svg" /></div>
+            <div class="audience-icon"><img loading="lazy" alt="Commercial vehicle" src="assets/icons/truck.svg" /></div>
             <h4>Commercial Vehicles</h4>
             <p>Operators of buses, lorries, and delivery trucks with massive blind spots and high centers of gravity.
             </p>
@@ -229,7 +229,7 @@
         decision logic, dashboard hosting, and audio alerts.</p>
       <!-- Architecture Diagram -->
       <div class="arch-diagram">
-        <img alt="Drivora System Architecture Diagram" class="arch-diagram-img"
+        <img loading="lazy" alt="Drivora System Architecture Diagram" class="arch-diagram-img"
           src="assets/images/system-architecture.jpg" />
       </div>
       <!-- Prototype Implementation -->
@@ -238,7 +238,7 @@
         <p class="section-intro" style="margin-bottom:1.5rem;">Component-level view of the physical prototype, showing
           how each hardware module is wired and integrated within the vehicle.</p>
         <div class="arch-diagram">
-          <img alt="Drivora Prototype Implementation Component Diagram" class="arch-diagram-img"
+          <img loading="lazy" alt="Drivora Prototype Implementation Component Diagram" class="arch-diagram-img"
             src="assets/images/prototype-implementation.png" />
         </div>
       </div>
@@ -247,35 +247,35 @@
         <h3 class="subsection-title">Data &amp; Control Flow</h3>
         <div class="flow-grid">
           <div class="flow-step">
-            <div class="flow-icon"><img alt="Sensors" src="assets/icons/radar.svg" /></div>
+            <div class="flow-icon"><img loading="lazy" alt="Sensors" src="assets/icons/radar.svg" /></div>
             <h4>Sensors</h4>
             <p>Front/rear ultrasonic sensors, IMU, and Raspberry Pi camera collect environmental and vehicle motion
               data.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img alt="CAN-Bus" src="assets/icons/link.svg" /></div>
+            <div class="flow-icon"><img loading="lazy" alt="CAN-Bus" src="assets/icons/link.svg" /></div>
             <h4>CAN-Bus</h4>
             <p>Sensor units transmit data through the CAN-Bus backbone to the Raspberry Pi brain via an ESP32-C3 CAN
               bridge.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img alt="Processing" src="assets/icons/cpu.svg" /></div>
+            <div class="flow-icon"><img loading="lazy" alt="Processing" src="assets/icons/cpu.svg" /></div>
             <h4>Processing</h4>
             <p>The Raspberry Pi fuses CAN sensor data with camera processing results and applies decision logic to
               generate warnings.</p>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-step">
-            <div class="flow-icon"><img alt="Output" src="assets/icons/smartphone.svg" /></div>
+            <div class="flow-icon"><img loading="lazy" alt="Output" src="assets/icons/smartphone.svg" /></div>
             <h4>Output</h4>
             <p>Audio alerts and real-time visual warnings are shown through the local smartphone dashboard.</p>
           </div>
         </div>
         <!-- Data Flow Diagram -->
         <div class="arch-diagram" style="margin-top:1.8rem;">
-          <img alt="Drivora Data Flow Diagram" class="arch-diagram-img" src="assets/images/dataflow.jpg" />
+          <img loading="lazy" alt="Drivora Data Flow Diagram" class="arch-diagram-img" src="assets/images/dataflow.jpg" />
         </div>
       </div>
       <!-- Communication table -->
@@ -422,28 +422,28 @@
           <h4 class="design-subtitle">Smartphone Dashboard</h4>
           <div class="app-features">
             <div class="app-feature">
-              <span class="app-icon"><img alt="Dashboard" src="assets/icons/chart.svg" /></span>
+              <span class="app-icon"><img loading="lazy" alt="Dashboard" src="assets/icons/chart.svg" /></span>
               <div>
                 <strong>Live Safety Dashboard</strong>
                 <p>Real-time display of all sensor readings and safety status indicators.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img alt="Alerts" src="assets/icons/bell.svg" /></span>
+              <span class="app-icon"><img loading="lazy" alt="Alerts" src="assets/icons/bell.svg" /></span>
               <div>
                 <strong>Alert Notifications</strong>
                 <p>Immediate visual and audio warning indications for critical safety events.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img alt="Logs" src="assets/icons/clipboard.svg" /></span>
+              <span class="app-icon"><img loading="lazy" alt="Logs" src="assets/icons/clipboard.svg" /></span>
               <div>
                 <strong>Critical Event Logs</strong>
                 <p>Recent warning and sensor states shown in a simple driver-focused interface.</p>
               </div>
             </div>
             <div class="app-feature">
-              <span class="app-icon"><img alt="Settings" src="assets/icons/settings.svg" /></span>
+              <span class="app-icon"><img loading="lazy" alt="Settings" src="assets/icons/settings.svg" /></span>
               <div>
                 <strong>System Configuration</strong>
                 <p>View unit status and basic system state through the local dashboard interface.</p>
@@ -475,19 +475,19 @@
             <p class="enclosure-col-label">CAD Designs</p>
             <div class="enclosure-grid">
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-cad-1.png" alt="Enclosure CAD Design 1" />
+                <img loading="lazy" src="assets/images/enclosure-cad-1.png" alt="Enclosure CAD Design 1" />
                 <span class="enc-caption">Front Unit Housing</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-cad-2.png" alt="Enclosure CAD Design 2" />
+                <img loading="lazy" src="assets/images/enclosure-cad-2.png" alt="Enclosure CAD Design 2" />
                 <span class="enc-caption">Rear Unit Housing</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-cad-3.png" alt="Enclosure CAD Design 3" />
+                <img loading="lazy" src="assets/images/enclosure-cad-3.png" alt="Enclosure CAD Design 3" />
                 <span class="enc-caption">Brain Unit Enclosure</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-cad-4.png" alt="Enclosure CAD Design 4" />
+                <img loading="lazy" src="assets/images/enclosure-cad-4.png" alt="Enclosure CAD Design 4" />
                 <span class="enc-caption">Lean Unit Housing</span>
               </div>
             </div>
@@ -496,19 +496,19 @@
             <p class="enclosure-col-label">Physical Prototypes</p>
             <div class="enclosure-grid">
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-photo-1.jpeg" alt="Enclosure Photo 1" />
+                <img loading="lazy" src="assets/images/enclosure-photo-1.jpeg" alt="Enclosure Photo 1" />
                 <span class="enc-caption">Front Unit</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-photo-2.jpeg" alt="Enclosure Photo 2" />
+                <img loading="lazy" src="assets/images/enclosure-photo-2.jpeg" alt="Enclosure Photo 2" />
                 <span class="enc-caption">Rear Unit</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-photo-3.jpeg" alt="Enclosure Photo 3" />
+                <img loading="lazy" src="assets/images/enclosure-photo-3.jpeg" alt="Enclosure Photo 3" />
                 <span class="enc-caption">Brain Unit</span>
               </div>
               <div class="enc-img-wrap">
-                <img src="assets/images/enclosure-photo-4.jpeg" alt="Enclosure Photo 4" />
+                <img loading="lazy" src="assets/images/enclosure-photo-4.jpeg" alt="Enclosure Photo 4" />
                 <span class="enc-caption">Lean Unit</span>
               </div>
             </div>
@@ -757,7 +757,7 @@
       <div class="video-grid">
         <div class="video-card">
           <div class="video-embed">
-            <iframe src="https://www.youtube.com/embed/SB51jOPAgQU" title="Real World Testing – Module 1"
+            <iframe loading="lazy" src="https://www.youtube.com/embed/SB51jOPAgQU" title="Real World Testing – Module 1"
               frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen></iframe>
@@ -766,7 +766,7 @@
         </div>
         <div class="video-card">
           <div class="video-embed">
-            <iframe src="https://www.youtube.com/embed/t2gF6hkrOHM" title="Real World Testing – Module 2"
+            <iframe loading="lazy" src="https://www.youtube.com/embed/t2gF6hkrOHM" title="Real World Testing – Module 2"
               frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen></iframe>
@@ -775,7 +775,7 @@
         </div>
         <div class="video-card">
           <div class="video-embed">
-            <iframe src="https://www.youtube.com/embed/rykAlDi6H5E" title="Real World Testing – Module 3"
+            <iframe loading="lazy" src="https://www.youtube.com/embed/rykAlDi6H5E" title="Real World Testing – Module 3"
               frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen></iframe>
@@ -784,7 +784,7 @@
         </div>
         <div class="video-card">
           <div class="video-embed">
-            <iframe src="https://www.youtube.com/embed/IFodLBb_SOU" title="Real World Testing – Module 4"
+            <iframe loading="lazy" src="https://www.youtube.com/embed/IFodLBb_SOU" title="Real World Testing – Module 4"
               frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen></iframe>
@@ -904,7 +904,7 @@
 
       <div class="docs-grid">
         <a href="assets/docs/User_Manual.pdf" target="_blank" class="doc-card">
-          <div class="doc-thumb"><img src="assets/images/user-manual-thumb.png" alt="User Manual Thumbnail" /></div>
+          <div class="doc-thumb"><img loading="lazy" src="assets/images/user-manual-thumb.png" alt="User Manual Thumbnail" /></div>
           <div class="doc-content">
             <h3>User Manual</h3>
             <p>Comprehensive guide on operating the Drivora system and understanding dashboard alerts.</p>
@@ -912,7 +912,7 @@
           <div class="doc-arrow">→</div>
         </a>
         <a href="assets/docs/Design_Manual.pdf" target="_blank" class="doc-card">
-          <div class="doc-thumb"><img src="assets/images/design-manual-thumb.png" alt="Design Manual Thumbnail" /></div>
+          <div class="doc-thumb"><img loading="lazy" src="assets/images/design-manual-thumb.png" alt="Design Manual Thumbnail" /></div>
           <div class="doc-content">
             <h3>Design Manual</h3>
             <p>Technical specifications, hardware wiring, and software architecture details.</p>
@@ -946,7 +946,7 @@
           <h3>Future Developments</h3>
           <ul class="future-list">
             <li>
-              <span class="future-icon"><img alt="AI" src="assets/icons/ai-brain.svg" /></span>
+              <span class="future-icon"><img loading="lazy" alt="AI" src="assets/icons/ai-brain.svg" /></span>
               <div>
                 <strong>AI-based Threat Assessment</strong>
                 <p>Improve camera-based object detection and fusion logic for smarter collision prediction and false
@@ -955,7 +955,7 @@
               </div>
             </li>
             <li>
-              <span class="future-icon"><img alt="Cloud" src="assets/icons/globe.svg" /></span>
+              <span class="future-icon"><img loading="lazy" alt="Cloud" src="assets/icons/globe.svg" /></span>
               <div>
                 <strong>Fleet Management Cloud Platform</strong>
                 <p>Develop a dedicated cloud dashboard for fleet operators to monitor multiple vehicles in real time.
@@ -963,7 +963,7 @@
               </div>
             </li>
             <li>
-              <span class="future-icon"><img alt="OTA" src="assets/icons/wifi.svg" /></span>
+              <span class="future-icon"><img loading="lazy" alt="OTA" src="assets/icons/wifi.svg" /></span>
               <div>
                 <strong>OTA Firmware Updates</strong>
                 <p>Improve remote update and maintenance support for the Raspberry Pi brain and ESP32-C3 sensor units.
@@ -971,7 +971,7 @@
               </div>
             </li>
             <li>
-              <span class="future-icon"><img alt="V2V" src="assets/icons/radar.svg" /></span>
+              <span class="future-icon"><img loading="lazy" alt="V2V" src="assets/icons/radar.svg" /></span>
               <div>
                 <strong>V2V Communication</strong>
                 <p>Explore additional vehicle-to-vehicle or cloud-assisted safety features for future versions.</p>
@@ -1025,7 +1025,7 @@
       <div class="team-grid">
         <div class="team-card">
           <div class="team-avatar">
-            <img alt="Thakshila Bandara" class="team-photo"
+            <img loading="lazy" alt="Thakshila Bandara" class="team-photo"
               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
               src="assets/images/member1.jpg" />
             <div class="avatar-placeholder" style="display:none">TB</div>
@@ -1038,7 +1038,7 @@
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img alt="Prasadi Bandara" class="team-photo"
+            <img loading="lazy" alt="Prasadi Bandara" class="team-photo"
               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
               src="assets/images/member2.jpg" />
             <div class="avatar-placeholder" style="display:none">PB</div>
@@ -1051,7 +1051,7 @@
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img alt="Shamishka Darshana" class="team-photo"
+            <img loading="lazy" alt="Shamishka Darshana" class="team-photo"
               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
               src="assets/images/member3.jpg" />
             <div class="avatar-placeholder" style="display:none">SD</div>
@@ -1064,7 +1064,7 @@
         </div>
         <div class="team-card">
           <div class="team-avatar">
-            <img alt="Sachith Nirmal" class="team-photo"
+            <img loading="lazy" alt="Sachith Nirmal" class="team-photo"
               onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
               src="assets/images/member4.jpg" />
             <div class="avatar-placeholder" style="display:none">SN</div>
@@ -1082,7 +1082,7 @@
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img alt="Supervisor" src="assets/icons/profile.svg" />
+              <img loading="lazy" alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
@@ -1094,7 +1094,7 @@
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img alt="Supervisor" src="assets/icons/profile.svg" />
+              <img loading="lazy" alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
@@ -1106,7 +1106,7 @@
         <div class="team-card team-card--supervisor">
           <div class="team-avatar">
             <div class="avatar-supervisor">
-              <img alt="Supervisor" src="assets/icons/profile.svg" />
+              <img loading="lazy" alt="Supervisor" src="assets/icons/profile.svg" />
             </div>
           </div>
           <div class="team-info">
@@ -1142,7 +1142,7 @@
     <div class="container">
       <div class="footer-inner">
         <div class="footer-brand">
-          <img alt="Drivora" class="footer-logo" src="logo.png" />
+          <img loading="lazy" alt="Drivora" class="footer-logo" src="logo.png" />
           <p>Distributed Universal Advanced Driver Assistance System<br />3rd Year Project</p>
         </div>
         <div class="footer-links-col">
@@ -1157,34 +1157,34 @@
         <div class="footer-inst-col">
           <p class="footer-col-label">Institutional Links</p>
           <a class="footer-inst-link" href="http://www.ce.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/graduation.svg" />
+            <img loading="lazy" alt="" src="assets/icons/graduation.svg" />
             Department of Computer Engineering
           </a>
           <a class="footer-inst-link" href="https://eng.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/faculty.svg" />
+            <img loading="lazy" alt="" src="assets/icons/faculty.svg" />
             Faculty of Engineering
           </a>
           <a class="footer-inst-link" href="https://www.pdn.ac.lk/" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/university.svg" />
+            <img loading="lazy" alt="" src="assets/icons/university.svg" />
             University of Peradeniya
           </a>
         </div>
         <div class="footer-eportfolio-col">
           <p class="footer-col-label">CN ePortfolio</p>
           <a class="footer-inst-link" href="https://www.thecn.com/EB1200" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/folder.svg" />
+            <img loading="lazy" alt="" src="assets/icons/folder.svg" />
             Thakshila Bandara
           </a>
           <a class="footer-inst-link" href="https://www.thecn.com/HB844" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/folder.svg" />
+            <img loading="lazy" alt="" src="assets/icons/folder.svg" />
             Prasadi Bandara
           </a>
           <a class="footer-inst-link" href="https://www.thecn.com/ED694" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/folder.svg" />
+            <img loading="lazy" alt="" src="assets/icons/folder.svg" />
             Shamishka Darshana
           </a>
           <a class="footer-inst-link" href="https://www.thecn.com/EN409" rel="noopener noreferrer" target="_blank">
-            <img alt="" src="assets/icons/folder.svg" />
+            <img loading="lazy" alt="" src="assets/icons/folder.svg" />
             Sachith Nirmal
           </a>
         </div>
@@ -1195,7 +1195,7 @@
       </div>
     </div>
   </footer>
-  <script src="script.js"></script>
+  <script src="script.js" defer></script>
 </body>
 
 </html>
